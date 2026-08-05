@@ -27,6 +27,9 @@ Esta base ainda esta no inicio da migracao, mas ja possui a fundacao do reposito
 - `internal/users`: regras de usuarios, perfil e API key.
 - `internal/projects`: regras de projetos e membros.
 - `internal/scripts`: cadastro local de scripts instalados.
+- `internal/devices`: cadastro de dispositivos usados no contexto das instancias.
+- `internal/tags`: tags de organizacao e vinculo com instancias.
+- `internal/instances`: cadastro e configuracao base de instancias.
 - `internal/runtime`: motor de execucao de instancias.
 - `internal/python/sparkit`: integracao com scripts Sparkit.
 - `internal/providers`: registry de destinos externos.
@@ -45,6 +48,24 @@ Rotas ja iniciadas:
 - `PUT /api/users/{id}`
 - `DELETE /api/users/{id}`
 - `GET /api/users/{id}/api-key`
+- `GET /api/devices`
+- `POST /api/devices`
+- `GET /api/devices/{id}`
+- `PUT /api/devices/{id}`
+- `DELETE /api/devices/{id}`
+- `GET /api/tags`
+- `GET /api/tags/search`
+- `POST /api/tags`
+- `DELETE /api/tags/{id}`
+- `GET /api/instances`
+- `GET /api/instances/active`
+- `GET /api/instances/project/{project_id}`
+- `POST /api/instances`
+- `GET /api/instances/{id}`
+- `PUT /api/instances/{id}`
+- `DELETE /api/instances/{id}`
+- `POST /api/instances/{id}/trigger`
+- `GET /api/instances/{id}/executions`
 - `GET /api/scripts`
 - `POST /api/scripts`
 - `GET /api/scripts/{id}`
@@ -75,6 +96,8 @@ Na camada de banco, os schemas iniciais ficam em structs Go usadas pela ORM. Iss
 O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. O fluxo de upload tambem ja valida `requirements.txt` com `sparkit`, cria venv, instala dependencias, captura schema via `--schema` e executa playground com `--input-file`.
 
 Samples locais podem ser apontados pela variavel `SPARKEDGE_SAMPLES_DIR`. Se ela nao existir, a aplicacao tenta localizar `extensions/samples` em caminhos relativos comuns ao ambiente de desenvolvimento.
+
+Instancias ja possuem CRUD, listagem por projeto, listagem de ativas e sincronizacao de tags por nome. O endpoint de trigger ainda retorna um placeholder ate migrarmos `instance_destinations`, `data_mappings`, `executions`, `fallback` e o runner real.
 
 ## Ambiente Go no Windows
 

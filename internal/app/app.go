@@ -5,7 +5,9 @@ import (
 	"os"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/httpapi"
+	"github.com/kelwSagashi/sparkedge-go/internal/instances"
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
@@ -13,6 +15,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/scripts"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
+	"github.com/kelwSagashi/sparkedge-go/internal/tags"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
@@ -22,6 +25,9 @@ type App struct {
 	Users     *users.Service
 	Projects  *projects.Service
 	Scripts   *scripts.Service
+	Devices   *devices.Service
+	Tags      *tags.Service
+	Instances *instances.Service
 	MQTT      *mqtt.Client
 	Providers *providers.Registry
 	Runtime   *runtime.Runner
@@ -36,6 +42,7 @@ func New() *App {
 	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
+	tagsService := tags.NewService(store.Tags, store.InstanceTags)
 
 	return &App{
 		DB:        store,
@@ -43,6 +50,9 @@ func New() *App {
 		Users:     users.NewService(store.Users),
 		Projects:  projects.NewService(store.Projects, store.ProjectMembers),
 		Scripts:   scripts.NewService(store.Scripts, sparkitExecutor),
+		Devices:   devices.NewService(store.Devices),
+		Tags:      tagsService,
+		Instances: instances.NewService(store.Instances, tagsService),
 		MQTT:      mqtt.NewClient(),
 		Providers: providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{
@@ -59,6 +69,9 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		Users:     a.Users,
 		Projects:  a.Projects,
 		Scripts:   a.Scripts,
+		Devices:   a.Devices,
+		Tags:      a.Tags,
+		Instances: a.Instances,
 		MQTT:      a.MQTT,
 		Providers: a.Providers,
 		Runtime:   a.Runtime,

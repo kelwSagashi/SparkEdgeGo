@@ -93,11 +93,11 @@ Origem: `packages/cli/src/devices/device.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/devices` | protegida | P0 |
-| GET | `/api/devices/:id` | protegida | P0 |
-| POST | `/api/devices` | protegida | P0 |
-| PUT | `/api/devices/:id` | protegida | P0 |
-| DELETE | `/api/devices/:id` | protegida | P1 |
+| GET | `/api/devices` | protegida | P0 | Migrada em Go. |
+| GET | `/api/devices/:id` | protegida | P0 | Migrada em Go. |
+| POST | `/api/devices` | protegida | P0 | Migrada em Go com upsert. |
+| PUT | `/api/devices/:id` | protegida | P0 | Migrada em Go com upsert. |
+| DELETE | `/api/devices/:id` | protegida | P1 | Migrada em Go. |
 
 ## Scripts
 
@@ -125,15 +125,15 @@ Origem:
 
 | Metodo | Rota | Auth | Prioridade | Observacao |
 | --- | --- | --- | --- | --- |
-| GET | `/api/instances` | protegida | P0 | Lista instancias. |
-| GET | `/api/instances/active` | protegida | P1 | Existe no controller basico. |
-| GET | `/api/instances/project/:project_id` | protegida | P0 | Controller basico usa `project_id`. |
-| GET | `/api/instances/:id` | protegida | P0 | Retorna instancia com destinos. |
-| POST | `/api/instances` | protegida | P0 | Cria instancia. |
-| PUT | `/api/instances/:id` | protegida | P0 | Atualiza instancia. |
-| DELETE | `/api/instances/:id` | protegida | P0 | Remove instancia. |
-| POST | `/api/instances/:id/trigger` | protegida | P0 | Chama `InstanceRunnerService`. |
-| GET | `/api/instances/:id/executions` | protegida | P0 | Historico por instancia. |
+| GET | `/api/instances` | protegida | P0 | Migrada em Go. |
+| GET | `/api/instances/active` | protegida | P1 | Migrada em Go. |
+| GET | `/api/instances/project/:project_id` | protegida | P0 | Migrada em Go. |
+| GET | `/api/instances/:id` | protegida | P0 | Migrada em Go; destinos ainda vazios ate portar mappings/destinations. |
+| POST | `/api/instances` | protegida | P0 | Migrada em Go com normalizacao de payload e tags. |
+| PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial. |
+| DELETE | `/api/instances/:id` | protegida | P0 | Migrada em Go. |
+| POST | `/api/instances/:id/trigger` | protegida | P0 | Placeholder em Go ate ligar runner real. |
+| GET | `/api/instances/:id/executions` | protegida | P0 | Placeholder em Go ate migrar executions. |
 
 ## Instance Advanced
 
@@ -240,10 +240,10 @@ Origem: `packages/cli/src/tags/tags.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/tags` | protegida | P1 |
-| GET | `/api/tags/search` | protegida | P1 |
-| POST | `/api/tags` | protegida | P1 |
-| DELETE | `/api/tags/:id` | protegida | P1 |
+| GET | `/api/tags` | protegida | P1 | Migrada em Go. |
+| GET | `/api/tags/search` | protegida | P1 | Migrada em Go. |
+| POST | `/api/tags` | protegida | P1 | Migrada em Go com upsert por nome/projeto. |
+| DELETE | `/api/tags/:id` | protegida | P1 | Migrada em Go. |
 
 ## Adapters
 

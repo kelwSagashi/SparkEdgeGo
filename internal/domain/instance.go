@@ -10,6 +10,31 @@ const (
 	TriggerInterval TriggerType = "interval"
 )
 
+type InstanceStatus string
+
+const (
+	InstanceStatusIdle    InstanceStatus = "idle"
+	InstanceStatusRunning InstanceStatus = "running"
+	InstanceStatusPaused  InstanceStatus = "paused"
+	InstanceStatusError   InstanceStatus = "error"
+)
+
+type FallbackStrategy string
+
+const (
+	FallbackBackgroundJob FallbackStrategy = "background_job"
+	FallbackActiveQueue   FallbackStrategy = "active_queue"
+)
+
+type OnErrorAction string
+
+const (
+	OnErrorLogOnly       OnErrorAction = "log_only"
+	OnErrorRetry         OnErrorAction = "retry"
+	OnErrorNotifyWebhook OnErrorAction = "notify_webhook"
+	OnErrorStop          OnErrorAction = "stop"
+)
+
 type ExecutionStatus string
 
 const (
@@ -21,14 +46,27 @@ const (
 )
 
 type Instance struct {
-	ID                string
-	Name              string
-	ScriptID          string
-	DeviceID          string
-	IncludeDeviceData bool
-	FallbackEnabled   bool
-	FallbackStrategy  string
-	ScriptParameters  map[string]any
+	ID                           string
+	Name                         string
+	Description                  string
+	Tags                         []string
+	Status                       InstanceStatus
+	Active                       bool
+	ProjectID                    string
+	DeviceID                     string
+	ScriptID                     string
+	IncludeDeviceData            bool
+	ScriptParameters             map[string]any
+	TriggerType                  TriggerType
+	TriggerConfig                map[string]any
+	FallbackEnabled              bool
+	FallbackStrategy             FallbackStrategy
+	FallbackRetryIntervalSeconds int
+	OnErrorAction                OnErrorAction
+	OnErrorConfig                map[string]any
+	CreatedBy                    string
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
 }
 
 type Script struct {

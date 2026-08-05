@@ -70,3 +70,74 @@ type downloadedScriptModel struct {
 func (downloadedScriptModel) TableName() string {
 	return "downloaded_scripts"
 }
+
+type deviceModel struct {
+	ID                  string                `gorm:"primaryKey;type:text"`
+	DeviceID            string                `gorm:"uniqueIndex;type:text"`
+	Name                string                `gorm:"not null;type:text"`
+	Brand               string                `gorm:"not null;type:text"`
+	SerialNumber        string                `gorm:"type:text"`
+	ConnectionMethod    string                `gorm:"not null;default:none;type:text"`
+	IPAddress           string                `gorm:"type:text"`
+	Location            string                `gorm:"type:text"`
+	Description         string                `gorm:"type:text"`
+	Others              deviceOtherFieldsJSON `gorm:"type:text"`
+	ResourceOperationID string                `gorm:"type:text"`
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+func (deviceModel) TableName() string {
+	return "devices"
+}
+
+type tagModel struct {
+	ID        string `gorm:"primaryKey;type:text"`
+	Name      string `gorm:"uniqueIndex:tags_project_name_idx;not null;type:text"`
+	Color     string `gorm:"type:text;default:#6b7280"`
+	ProjectID string `gorm:"uniqueIndex:tags_project_name_idx;type:text"`
+	CreatedAt time.Time
+}
+
+func (tagModel) TableName() string {
+	return "tags"
+}
+
+type instanceTagModel struct {
+	ID         string `gorm:"primaryKey;type:text"`
+	InstanceID string `gorm:"uniqueIndex:instance_tags_instance_tag_idx;not null;type:text"`
+	TagID      string `gorm:"uniqueIndex:instance_tags_instance_tag_idx;not null;type:text"`
+	CreatedAt  time.Time
+}
+
+func (instanceTagModel) TableName() string {
+	return "instance_tags"
+}
+
+type instanceModel struct {
+	ID                           string          `gorm:"primaryKey;type:text"`
+	Name                         string          `gorm:"not null;type:text"`
+	Description                  string          `gorm:"type:text"`
+	Tags                         stringSliceJSON `gorm:"type:text"`
+	Status                       string          `gorm:"not null;default:idle;type:text"`
+	Active                       bool            `gorm:"not null;default:true"`
+	ProjectID                    string          `gorm:"not null;type:text"`
+	DeviceID                     string          `gorm:"type:text"`
+	ScriptID                     string          `gorm:"type:text"`
+	IncludeDeviceData            bool            `gorm:"not null;default:false"`
+	ScriptParameters             mapJSON         `gorm:"type:text"`
+	TriggerType                  string          `gorm:"not null;default:interval;type:text"`
+	TriggerConfig                mapJSON         `gorm:"type:text"`
+	FallbackEnabled              bool            `gorm:"not null;default:true"`
+	FallbackStrategy             string          `gorm:"type:text;default:background_job"`
+	FallbackRetryIntervalSeconds int             `gorm:"default:300"`
+	OnErrorAction                string          `gorm:"not null;default:log_only;type:text"`
+	OnErrorConfig                mapJSON         `gorm:"type:text"`
+	CreatedBy                    string          `gorm:"type:text"`
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+}
+
+func (instanceModel) TableName() string {
+	return "instances"
+}

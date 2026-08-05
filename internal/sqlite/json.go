@@ -4,6 +4,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 )
 
 type stringSliceJSON []string
@@ -43,6 +45,32 @@ func (v mapJSON) Value() (driver.Value, error) {
 		return nil, err
 	}
 	return string(data), nil
+}
+
+type deviceOtherFieldsJSON []domain.DeviceOtherField
+
+func (v deviceOtherFieldsJSON) Value() (driver.Value, error) {
+	if v == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal([]domain.DeviceOtherField(v))
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
+}
+
+func (v *deviceOtherFieldsJSON) Scan(value any) error {
+	if value == nil {
+		*v = deviceOtherFieldsJSON{}
+		return nil
+	}
+
+	data, err := scanJSONBytes(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
 }
 
 func (v *mapJSON) Scan(value any) error {

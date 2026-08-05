@@ -6,12 +6,15 @@ import (
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/instances"
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/scripts"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
+	"github.com/kelwSagashi/sparkedge-go/internal/tags"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
@@ -21,6 +24,9 @@ type Dependencies struct {
 	Users     *users.Service
 	Projects  *projects.Service
 	Scripts   *scripts.Service
+	Devices   *devices.Service
+	Tags      *tags.Service
+	Instances *instances.Service
 	MQTT      *mqtt.Client
 	Providers *providers.Registry
 	Runtime   *runtime.Runner
@@ -79,6 +85,27 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/users/{id}", Adapt(s.handleUserUpdate))
 	mux.HandleFunc("DELETE /api/users/{id}", Adapt(s.handleUserDelete))
 	mux.HandleFunc("GET /api/users/{id}/api-key", Adapt(s.handleUserCreateAPIKey))
+
+	mux.HandleFunc("GET /api/devices", Adapt(s.handleDevicesList))
+	mux.HandleFunc("POST /api/devices", Adapt(s.handleDeviceCreate))
+	mux.HandleFunc("GET /api/devices/{id}", Adapt(s.handleDeviceGet))
+	mux.HandleFunc("PUT /api/devices/{id}", Adapt(s.handleDeviceUpdate))
+	mux.HandleFunc("DELETE /api/devices/{id}", Adapt(s.handleDeviceDelete))
+
+	mux.HandleFunc("GET /api/tags", Adapt(s.handleTagsList))
+	mux.HandleFunc("GET /api/tags/search", Adapt(s.handleTagsSearch))
+	mux.HandleFunc("POST /api/tags", Adapt(s.handleTagCreate))
+	mux.HandleFunc("DELETE /api/tags/{id}", Adapt(s.handleTagDelete))
+
+	mux.HandleFunc("GET /api/instances", Adapt(s.handleInstancesList))
+	mux.HandleFunc("GET /api/instances/active", Adapt(s.handleInstancesActiveList))
+	mux.HandleFunc("GET /api/instances/project/{project_id}", Adapt(s.handleInstancesByProjectList))
+	mux.HandleFunc("POST /api/instances", Adapt(s.handleInstanceCreate))
+	mux.HandleFunc("GET /api/instances/{id}", Adapt(s.handleInstanceGet))
+	mux.HandleFunc("PUT /api/instances/{id}", Adapt(s.handleInstanceUpdate))
+	mux.HandleFunc("DELETE /api/instances/{id}", Adapt(s.handleInstanceDelete))
+	mux.HandleFunc("POST /api/instances/{id}/trigger", Adapt(s.handleInstanceTrigger))
+	mux.HandleFunc("GET /api/instances/{id}/executions", Adapt(s.handleInstanceExecutionsList))
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
 	mux.HandleFunc("POST /api/scripts", Adapt(s.handleScriptCreate))

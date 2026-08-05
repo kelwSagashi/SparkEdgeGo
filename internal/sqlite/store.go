@@ -15,6 +15,10 @@ type Store struct {
 	Projects       *ProjectsRepository
 	ProjectMembers *ProjectMembersRepository
 	Scripts        *ScriptsRepository
+	Devices        *DevicesRepository
+	Tags           *TagsRepository
+	InstanceTags   *InstanceTagsRepository
+	Instances      *InstancesRepository
 }
 
 func NewStore() *Store {
@@ -46,6 +50,10 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Projects = NewProjectsRepository(db)
 	s.ProjectMembers = NewProjectMembersRepository(db)
 	s.Scripts = NewScriptsRepository(db)
+	s.Devices = NewDevicesRepository(db)
+	s.Tags = NewTagsRepository(db)
+	s.InstanceTags = NewInstanceTagsRepository(db)
+	s.Instances = NewInstancesRepository(db)
 	return nil
 }
 
@@ -61,5 +69,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &downloadedScriptModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{})
 }

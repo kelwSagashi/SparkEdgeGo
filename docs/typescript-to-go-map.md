@@ -18,6 +18,9 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `packages/cli/src/auth` | `internal/auth` + `internal/httpapi` | registro, login, JWT, cookie e API key |
 | `packages/cli/src/users` | `internal/users` + `internal/httpapi` | usuarios, busca e API key |
 | `packages/cli/src/projects` | `internal/projects` + `internal/httpapi` | projetos e membros |
+| `packages/cli/src/devices` | `internal/devices` + `internal/httpapi` | dispositivos |
+| `packages/cli/src/tags` | `internal/tags` + `internal/httpapi` | tags e vinculo com instancias |
+| `packages/cli/src/instances/instance.controller.ts` | `internal/instances` + `internal/httpapi` | CRUD base de instancias |
 | `packages/cli/src/scripts` | `internal/scripts` + `internal/httpapi` | scripts instalados e metadados |
 | `packages/db` | `internal/sqlite` | banco local SQLite com ORM |
 | Drizzle schemas | GORM models | definicao das tabelas por structs |
@@ -204,6 +207,118 @@ Equivalencias praticas:
 Campos JSON como `tags` e `schema_config` sao salvos por tipos auxiliares em `internal/sqlite/json.go`. Isso evita SQL manual e prepara a base para outros campos JSON de instancias, destinos, mappings e fallback.
 
 Samples locais sao resolvidos pela variavel `SPARKEDGE_SAMPLES_DIR` ou por caminhos relativos como `extensions/samples`. O playground agora aceita tanto `script_id` quanto `sample_name`.
+
+## Devices
+
+No TypeScript, dispositivos ficam principalmente em:
+
+- `packages/cli/src/devices/device.controller.ts`;
+- `packages/cli/src/devices/device.service.ts`;
+- `packages/db/src/repositories/devices.repository.ts`;
+- tabela `devices` em `schemas.ts`.
+
+No Go:
+
+- `internal/domain/device.go`: struct `Device` e enums de conexao;
+- `internal/sqlite/devices.go`: repository ORM da tabela `devices`;
+- `internal/devices/service.go`: validacao e upsert;
+- `internal/httpapi/device_handlers.go`: rotas REST.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `DevicesController.list` | `handleDevicesList` | lista dispositivos |
+| `DevicesController.getOne` | `handleDeviceGet` | busca por `id` |
+| `DevicesController.create` | `devices.Service.Upsert` + `handleDeviceCreate` | cria ou atualiza conforme payload |
+| `DevicesController.update` | `devices.Service.Upsert` + `handleDeviceUpdate` | usa `id` da URL |
+| `DevicesController.remove` | `devices.Service.Delete` + `handleDeviceDelete` | remove dispositivo |
+| `dbManager.devices` | `sqlite.DevicesRepository` | persistencia local SQLite com GORM |
+
+O campo `others` continua sendo um JSON array, agora tipado como `[]DeviceOtherField` no dominio Go.
+
+## Tags
+
+No TypeScript, tags ficam principalmente em:
+
+- `packages/cli/src/tags/tags.controller.ts`;
+- `packages/cli/src/tags/tags.service.ts`;
+- `packages/db/src/repositories/tags.repository.ts`;
+- `packages/db/src/repositories/instanceTags.repository.ts`;
+- tabelas `tags` e `instance_tags` em `schemas.ts`.
+
+No Go:
+
+- `internal/domain/tag.go`: structs `Tag` e `InstanceTag`;
+- `internal/sqlite/tags.go`: repository ORM da tabela `tags`;
+- `internal/sqlite/instance_tags.go`: repository ORM da tabela `instance_tags`;
+- `internal/tags/service.go`: regras de tag e associacao com instancias;
+- `internal/httpapi/tag_handlers.go`: rotas REST.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `TagsController.list` | `handleTagsList` | lista tags, com `project_id` opcional |
+| `TagsController.search` | `handleTagsSearch` | busca por `q` e `project_id` |
+| `TagsController.create` | `tags.Service.Create` + `handleTagCreate` | upsert por nome/projeto |
+| `TagsController.remove` | `tags.Service.Delete` + `handleTagDelete` | remove tag |
+| `TagsService.findByInstance` | `tags.Service.FindByInstance` | usado internamente por instancias |
+| `TagsService.linkTag` | `tags.Service.LinkTag` | usado internamente por instancias |
+| `TagsService.unlinkTag` | `tags.Service.UnlinkTag` | usado internamente por instancias |
+| `TagsService.syncTags` | `tags.Service.SyncTags` | usado internamente por instancias |
+| `TagsService.findOrCreateByNames` | `tags.Service.FindOrCreateByNames` | cria tags ausentes por nome |
+
+`instance_tags` ja existe no banco Go para preparar a migracao de instancias. Como a tabela `instances` ainda sera portada, mantivemos essa associacao pronta sem depender de foreign key rigida neste momento.
+
+## Instances
+
+No TypeScript, o controller basico de instancias fica em:
+
+- `packages/cli/src/instances/instance.controller.ts`;
+- `packages/cli/src/instances/instance.service.ts`;
+- `packages/db/src/repositories/instances.repository.ts`;
+- tabela `instances` em `schemas.ts`.
+
+No Go, a primeira camada ficou assim:
+
+- `internal/domain/instance.go`: struct `Instance`, status, trigger, fallback e erro;
+- `internal/sqlite/instances.go`: repository ORM da tabela `instances`;
+- `internal/instances/service.go`: normalizacao do payload antigo e sincronizacao de tags;
+- `internal/httpapi/instance_handlers.go`: rotas REST.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `InstanceController.list` | `handleInstancesList` | lista instancias |
+| `InstanceController.listActive` | `handleInstancesActiveList` | lista ativas |
+| `InstanceController.listByProject` | `handleInstancesByProjectList` | filtra por projeto |
+| `InstanceController.getOne` | `handleInstanceGet` | retorna `{ instance, destinations }`; destinos ainda vazios |
+| `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia e sincroniza tags por nome |
+| `InstanceController.update` | `instances.Service.Update` + `handleInstanceUpdate` | update parcial ou upsert completo quando houver destinos |
+| `InstanceController.remove` | `instances.Service.Delete` + `handleInstanceDelete` | remove instancia |
+| `InstanceController.triggerManual` | `handleInstanceTrigger` | placeholder ate ligar runner real |
+| `InstanceController.listExecutions` | `handleInstanceExecutionsList` | placeholder ate migrar executions |
+
+O service Go ja preserva a normalizacao importante do TypeScript:
+
+- aceita `project_id` e `projectId`;
+- aceita `script_id` e `scriptId`;
+- aceita `device_id` e `deviceId`;
+- aceita `include_device_data` e `includeDeviceData`;
+- mescla `script_inputs`/`scriptInputs` com `script_parameters`/`scriptParameters`;
+- interpreta `fallback_config`/`fallbackConfig`;
+- interpreta `error_config`/`errorConfig`;
+- cria tags por nome e sincroniza `instance_tags`.
+
+Ainda falta para instancias:
+
+- `instance_destinations`;
+- `data_mappings`;
+- `instance_executions`;
+- trigger real usando `runtime.Runner`;
+- integracao com fallback e providers.
 
 ## Providers e drivers
 
