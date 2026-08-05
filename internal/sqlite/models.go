@@ -169,3 +169,23 @@ type dataMappingModel struct {
 func (dataMappingModel) TableName() string {
 	return "data_mappings"
 }
+
+type instanceExecutionModel struct {
+	ID              string `gorm:"primaryKey;type:text"`
+	InstanceID      string `gorm:"not null;index;type:text"`
+	Status          string `gorm:"not null;default:queued;type:text"`
+	TriggerType     string `gorm:"not null;default:interval;type:text"`
+	StartedAt       *time.Time
+	FinishedAt      *time.Time
+	DurationMS      *int
+	Logs            executionLogsJSON `gorm:"type:text"`
+	Output          string            `gorm:"type:text"`
+	ErrorMessage    string            `gorm:"type:text"`
+	DestinationSent bool              `gorm:"not null;default:false"`
+	FallbackUsed    bool              `gorm:"not null;default:false"`
+	CreatedAt       time.Time
+}
+
+func (instanceExecutionModel) TableName() string {
+	return "instance_executions"
+}

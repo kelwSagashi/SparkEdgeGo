@@ -86,6 +86,32 @@ func (v *mappingCustomFieldsJSON) Scan(value any) error {
 	return json.Unmarshal(data, v)
 }
 
+type executionLogsJSON []domain.ExecutionLog
+
+func (v executionLogsJSON) Value() (driver.Value, error) {
+	if v == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal([]domain.ExecutionLog(v))
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
+}
+
+func (v *executionLogsJSON) Scan(value any) error {
+	if value == nil {
+		*v = executionLogsJSON{}
+		return nil
+	}
+
+	data, err := scanJSONBytes(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
 func (v *deviceOtherFieldsJSON) Scan(value any) error {
 	if value == nil {
 		*v = deviceOtherFieldsJSON{}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/httpapi"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
@@ -20,17 +21,18 @@ import (
 )
 
 type App struct {
-	DB        *sqlite.Store
-	Auth      *auth.Service
-	Users     *users.Service
-	Projects  *projects.Service
-	Scripts   *scripts.Service
-	Devices   *devices.Service
-	Tags      *tags.Service
-	Instances *instances.Service
-	MQTT      *mqtt.Client
-	Providers *providers.Registry
-	Runtime   *runtime.Runner
+	DB         *sqlite.Store
+	Auth       *auth.Service
+	Users      *users.Service
+	Projects   *projects.Service
+	Scripts    *scripts.Service
+	Devices    *devices.Service
+	Tags       *tags.Service
+	Instances  *instances.Service
+	Executions *executions.Service
+	MQTT       *mqtt.Client
+	Providers  *providers.Registry
+	Runtime    *runtime.Runner
 }
 
 func New() *App {
@@ -45,16 +47,17 @@ func New() *App {
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
 
 	return &App{
-		DB:        store,
-		Auth:      auth.NewService(store.Users, store.Projects, jwtSecret),
-		Users:     users.NewService(store.Users),
-		Projects:  projects.NewService(store.Projects, store.ProjectMembers),
-		Scripts:   scripts.NewService(store.Scripts, sparkitExecutor),
-		Devices:   devices.NewService(store.Devices),
-		Tags:      tagsService,
-		Instances: instances.NewService(store.Instances, tagsService, store.Destinations, store.DataMappings),
-		MQTT:      mqtt.NewClient(),
-		Providers: providerRegistry,
+		DB:         store,
+		Auth:       auth.NewService(store.Users, store.Projects, jwtSecret),
+		Users:      users.NewService(store.Users),
+		Projects:   projects.NewService(store.Projects, store.ProjectMembers),
+		Scripts:    scripts.NewService(store.Scripts, sparkitExecutor),
+		Devices:    devices.NewService(store.Devices),
+		Tags:       tagsService,
+		Instances:  instances.NewService(store.Instances, tagsService, store.Destinations, store.DataMappings),
+		Executions: executions.NewService(store.Executions),
+		MQTT:       mqtt.NewClient(),
+		Providers:  providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{
 			Sparkit:   sparkitExecutor,
 			Providers: providerRegistry,
@@ -64,16 +67,17 @@ func New() *App {
 
 func (a *App) HTTPServer(addr string) *httpapi.Server {
 	return httpapi.NewServer(addr, httpapi.Dependencies{
-		DB:        a.DB,
-		Auth:      a.Auth,
-		Users:     a.Users,
-		Projects:  a.Projects,
-		Scripts:   a.Scripts,
-		Devices:   a.Devices,
-		Tags:      a.Tags,
-		Instances: a.Instances,
-		MQTT:      a.MQTT,
-		Providers: a.Providers,
-		Runtime:   a.Runtime,
+		DB:         a.DB,
+		Auth:       a.Auth,
+		Users:      a.Users,
+		Projects:   a.Projects,
+		Scripts:    a.Scripts,
+		Devices:    a.Devices,
+		Tags:       a.Tags,
+		Instances:  a.Instances,
+		Executions: a.Executions,
+		MQTT:       a.MQTT,
+		Providers:  a.Providers,
+		Runtime:    a.Runtime,
 	})
 }

@@ -94,7 +94,11 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 }
 
 func (s *Server) handleInstanceExecutionsList(r *http.Request) (any, error) {
-	return map[string]any{"data": []any{}, "error": nil}, nil
+	items, err := s.deps.Executions.ListByInstance(r.Context(), r.PathValue("id"), limitFromQuery(r, 50))
+	if err != nil {
+		return executionError(err)
+	}
+	return map[string]any{"data": publicExecutions(items), "error": nil}, nil
 }
 
 func instanceError(err error) (any, error) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
@@ -19,17 +20,18 @@ import (
 )
 
 type Dependencies struct {
-	DB        *sqlite.Store
-	Auth      *auth.Service
-	Users     *users.Service
-	Projects  *projects.Service
-	Scripts   *scripts.Service
-	Devices   *devices.Service
-	Tags      *tags.Service
-	Instances *instances.Service
-	MQTT      *mqtt.Client
-	Providers *providers.Registry
-	Runtime   *runtime.Runner
+	DB         *sqlite.Store
+	Auth       *auth.Service
+	Users      *users.Service
+	Projects   *projects.Service
+	Scripts    *scripts.Service
+	Devices    *devices.Service
+	Tags       *tags.Service
+	Instances  *instances.Service
+	Executions *executions.Service
+	MQTT       *mqtt.Client
+	Providers  *providers.Registry
+	Runtime    *runtime.Runner
 }
 
 type Server struct {
@@ -106,6 +108,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/instances/{id}", Adapt(s.handleInstanceDelete))
 	mux.HandleFunc("POST /api/instances/{id}/trigger", Adapt(s.handleInstanceTrigger))
 	mux.HandleFunc("GET /api/instances/{id}/executions", Adapt(s.handleInstanceExecutionsList))
+
+	mux.HandleFunc("GET /api/executions", Adapt(s.handleExecutionsList))
+	mux.HandleFunc("GET /api/executions/instance/{instance_id}", Adapt(s.handleExecutionsByInstanceList))
+	mux.HandleFunc("GET /api/executions/{id}", Adapt(s.handleExecutionGet))
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
 	mux.HandleFunc("POST /api/scripts", Adapt(s.handleScriptCreate))

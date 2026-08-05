@@ -133,7 +133,7 @@ Origem:
 | PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial ou upsert completo com destinos. |
 | DELETE | `/api/instances/:id` | protegida | P0 | Migrada em Go. |
 | POST | `/api/instances/:id/trigger` | protegida | P0 | Placeholder em Go ate ligar runner real. |
-| GET | `/api/instances/:id/executions` | protegida | P0 | Placeholder em Go ate migrar executions. |
+| GET | `/api/instances/:id/executions` | protegida | P0 | Migrada em Go usando `instance_executions`. |
 
 ## Instance Advanced
 
@@ -176,9 +176,9 @@ Origem: `packages/cli/src/executions/executions.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/executions` | protegida | P1 |
-| GET | `/api/executions/:id` | protegida | P1 |
-| GET | `/api/executions/instance/:instanceId` | protegida | P1 |
+| GET | `/api/executions` | protegida | P1 | Migrada em Go. |
+| GET | `/api/executions/:id` | protegida | P1 | Migrada em Go. |
+| GET | `/api/executions/instance/:instanceId` | protegida | P1 | Migrada em Go como `/api/executions/instance/{instance_id}`. |
 
 ## Fallback
 

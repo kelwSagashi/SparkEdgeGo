@@ -21,6 +21,7 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `packages/cli/src/devices` | `internal/devices` + `internal/httpapi` | dispositivos |
 | `packages/cli/src/tags` | `internal/tags` + `internal/httpapi` | tags e vinculo com instancias |
 | `packages/cli/src/instances/instance.controller.ts` | `internal/instances` + `internal/httpapi` | CRUD base de instancias |
+| `packages/cli/src/executions/executions.controller.ts` | `internal/executions` + `internal/httpapi` | historico de execucoes |
 | `packages/cli/src/scripts` | `internal/scripts` + `internal/httpapi` | scripts instalados e metadados |
 | `packages/db` | `internal/sqlite` | banco local SQLite com ORM |
 | Drizzle schemas | GORM models | definicao das tabelas por structs |
@@ -320,6 +321,36 @@ Ainda falta para instancias:
 - `instance_executions`;
 - trigger real usando `runtime.Runner`;
 - integracao com fallback e providers.
+
+## Providers e drivers
+
+## Executions
+
+No TypeScript, o historico de execucoes fica principalmente em:
+
+- `packages/cli/src/executions/executions.controller.ts`;
+- `packages/cli/src/instances/instance-execution.service.ts`;
+- `packages/db/src/repositories/instanceExecutions.repository.ts`;
+- tabela `instance_executions` em `schemas.ts`.
+
+No Go:
+
+- `internal/domain/execution.go`: struct `InstanceExecution` e `ExecutionLog`;
+- `internal/sqlite/instance_executions.go`: repository ORM da tabela `instance_executions`;
+- `internal/executions/service.go`: regras de listagem, busca, criacao e update de status;
+- `internal/httpapi/execution_handlers.go`: rotas REST.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `ExecutionsController.listAll` | `handleExecutionsList` | lista historico geral, com `limit` opcional |
+| `ExecutionsController.getOne` | `handleExecutionGet` | busca execucao por `id` |
+| `ExecutionsController.listByInstance` | `handleExecutionsByInstanceList` | lista historico por instancia |
+| `dbManager.instanceExecutions.create` | `executions.Service.Create` | cria registro para o runner usar |
+| `dbManager.instanceExecutions.updateStatus` | `executions.Service.UpdateStatus` | atualiza status, output, erro, logs e flags |
+
+O endpoint `GET /api/instances/{id}/executions` agora tambem usa esse mesmo service, entao deixa de ser placeholder.
 
 ## Providers e drivers
 

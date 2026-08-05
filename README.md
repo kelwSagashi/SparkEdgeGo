@@ -30,6 +30,7 @@ Esta base ainda esta no inicio da migracao, mas ja possui a fundacao do reposito
 - `internal/devices`: cadastro de dispositivos usados no contexto das instancias.
 - `internal/tags`: tags de organizacao e vinculo com instancias.
 - `internal/instances`: cadastro, configuracao, destinos e mappings de instancias.
+- `internal/executions`: historico de execucao das instancias.
 - `internal/runtime`: motor de execucao de instancias.
 - `internal/python/sparkit`: integracao com scripts Sparkit.
 - `internal/providers`: registry de destinos externos.
@@ -66,6 +67,9 @@ Rotas ja iniciadas:
 - `DELETE /api/instances/{id}`
 - `POST /api/instances/{id}/trigger`
 - `GET /api/instances/{id}/executions`
+- `GET /api/executions`
+- `GET /api/executions/{id}`
+- `GET /api/executions/instance/{instance_id}`
 - `GET /api/scripts`
 - `POST /api/scripts`
 - `GET /api/scripts/{id}`
