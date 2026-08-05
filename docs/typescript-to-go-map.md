@@ -368,6 +368,8 @@ No Go:
 - cada provider implementa `providers.Adapter`;
 - `Send`, `Test` e `Discover` preservam o contrato atual.
 - `internal/sqlite/server_infrastructure.go` resolve `resource_operation_id` ate operation, resource, server e credential.
+- `internal/providers/httpprovider` implementa os adapters HTTP equivalentes a `http-noauth`, `http-apikey`, `http-basicauth` e `http-bearer`.
+- `internal/app.New` registra os adapters explicitamente, substituindo o papel do decorator `@CredentialAdapter()`.
 
 Exemplo mental:
 
@@ -378,6 +380,19 @@ type Adapter interface {
 	Discover(ctx context.Context) ([]Resource, error)
 }
 ```
+
+Equivalencias praticas dos adapters HTTP:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `HttpDriver.request` | `httpprovider.Adapter.do` | monta URL, headers, body JSON e trata erro HTTP |
+| `HttpNoAuthAdapter` | strategy `no_auth` | envia payload JSON sem credencial |
+| `HttpApiKeyAdapter` | strategy `api_key` | aceita API key em header ou query |
+| `HttpBasicAuthAdapter` | strategy `basic_auth` | monta header `Authorization: Basic ...` |
+| `HttpBearerAdapter` | strategy `bearer_token` | monta header `Authorization: Bearer ...` |
+| `AdapterRegistry.register` | `httpprovider.Register(registry)` | registro explicito no boot da aplicacao |
+
+No envio de destinos, o runner tenta selecionar o provider pela credencial (`auth_type_id`) quando ela existe. Isso preserva a ideia dos adapters TypeScript, onde o tipo de autorizacao escolhe a estrategia concreta. Quando nao ha credencial e o servidor e HTTP, o runner usa `no_auth`.
 
 ## Middlewares
 

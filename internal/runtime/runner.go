@@ -164,6 +164,12 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 			providerConfig.Operation = map[string]any{"id": target.Operation.ID, "resource_id": target.Operation.ResourceID, "name": target.Operation.Name, "type": target.Operation.Type, "config": target.Operation.Config, "input_schema": target.Operation.InputSchema, "output_schema": target.Operation.OutputSchema}
 			if target.Credential != nil {
 				providerConfig.Credentials = map[string]any{"id": target.Credential.ID, "name": target.Credential.Name, "auth_type_id": target.Credential.AuthTypeID, "data": target.Credential.Data}
+				if strings.TrimSpace(target.Credential.AuthTypeID) != "" {
+					providerKey = strings.TrimSpace(target.Credential.AuthTypeID)
+				}
+			}
+			if providerKey == "http" && target.Credential == nil {
+				providerKey = "no_auth"
 			}
 		}
 		if r.deps.Providers == nil || providerKey == "" {

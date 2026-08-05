@@ -12,6 +12,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/httpprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/python/sparkit"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/scripts"
@@ -39,6 +40,7 @@ type App struct {
 
 func New() *App {
 	providerRegistry := providers.NewRegistry()
+	httpprovider.Register(providerRegistry)
 	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
 	if err := store.Open(context.Background()); err != nil {
