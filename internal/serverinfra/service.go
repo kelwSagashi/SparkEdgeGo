@@ -13,6 +13,7 @@ var ErrInvalidInput = errors.New("invalid server infrastructure input")
 
 type Service struct {
 	serverTypes        *sqlite.ServerTypesRepository
+	authTypes          *sqlite.AuthTypesRepository
 	credentials        *sqlite.CredentialsRepository
 	servers            *sqlite.ServersRepository
 	serverResources    *sqlite.ServerResourcesRepository
@@ -21,7 +22,7 @@ type Service struct {
 
 func NewService(store *sqlite.Store) *Service {
 	return &Service{
-		serverTypes: store.ServerTypes, credentials: store.Credentials, servers: store.Servers,
+		serverTypes: store.ServerTypes, authTypes: store.AuthTypes, credentials: store.Credentials, servers: store.Servers,
 		serverResources: store.ServerResources, resourceOperations: store.ResourceOperations,
 	}
 }
@@ -49,6 +50,22 @@ type ServerRequest struct {
 
 func (s *Service) ListServerTypes(ctx context.Context) ([]domain.ServerType, error) {
 	return s.serverTypes.ListAll(ctx)
+}
+func (s *Service) ListAuthTypes(ctx context.Context, serverTypeID string) ([]domain.AuthType, error) {
+	return s.authTypes.ListByServerType(ctx, serverTypeID)
+}
+func (s *Service) SeedCatalog(ctx context.Context, serverTypes []domain.ServerType, authTypes []domain.AuthType) error {
+	for _, item := range serverTypes {
+		if _, err := s.serverTypes.Upsert(ctx, sqlite.UpsertServerTypeParams{ID: item.ID, Key: item.Key, Name: item.Name, Description: item.Description}); err != nil {
+			return err
+		}
+	}
+	for _, item := range authTypes {
+		if _, err := s.authTypes.Upsert(ctx, sqlite.UpsertAuthTypeParams{ID: item.ID, Name: item.Name, Strategy: item.Strategy, Fields: item.Fields, ServerTypeID: item.ServerTypeID}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (s *Service) ListCredentials(ctx context.Context, ownerID string) ([]domain.Credential, error) {
 	return s.credentials.ListByOwner(ctx, ownerID)

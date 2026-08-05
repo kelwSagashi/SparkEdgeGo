@@ -391,6 +391,9 @@ Equivalencias praticas dos adapters HTTP:
 | `HttpBasicAuthAdapter` | strategy `basic_auth` | monta header `Authorization: Basic ...` |
 | `HttpBearerAdapter` | strategy `bearer_token` | monta header `Authorization: Bearer ...` |
 | `AdapterRegistry.register` | `httpprovider.Register(registry)` | registro explicito no boot da aplicacao |
+| `ServerTypeRegistry.syncWithDatabase` | `serverinfra.Service.SeedCatalog` | grava `server_types` no SQLite durante o boot |
+| `AdapterRegistry.syncWithDatabase` | `serverinfra.Service.SeedCatalog` | grava `auth_type` no SQLite durante o boot |
+| `CredentialsController.getMeta` | `GET /api/credentials/config/meta` | lista os tipos de autorizacao para o frontend atual |
 
 No envio de destinos, o runner tenta selecionar o provider pela credencial (`auth_type_id`) quando ela existe. Isso preserva a ideia dos adapters TypeScript, onde o tipo de autorizacao escolhe a estrategia concreta. Quando nao ha credencial e o servidor e HTTP, o runner usa `no_auth`.
 

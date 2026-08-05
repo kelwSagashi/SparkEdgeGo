@@ -18,6 +18,14 @@ func (s *Server) handleServerTypesList(r *http.Request) (any, error) {
 	return map[string]any{"data": publicServerTypes(items), "error": nil}, nil
 }
 
+func (s *Server) handleAuthTypesList(r *http.Request) (any, error) {
+	items, err := s.deps.ServerInfra.ListAuthTypes(r.Context(), r.URL.Query().Get("server_type_id"))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"data": publicAuthTypes(items), "error": nil}, nil
+}
+
 func (s *Server) handleCredentialsList(r *http.Request) (any, error) {
 	ownerID := ""
 	if identity, ok := CurrentIdentity(r.Context()); ok && identity.Verified {
@@ -140,6 +148,13 @@ func publicServerTypes(items []domain.ServerType) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		result = append(result, map[string]any{"id": item.ID, "key": item.Key, "name": item.Name, "description": item.Description})
+	}
+	return result
+}
+func publicAuthTypes(items []domain.AuthType) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, map[string]any{"id": item.ID, "name": item.Name, "strategy": item.Strategy, "fields": item.Fields, "server_type_id": item.ServerTypeID})
 	}
 	return result
 }

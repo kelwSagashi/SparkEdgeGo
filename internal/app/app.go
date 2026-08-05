@@ -6,6 +6,7 @@ import (
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/httpapi"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
@@ -46,6 +47,10 @@ func New() *App {
 	if err := store.Open(context.Background()); err != nil {
 		panic(err)
 	}
+	serverInfraService := serverinfra.NewService(store)
+	if err := serverInfraService.SeedCatalog(context.Background(), []domain.ServerType{httpprovider.ServerType()}, httpprovider.AuthTypes()); err != nil {
+		panic(err)
+	}
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
@@ -67,7 +72,7 @@ func New() *App {
 			Providers:          providerRegistry,
 			ResourceOperations: store.ResourceOperations,
 		}),
-		ServerInfra: serverinfra.NewService(store),
+		ServerInfra: serverInfraService,
 	}
 }
 

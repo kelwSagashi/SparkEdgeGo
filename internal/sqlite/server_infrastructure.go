@@ -145,6 +145,34 @@ func (r *AuthTypesRepository) Upsert(ctx context.Context, params UpsertAuthTypeP
 	return saveAuthType(ctx, r.db, model)
 }
 
+func (r *AuthTypesRepository) ListAll(ctx context.Context) ([]domain.AuthType, error) {
+	var models []authTypeModel
+	if err := r.db.WithContext(ctx).Order("name ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.AuthType, 0, len(models))
+	for _, model := range models {
+		result = append(result, authTypeFromModel(model))
+	}
+	return result, nil
+}
+
+func (r *AuthTypesRepository) ListByServerType(ctx context.Context, serverTypeID string) ([]domain.AuthType, error) {
+	var models []authTypeModel
+	query := r.db.WithContext(ctx).Order("name ASC")
+	if serverTypeID != "" {
+		query = query.Where("server_type_id = ?", serverTypeID)
+	}
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.AuthType, 0, len(models))
+	for _, model := range models {
+		result = append(result, authTypeFromModel(model))
+	}
+	return result, nil
+}
+
 func (r *CredentialsRepository) Upsert(ctx context.Context, params UpsertCredentialParams) (domain.Credential, error) {
 	model := credentialModel{ID: params.ID, Name: params.Name, AuthTypeID: params.AuthTypeID, Data: mapJSON(params.Data), OwnerID: params.OwnerID, ProjectID: params.ProjectID}
 	if model.ID == "" {

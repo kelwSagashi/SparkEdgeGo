@@ -136,6 +136,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/projects/{id}/members", Adapt(s.handleProjectMemberAdd))
 
 	mux.HandleFunc("GET /api/server-types", Adapt(s.handleServerTypesList))
+	mux.HandleFunc("GET /api/auth-types", Adapt(s.handleAuthTypesList))
+	mux.HandleFunc("GET /api/credentials/config/meta", Adapt(s.handleAuthTypesList))
 	mux.HandleFunc("GET /api/credentials", Adapt(s.handleCredentialsList))
 	mux.HandleFunc("POST /api/credentials", Adapt(s.handleCredentialCreate))
 	mux.HandleFunc("GET /api/credentials/{id}", Adapt(s.handleCredentialGet))
