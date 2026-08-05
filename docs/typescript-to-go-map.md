@@ -407,6 +407,16 @@ Equivalencias praticas do adapter Supabase:
 | `SupabaseAdapter.send` | `supabaseprovider.Adapter.Send` | suporta `insert`, `update`, `upsert` e `select` |
 | `SupabaseAdapter.discover` | `supabaseprovider.Adapter.Discover` | le `definitions` do schema PostgREST |
 
+Equivalencias praticas do adapter MongoDB:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `MongoServerType` | `mongoprovider.ServerType` | cadastra o tipo `mongodb` no catalogo |
+| `MongoAdapter.metadata` | `mongoprovider.AuthTypes` | cadastra campos `uri` e `database` |
+| `MongoDriver.connect` | `mongoprovider.connectMongo` | abre conexao com o driver oficial MongoDB para Go |
+| `MongoAdapter.send` | `mongoprovider.Adapter.Send` | suporta `insertOne`, `updateOne`, `find` e `findOne` |
+| `MongoAdapter.discover` | `mongoprovider.Adapter.Discover` | lista colecoes como recursos configuraveis |
+
 ## Middlewares
 
 No Express, temos:

@@ -14,6 +14,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/httpprovider"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/mongoprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/supabaseprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/python/sparkit"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
@@ -43,6 +44,7 @@ type App struct {
 func New() *App {
 	providerRegistry := providers.NewRegistry()
 	httpprovider.Register(providerRegistry)
+	mongoprovider.Register(providerRegistry)
 	supabaseprovider.Register(providerRegistry)
 	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
@@ -50,8 +52,9 @@ func New() *App {
 		panic(err)
 	}
 	serverInfraService := serverinfra.NewService(store)
-	serverTypes := []domain.ServerType{httpprovider.ServerType(), supabaseprovider.ServerType()}
-	authTypes := append(httpprovider.AuthTypes(), supabaseprovider.AuthTypes()...)
+	serverTypes := []domain.ServerType{httpprovider.ServerType(), mongoprovider.ServerType(), supabaseprovider.ServerType()}
+	authTypes := append(httpprovider.AuthTypes(), mongoprovider.AuthTypes()...)
+	authTypes = append(authTypes, supabaseprovider.AuthTypes()...)
 	if err := serverInfraService.SeedCatalog(context.Background(), serverTypes, authTypes); err != nil {
 		panic(err)
 	}
