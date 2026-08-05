@@ -29,7 +29,7 @@ Esta base ainda esta no inicio da migracao, mas ja possui a fundacao do reposito
 - `internal/scripts`: cadastro local de scripts instalados.
 - `internal/devices`: cadastro de dispositivos usados no contexto das instancias.
 - `internal/tags`: tags de organizacao e vinculo com instancias.
-- `internal/instances`: cadastro e configuracao base de instancias.
+- `internal/instances`: cadastro, configuracao, destinos e mappings de instancias.
 - `internal/runtime`: motor de execucao de instancias.
 - `internal/python/sparkit`: integracao com scripts Sparkit.
 - `internal/providers`: registry de destinos externos.
@@ -97,7 +97,7 @@ O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tag
 
 Samples locais podem ser apontados pela variavel `SPARKEDGE_SAMPLES_DIR`. Se ela nao existir, a aplicacao tenta localizar `extensions/samples` em caminhos relativos comuns ao ambiente de desenvolvimento.
 
-Instancias ja possuem CRUD, listagem por projeto, listagem de ativas e sincronizacao de tags por nome. O endpoint de trigger ainda retorna um placeholder ate migrarmos `instance_destinations`, `data_mappings`, `executions`, `fallback` e o runner real.
+Instancias ja possuem CRUD, listagem por projeto, listagem de ativas, sincronizacao de tags por nome, persistencia de `instance_destinations` e persistencia de `data_mappings`. O endpoint de trigger ainda retorna um placeholder ate migrarmos `instance_executions`, `fallback` e o runner real.
 
 ## Ambiente Go no Windows
 

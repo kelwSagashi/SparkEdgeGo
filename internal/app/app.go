@@ -52,7 +52,7 @@ func New() *App {
 		Scripts:   scripts.NewService(store.Scripts, sparkitExecutor),
 		Devices:   devices.NewService(store.Devices),
 		Tags:      tagsService,
-		Instances: instances.NewService(store.Instances, tagsService),
+		Instances: instances.NewService(store.Instances, tagsService, store.Destinations, store.DataMappings),
 		MQTT:      mqtt.NewClient(),
 		Providers: providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{

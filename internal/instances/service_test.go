@@ -20,7 +20,7 @@ func TestInstancesServiceLifecycle(t *testing.T) {
 	defer store.Close()
 
 	tagService := tags.NewService(store.Tags, store.InstanceTags)
-	service := NewService(store.Instances, tagService)
+	service := NewService(store.Instances, tagService, store.Destinations, store.DataMappings)
 
 	active := true
 	includeDeviceData := true
@@ -42,6 +42,24 @@ func TestInstancesServiceLifecycle(t *testing.T) {
 			"retry_interval_seconds": float64(120),
 		},
 		ErrorConfig: map[string]any{"action": "retry"},
+		Destinations: []DestinationPayload{
+			{
+				ResourceOperationID: "resource-op-1",
+				Enabled:             &active,
+				Priority:            1,
+				RetryPolicy: map[string]any{
+					"max_retries":    float64(5),
+					"retry_interval": float64(30),
+				},
+				Mapping: &MappingData{
+					Mapping:         map[string]any{"temperature": "$.stdout.temperature"},
+					PayloadTemplate: map[string]any{"device": "{{device.name}}"},
+					CustomFields: []domain.MappingCustomField{
+						{Key: "source", Value: "sparkedge"},
+					},
+				},
+			},
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -93,8 +111,18 @@ func TestInstancesServiceLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if withDestinations.Instance.ID != instance.ID || len(withDestinations.Destinations) != 0 {
+	if withDestinations.Instance.ID != instance.ID {
 		t.Fatalf("unexpected with destinations result %#v", withDestinations)
+	}
+	if len(withDestinations.Destinations) != 1 {
+		t.Fatalf("expected one destination, got %#v", withDestinations.Destinations)
+	}
+	destination := withDestinations.Destinations[0]
+	if destination.Destination.ResourceOperationID != "resource-op-1" || destination.Destination.RetryPolicy.MaxRetries != 5 {
+		t.Fatalf("unexpected destination %#v", destination.Destination)
+	}
+	if destination.Mapping == nil || destination.Mapping.Mapping["temperature"] != "$.stdout.temperature" {
+		t.Fatalf("unexpected mapping %#v", destination.Mapping)
 	}
 
 	if err := service.Delete(ctx, instance.ID); err != nil {

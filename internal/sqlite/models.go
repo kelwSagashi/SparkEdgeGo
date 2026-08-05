@@ -141,3 +141,31 @@ type instanceModel struct {
 func (instanceModel) TableName() string {
 	return "instances"
 }
+
+type instanceDestinationModel struct {
+	ID                  string  `gorm:"primaryKey;type:text"`
+	InstanceID          string  `gorm:"not null;index;type:text"`
+	ResourceOperationID string  `gorm:"not null;type:text"`
+	Enabled             bool    `gorm:"not null;default:true"`
+	Priority            int     `gorm:"default:0"`
+	RetryPolicy         mapJSON `gorm:"type:text"`
+	CreatedAt           time.Time
+}
+
+func (instanceDestinationModel) TableName() string {
+	return "instance_destinations"
+}
+
+type dataMappingModel struct {
+	ID                    string                  `gorm:"primaryKey;type:text"`
+	InstanceDestinationID string                  `gorm:"not null;index;type:text"`
+	Mapping               mapJSON                 `gorm:"type:text"`
+	PayloadTemplate       mapJSON                 `gorm:"type:text"`
+	CustomFields          mappingCustomFieldsJSON `gorm:"type:text"`
+	TransformScript       string                  `gorm:"type:text"`
+	CreatedAt             time.Time
+}
+
+func (dataMappingModel) TableName() string {
+	return "data_mappings"
+}

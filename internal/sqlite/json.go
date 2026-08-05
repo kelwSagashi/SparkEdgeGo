@@ -60,6 +60,32 @@ func (v deviceOtherFieldsJSON) Value() (driver.Value, error) {
 	return string(data), nil
 }
 
+type mappingCustomFieldsJSON []domain.MappingCustomField
+
+func (v mappingCustomFieldsJSON) Value() (driver.Value, error) {
+	if v == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal([]domain.MappingCustomField(v))
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
+}
+
+func (v *mappingCustomFieldsJSON) Scan(value any) error {
+	if value == nil {
+		*v = mappingCustomFieldsJSON{}
+		return nil
+	}
+
+	data, err := scanJSONBytes(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
 func (v *deviceOtherFieldsJSON) Scan(value any) error {
 	if value == nil {
 		*v = deviceOtherFieldsJSON{}

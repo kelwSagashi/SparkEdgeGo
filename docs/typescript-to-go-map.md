@@ -294,8 +294,8 @@ Equivalencias praticas:
 | `InstanceController.list` | `handleInstancesList` | lista instancias |
 | `InstanceController.listActive` | `handleInstancesActiveList` | lista ativas |
 | `InstanceController.listByProject` | `handleInstancesByProjectList` | filtra por projeto |
-| `InstanceController.getOne` | `handleInstanceGet` | retorna `{ instance, destinations }`; destinos ainda vazios |
-| `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia e sincroniza tags por nome |
+| `InstanceController.getOne` | `handleInstanceGet` | retorna `{ instance, destinations }` com destinos e mapping |
+| `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia, sincroniza tags por nome e salva destinos |
 | `InstanceController.update` | `instances.Service.Update` + `handleInstanceUpdate` | update parcial ou upsert completo quando houver destinos |
 | `InstanceController.remove` | `instances.Service.Delete` + `handleInstanceDelete` | remove instancia |
 | `InstanceController.triggerManual` | `handleInstanceTrigger` | placeholder ate ligar runner real |
@@ -311,11 +311,12 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 - interpreta `fallback_config`/`fallbackConfig`;
 - interpreta `error_config`/`errorConfig`;
 - cria tags por nome e sincroniza `instance_tags`.
+- salva `destinations` em `instance_destinations`;
+- salva `mapping`, `data_mapping` ou `dataMapping` em `data_mappings`;
+- aceita `retry_policy` e `retryPolicy` para politica de retry do destino.
 
 Ainda falta para instancias:
 
-- `instance_destinations`;
-- `data_mappings`;
 - `instance_executions`;
 - trigger real usando `runtime.Runner`;
 - integracao com fallback e providers.

@@ -19,6 +19,8 @@ type Store struct {
 	Tags           *TagsRepository
 	InstanceTags   *InstanceTagsRepository
 	Instances      *InstancesRepository
+	Destinations   *InstanceDestinationsRepository
+	DataMappings   *DataMappingsRepository
 }
 
 func NewStore() *Store {
@@ -54,6 +56,8 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Tags = NewTagsRepository(db)
 	s.InstanceTags = NewInstanceTagsRepository(db)
 	s.Instances = NewInstancesRepository(db)
+	s.Destinations = NewInstanceDestinationsRepository(db)
+	s.DataMappings = NewDataMappingsRepository(db)
 	return nil
 }
 
@@ -69,5 +73,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{})
 }

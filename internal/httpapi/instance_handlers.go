@@ -42,7 +42,7 @@ func (s *Server) handleInstanceGet(r *http.Request) (any, error) {
 	return map[string]any{
 		"data": map[string]any{
 			"instance":     publicInstance(result.Instance),
-			"destinations": result.Destinations,
+			"destinations": publicDestinationsWithMappings(result.Destinations),
 		},
 		"error": nil,
 	}, nil
@@ -138,5 +138,47 @@ func publicInstance(instance domain.Instance) map[string]any {
 		"created_by":                      instance.CreatedBy,
 		"created_at":                      instance.CreatedAt,
 		"updated_at":                      instance.UpdatedAt,
+	}
+}
+
+func publicDestinationsWithMappings(items []domain.InstanceDestinationWithMapping) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		entry := map[string]any{
+			"destination": publicInstanceDestination(item.Destination),
+			"mapping":     nil,
+		}
+		if item.Mapping != nil {
+			entry["mapping"] = publicDataMapping(*item.Mapping)
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
+func publicInstanceDestination(destination domain.InstanceDestination) map[string]any {
+	return map[string]any{
+		"id":                    destination.ID,
+		"instance_id":           destination.InstanceID,
+		"resource_operation_id": destination.ResourceOperationID,
+		"enabled":               destination.Enabled,
+		"priority":              destination.Priority,
+		"retry_policy": map[string]any{
+			"max_retries":    destination.RetryPolicy.MaxRetries,
+			"retry_interval": destination.RetryPolicy.RetryInterval,
+		},
+		"created_at": destination.CreatedAt,
+	}
+}
+
+func publicDataMapping(mapping domain.DataMapping) map[string]any {
+	return map[string]any{
+		"id":                      mapping.ID,
+		"instance_destination_id": mapping.InstanceDestinationID,
+		"mapping":                 mapping.Mapping,
+		"payload_template":        mapping.PayloadTemplate,
+		"custom_fields":           mapping.CustomFields,
+		"transform_script":        mapping.TransformScript,
+		"created_at":              mapping.CreatedAt,
 	}
 }

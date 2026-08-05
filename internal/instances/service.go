@@ -28,9 +28,23 @@ type TagsService interface {
 	SyncTags(ctx context.Context, instanceID string, tagIDs []string) ([]domain.Tag, error)
 }
 
+type DestinationRepository interface {
+	Upsert(ctx context.Context, params sqlite.UpsertInstanceDestinationParams) (domain.InstanceDestination, error)
+	ListByInstance(ctx context.Context, instanceID string) ([]domain.InstanceDestination, error)
+	DeleteByInstance(ctx context.Context, instanceID string) error
+}
+
+type DataMappingRepository interface {
+	Upsert(ctx context.Context, params sqlite.UpsertDataMappingParams) (domain.DataMapping, error)
+	GetByInstanceDestination(ctx context.Context, instanceDestinationID string) (domain.DataMapping, error)
+	DeleteByInstanceDestination(ctx context.Context, instanceDestinationID string) error
+}
+
 type Service struct {
-	instances Repository
-	tags      TagsService
+	instances    Repository
+	tags         TagsService
+	destinations DestinationRepository
+	mappings     DataMappingRepository
 }
 
 type Payload struct {
@@ -66,16 +80,59 @@ type Payload struct {
 	ErrorConfig                  map[string]any          `json:"error_config"`
 	ErrorConfigCamel             map[string]any          `json:"errorConfig"`
 	CreatedBy                    string                  `json:"created_by"`
-	Destinations                 []any                   `json:"destinations"`
+	Destinations                 []DestinationPayload    `json:"destinations"`
+}
+
+type DestinationPayload struct {
+	Destination          *DestinationData `json:"destination"`
+	Mapping              *MappingData     `json:"mapping"`
+	DataMapping          *MappingData     `json:"data_mapping"`
+	DataMappingCamel     *MappingData     `json:"dataMapping"`
+	ResourceOperationID  string           `json:"resource_operation_id"`
+	ResourceOperationID2 string           `json:"resourceOperationId"`
+	Enabled              *bool            `json:"enabled"`
+	Priority             int              `json:"priority"`
+	RetryPolicy          map[string]any   `json:"retry_policy"`
+	RetryPolicyCamel     map[string]any   `json:"retryPolicy"`
+}
+
+type DestinationData struct {
+	ID                   string         `json:"id"`
+	ResourceOperationID  string         `json:"resource_operation_id"`
+	ResourceOperationID2 string         `json:"resourceOperationId"`
+	Enabled              *bool          `json:"enabled"`
+	Priority             int            `json:"priority"`
+	RetryPolicy          map[string]any `json:"retry_policy"`
+	RetryPolicyCamel     map[string]any `json:"retryPolicy"`
+}
+
+type MappingData struct {
+	ID                   string                      `json:"id"`
+	Mapping              map[string]any              `json:"mapping"`
+	PayloadTemplate      map[string]any              `json:"payload_template"`
+	PayloadTemplateCamel map[string]any              `json:"payloadTemplate"`
+	CustomFields         []domain.MappingCustomField `json:"custom_fields"`
+	CustomFieldsCamel    []domain.MappingCustomField `json:"customFields"`
+	TransformScript      string                      `json:"transform_script"`
+	TransformScriptCamel string                      `json:"transformScript"`
 }
 
 type WithDestinations struct {
-	Instance     domain.Instance `json:"instance"`
-	Destinations []any           `json:"destinations"`
+	Instance     domain.Instance                         `json:"instance"`
+	Destinations []domain.InstanceDestinationWithMapping `json:"destinations"`
 }
 
-func NewService(instances Repository, tags TagsService) *Service {
-	return &Service{instances: instances, tags: tags}
+func NewService(instances Repository, tags TagsService, repos ...any) *Service {
+	service := &Service{instances: instances, tags: tags}
+	for _, repo := range repos {
+		switch typed := repo.(type) {
+		case DestinationRepository:
+			service.destinations = typed
+		case DataMappingRepository:
+			service.mappings = typed
+		}
+	}
+	return service
 }
 
 func (s *Service) ListAll(ctx context.Context) ([]domain.Instance, error) {
@@ -105,7 +162,11 @@ func (s *Service) GetWithDestinations(ctx context.Context, id string) (WithDesti
 	if err != nil {
 		return WithDestinations{}, err
 	}
-	return WithDestinations{Instance: instance, Destinations: []any{}}, nil
+	destinations, err := s.destinationsWithMappings(ctx, instance.ID)
+	if err != nil {
+		return WithDestinations{}, err
+	}
+	return WithDestinations{Instance: instance, Destinations: destinations}, nil
 }
 
 func (s *Service) Create(ctx context.Context, payload Payload) (domain.Instance, error) {
@@ -118,6 +179,9 @@ func (s *Service) Create(ctx context.Context, payload Payload) (domain.Instance,
 		return domain.Instance{}, err
 	}
 	if err := s.syncNamedTags(ctx, instance.ID, payload.Tags, instance.ProjectID); err != nil {
+		return domain.Instance{}, err
+	}
+	if err := s.syncDestinations(ctx, instance.ID, payload.Destinations); err != nil {
 		return domain.Instance{}, err
 	}
 	return instance, nil
@@ -138,6 +202,9 @@ func (s *Service) Update(ctx context.Context, id string, payload Payload) (domai
 			return domain.Instance{}, err
 		}
 		if err := s.syncNamedTags(ctx, instance.ID, payload.Tags, instance.ProjectID); err != nil {
+			return domain.Instance{}, err
+		}
+		if err := s.syncDestinations(ctx, instance.ID, payload.Destinations); err != nil {
 			return domain.Instance{}, err
 		}
 		return instance, nil
@@ -180,6 +247,110 @@ func (s *Service) syncNamedTags(ctx context.Context, instanceID string, names []
 	}
 	_, err = s.tags.SyncTags(ctx, instanceID, tagIDs)
 	return err
+}
+
+func (s *Service) destinationsWithMappings(ctx context.Context, instanceID string) ([]domain.InstanceDestinationWithMapping, error) {
+	if s.destinations == nil {
+		return []domain.InstanceDestinationWithMapping{}, nil
+	}
+	destinations, err := s.destinations.ListByInstance(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]domain.InstanceDestinationWithMapping, 0, len(destinations))
+	for _, destination := range destinations {
+		item := domain.InstanceDestinationWithMapping{Destination: destination}
+		if s.mappings != nil {
+			mapping, err := s.mappings.GetByInstanceDestination(ctx, destination.ID)
+			if err == nil {
+				item.Mapping = &mapping
+			} else if !errors.Is(err, sqlite.ErrNotFound) {
+				return nil, err
+			}
+		}
+		result = append(result, item)
+	}
+	return result, nil
+}
+
+func (s *Service) syncDestinations(ctx context.Context, instanceID string, payloads []DestinationPayload) error {
+	if s.destinations == nil || payloads == nil {
+		return nil
+	}
+
+	if s.mappings != nil {
+		existing, err := s.destinations.ListByInstance(ctx, instanceID)
+		if err != nil {
+			return err
+		}
+		for _, destination := range existing {
+			if err := s.mappings.DeleteByInstanceDestination(ctx, destination.ID); err != nil {
+				return err
+			}
+		}
+	}
+	if err := s.destinations.DeleteByInstance(ctx, instanceID); err != nil {
+		return err
+	}
+
+	for _, payload := range payloads {
+		destination, err := s.destinations.Upsert(ctx, destinationParams(instanceID, payload))
+		if err != nil {
+			return err
+		}
+		mapping := firstMappingData(payload.Mapping, payload.DataMapping, payload.DataMappingCamel)
+		if s.mappings != nil && mapping != nil {
+			if _, err := s.mappings.Upsert(ctx, mappingParams(destination.ID, *mapping)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func destinationParams(instanceID string, payload DestinationPayload) sqlite.UpsertInstanceDestinationParams {
+	data := payload.Destination
+	resourceOperationID := firstNonEmpty(payload.ResourceOperationID, payload.ResourceOperationID2)
+	enabled := payload.Enabled
+	priority := payload.Priority
+	retryPolicy := firstMap(payload.RetryPolicy, payload.RetryPolicyCamel)
+	id := ""
+
+	if data != nil {
+		id = data.ID
+		resourceOperationID = firstNonEmpty(resourceOperationID, data.ResourceOperationID, data.ResourceOperationID2)
+		enabled = firstBoolPointer(enabled, data.Enabled)
+		if priority == 0 {
+			priority = data.Priority
+		}
+		if len(retryPolicy) == 0 {
+			retryPolicy = firstMap(data.RetryPolicy, data.RetryPolicyCamel)
+		}
+	}
+
+	return sqlite.UpsertInstanceDestinationParams{
+		ID:                  id,
+		InstanceID:          instanceID,
+		ResourceOperationID: resourceOperationID,
+		Enabled:             firstBool(true, enabled),
+		Priority:            priority,
+		RetryPolicy: domain.RetryPolicy{
+			MaxRetries:    intFromMap(retryPolicy, "max_retries", "maxRetries", 3),
+			RetryInterval: intFromMap(retryPolicy, "retry_interval", "retryInterval", 60),
+		},
+	}
+}
+
+func mappingParams(destinationID string, payload MappingData) sqlite.UpsertDataMappingParams {
+	return sqlite.UpsertDataMappingParams{
+		ID:                    payload.ID,
+		InstanceDestinationID: destinationID,
+		Mapping:               payload.Mapping,
+		PayloadTemplate:       firstMap(payload.PayloadTemplate, payload.PayloadTemplateCamel),
+		CustomFields:          firstCustomFields(payload.CustomFields, payload.CustomFieldsCamel),
+		TransformScript:       firstNonEmpty(payload.TransformScript, payload.TransformScriptCamel),
+	}
 }
 
 func normalizePayload(payload Payload) (sqlite.UpsertInstanceParams, error) {
@@ -365,6 +536,33 @@ func firstBool(fallback bool, values ...*bool) bool {
 		}
 	}
 	return fallback
+}
+
+func firstBoolPointer(values ...*bool) *bool {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstMappingData(values ...*MappingData) *MappingData {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func firstCustomFields(values ...[]domain.MappingCustomField) []domain.MappingCustomField {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return []domain.MappingCustomField{}
 }
 
 func firstTrigger(values ...domain.TriggerType) domain.TriggerType {

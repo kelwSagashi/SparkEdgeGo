@@ -128,9 +128,9 @@ Origem:
 | GET | `/api/instances` | protegida | P0 | Migrada em Go. |
 | GET | `/api/instances/active` | protegida | P1 | Migrada em Go. |
 | GET | `/api/instances/project/:project_id` | protegida | P0 | Migrada em Go. |
-| GET | `/api/instances/:id` | protegida | P0 | Migrada em Go; destinos ainda vazios ate portar mappings/destinations. |
-| POST | `/api/instances` | protegida | P0 | Migrada em Go com normalizacao de payload e tags. |
-| PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial. |
+| GET | `/api/instances/:id` | protegida | P0 | Migrada em Go com retorno de destinos e mappings. |
+| POST | `/api/instances` | protegida | P0 | Migrada em Go com normalizacao de payload, tags, destinos e mappings. |
+| PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial ou upsert completo com destinos. |
 | DELETE | `/api/instances/:id` | protegida | P0 | Migrada em Go. |
 | POST | `/api/instances/:id/trigger` | protegida | P0 | Placeholder em Go ate ligar runner real. |
 | GET | `/api/instances/:id/executions` | protegida | P0 | Placeholder em Go ate migrar executions. |
