@@ -99,6 +99,8 @@ Na camada de banco, os schemas iniciais ficam em structs Go usadas pela ORM. Iss
 
 A infraestrutura de providers ja possui tabelas SQLite/GORM para `server_types`, `auth_type`, `credentials`, `servers`, `server_resources` e `resource_operations`. Isso prepara o caminho para o runner resolver `resource_operation_id` ate server/resource/credential antes de chamar adapters concretos.
 
+O runner agora resolve cada `resource_operation_id` pelo SQLite antes do dispatch. O `driver_key` do servidor seleciona o provider e o adapter recebe configuracoes separadas de servidor, recurso, operacao e credencial.
+
 Os endpoints de credenciais e servidores estao organizados em `internal/serverinfra` e conectados ao `httpapi`. Eles representam o cadastro local das integracoes; a comunicacao com cada servico externo continuara sendo responsabilidade dos drivers/providers.
 
 O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. O fluxo de upload tambem ja valida `requirements.txt` com `sparkit`, cria venv, instala dependencias, captura schema via `--schema` e executa playground com `--input-file`.

@@ -61,8 +61,9 @@ func New() *App {
 		MQTT:       mqtt.NewClient(),
 		Providers:  providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{
-			Sparkit:   sparkitExecutor,
-			Providers: providerRegistry,
+			Sparkit:            sparkitExecutor,
+			Providers:          providerRegistry,
+			ResourceOperations: store.ResourceOperations,
 		}),
 		ServerInfra: serverinfra.NewService(store),
 	}

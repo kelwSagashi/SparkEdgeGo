@@ -491,6 +491,8 @@ Os controllers Express de `credentials`, `servers`, `server-types`, `resources` 
 
 O cadastro local de servidor nao executa a integracao: `driver_key`, `credential_id` e a operacao resolvida sao a configuracao consumida futuramente pelo provider/driver.
 
+No motor de instancias, `dispatchDestinations` corresponde ao envio pos-execucao do service TypeScript. Em Go, ele resolve `resource_operation_id` via `ResourceOperationsRepository`, seleciona o provider por `server.driver_key` e passa um `providers.Config` estruturado ao adapter.
+
 Por seguranca, as respostas REST usam a funcao `publicUser`, que nao devolve `password_hash`. A rota de API key devolve apenas `{ userId, apiKey }`, como no comportamento antigo.
 
 ## CLI

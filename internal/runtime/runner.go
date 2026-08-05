@@ -10,6 +10,7 @@ import (
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
+	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 )
 
 type SparkitExecutor interface {
@@ -19,8 +20,11 @@ type SparkitExecutor interface {
 }
 
 type Dependencies struct {
-	Sparkit   SparkitExecutor
-	Providers *providers.Registry
+	Sparkit            SparkitExecutor
+	Providers          *providers.Registry
+	ResourceOperations interface {
+		ResolveTarget(context.Context, string) (sqlite.OperationTarget, error)
+	}
 }
 
 type Runner struct {
@@ -147,13 +151,26 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 		})
 
 		providerKey := strings.TrimSpace(destination.ResourceOperationID)
+		providerConfig := providers.Config{Operation: map[string]any{"resource_operation_id": destination.ResourceOperationID}}
+		if r.deps.ResourceOperations != nil {
+			target, err := r.deps.ResourceOperations.ResolveTarget(ctx, destination.ResourceOperationID)
+			if err != nil {
+				failures = append(failures, destination.ID+": "+err.Error())
+				continue
+			}
+			providerKey = strings.TrimSpace(target.Server.DriverKey)
+			providerConfig.Server = map[string]any{"id": target.Server.ID, "name": target.Server.Name, "type": target.Server.Type, "server_type_id": target.Server.ServerTypeID, "credential_id": target.Server.CredentialID, "headers": target.Server.Headers, "project_id": target.Server.ProjectID}
+			providerConfig.Resource = map[string]any{"id": target.Resource.ID, "server_id": target.Resource.ServerID, "name": target.Resource.Name, "type": target.Resource.Type, "config": target.Resource.Config}
+			providerConfig.Operation = map[string]any{"id": target.Operation.ID, "resource_id": target.Operation.ResourceID, "name": target.Operation.Name, "type": target.Operation.Type, "config": target.Operation.Config, "input_schema": target.Operation.InputSchema, "output_schema": target.Operation.OutputSchema}
+			if target.Credential != nil {
+				providerConfig.Credentials = map[string]any{"id": target.Credential.ID, "name": target.Credential.Name, "auth_type_id": target.Credential.AuthTypeID, "data": target.Credential.Data}
+			}
+		}
 		if r.deps.Providers == nil || providerKey == "" {
 			failures = append(failures, destination.ID+": provider not configured")
 			continue
 		}
-		adapter, ok, err := r.deps.Providers.Create(providerKey, providers.Config{
-			Operation: map[string]any{"resource_operation_id": destination.ResourceOperationID},
-		})
+		adapter, ok, err := r.deps.Providers.Create(providerKey, providerConfig)
 		if err != nil {
 			failures = append(failures, destination.ID+": "+err.Error())
 			continue
