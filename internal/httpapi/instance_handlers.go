@@ -3,10 +3,13 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
+	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 )
 
@@ -85,6 +88,118 @@ func (s *Server) handleInstanceDelete(r *http.Request) (any, error) {
 }
 
 func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
+	var req instanceTriggerRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+		}
+	}
+
+	instance, err := s.deps.Instances.FindByID(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return instanceError(err)
+	}
+	script, err := s.deps.Scripts.FindByID(r.Context(), instance.ScriptID)
+	if err != nil {
+		return scriptError(err)
+	}
+
+	triggerType := req.TriggerType
+	if triggerType == "" {
+		triggerType = domain.TriggerManual
+	}
+	startedAt := time.Now().UTC()
+	execution, err := s.deps.Executions.Create(r.Context(), sqlite.CreateInstanceExecutionParams{
+		InstanceID:  instance.ID,
+		Status:      domain.ExecutionRunning,
+		TriggerType: triggerType,
+		StartedAt:   &startedAt,
+		Logs: []domain.ExecutionLog{
+			{Level: "info", Message: "Queued manual trigger", Timestamp: startedAt},
+		},
+	})
+	if err != nil {
+		return executionError(err)
+	}
+
+	_, _ = s.deps.Instances.UpdateStatus(r.Context(), instance.ID, domain.InstanceStatusRunning)
+	result, runErr := s.deps.Runtime.Trigger(r.Context(), runtimeTriggerRequest(instance, script, triggerType, req.Input))
+
+	finishedAt := result.FinishedAt
+	if finishedAt.IsZero() {
+		finishedAt = time.Now().UTC()
+	}
+	duration := result.DurationMS
+	if duration == 0 {
+		duration = int(finishedAt.Sub(startedAt).Milliseconds())
+	}
+	output := result.RawOutput
+	if output == "" && result.Output != nil {
+		if data, err := json.Marshal(result.Output); err == nil {
+			output = string(data)
+		}
+	}
+	errorMessage := result.Error
+	destinationSent := false
+	fallbackUsed := false
+	logs := result.Logs
+	if len(logs) == 0 {
+		logs = []domain.ExecutionLog{{Level: "info", Message: "Execution finished", Timestamp: finishedAt}}
+	}
+
+	updatedExecution, updateErr := s.deps.Executions.UpdateStatus(r.Context(), execution.ID, sqlite.UpdateInstanceExecutionStatusParams{
+		Status:          result.Status,
+		FinishedAt:      &finishedAt,
+		DurationMS:      &duration,
+		ErrorMessage:    &errorMessage,
+		Output:          &output,
+		DestinationSent: &destinationSent,
+		FallbackUsed:    &fallbackUsed,
+		Logs:            &logs,
+	})
+	if updateErr != nil {
+		return executionError(updateErr)
+	}
+	if result.Status == domain.ExecutionSuccess {
+		_, _ = s.deps.Instances.UpdateStatus(r.Context(), instance.ID, domain.InstanceStatusIdle)
+	} else {
+		_, _ = s.deps.Instances.UpdateStatus(r.Context(), instance.ID, domain.InstanceStatusError)
+	}
+
+	body := map[string]any{
+		"data": map[string]any{
+			"execution": publicExecution(updatedExecution),
+			"result": map[string]any{
+				"status": result.Status,
+				"output": result.Output,
+			},
+		},
+		"error": nil,
+	}
+	if runErr != nil || result.Status != domain.ExecutionSuccess {
+		body["error"] = errorMessage
+	}
+	return body, nil
+}
+
+type instanceTriggerRequest struct {
+	Input       map[string]any     `json:"input"`
+	TriggerType domain.TriggerType `json:"trigger_type"`
+}
+
+func runtimeTriggerRequest(instance domain.Instance, script domain.DownloadedScript, triggerType domain.TriggerType, input map[string]any) runtime.TriggerRequest {
+	if input == nil {
+		input = map[string]any{}
+	}
+	return runtime.TriggerRequest{
+		Instance: instance,
+		Script:   script,
+		Trigger:  triggerType,
+		Input:    input,
+	}
+}
+
+func (s *Server) handleInstanceTriggerPlaceholder(r *http.Request) (any, error) {
 	return map[string]any{
 		"data": map[string]any{
 			"status": "queued",

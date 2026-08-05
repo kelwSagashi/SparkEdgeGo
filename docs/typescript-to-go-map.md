@@ -299,7 +299,7 @@ Equivalencias praticas:
 | `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia, sincroniza tags por nome e salva destinos |
 | `InstanceController.update` | `instances.Service.Update` + `handleInstanceUpdate` | update parcial ou upsert completo quando houver destinos |
 | `InstanceController.remove` | `instances.Service.Delete` + `handleInstanceDelete` | remove instancia |
-| `InstanceController.triggerManual` | `handleInstanceTrigger` | placeholder ate ligar runner real |
+| `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit e registra `instance_executions`; providers/fallback ainda pendentes |
 | `InstanceController.listExecutions` | `handleInstanceExecutionsList` | placeholder ate migrar executions |
 
 O service Go ja preserva a normalizacao importante do TypeScript:
@@ -319,7 +319,6 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 Ainda falta para instancias:
 
 - `instance_executions`;
-- trigger real usando `runtime.Runner`;
 - integracao com fallback e providers.
 
 ## Providers e drivers

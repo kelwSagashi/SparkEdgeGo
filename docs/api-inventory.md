@@ -132,7 +132,7 @@ Origem:
 | POST | `/api/instances` | protegida | P0 | Migrada em Go com normalizacao de payload, tags, destinos e mappings. |
 | PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial ou upsert completo com destinos. |
 | DELETE | `/api/instances/:id` | protegida | P0 | Migrada em Go. |
-| POST | `/api/instances/:id/trigger` | protegida | P0 | Placeholder em Go ate ligar runner real. |
+| POST | `/api/instances/:id/trigger` | protegida | P0 | Migrada em Go com execucao Sparkit e registro em `instance_executions`; providers/fallback pendentes. |
 | GET | `/api/instances/:id/executions` | protegida | P0 | Migrada em Go usando `instance_executions`. |
 
 ## Instance Advanced
