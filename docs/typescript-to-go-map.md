@@ -299,7 +299,7 @@ Equivalencias praticas:
 | `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia, sincroniza tags por nome e salva destinos |
 | `InstanceController.update` | `instances.Service.Update` + `handleInstanceUpdate` | update parcial ou upsert completo quando houver destinos |
 | `InstanceController.remove` | `instances.Service.Delete` + `handleInstanceDelete` | remove instancia |
-| `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit e registra `instance_executions`; providers/fallback ainda pendentes |
+| `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit, aplica mappings e registra `instance_executions`; envio real/fallback ainda pendentes |
 | `InstanceController.listExecutions` | `handleInstanceExecutionsList` | placeholder ate migrar executions |
 
 O service Go ja preserva a normalizacao importante do TypeScript:
@@ -315,6 +315,7 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 - salva `destinations` em `instance_destinations`;
 - salva `mapping`, `data_mapping` ou `dataMapping` em `data_mappings`;
 - aceita `retry_policy` e `retryPolicy` para politica de retry do destino.
+- no runner, aplica `mapping`, `payload_template`/`payloadTemplate` e `custom_fields`/`customFields` antes do envio.
 
 Ainda falta para instancias:
 

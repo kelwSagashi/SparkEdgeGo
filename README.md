@@ -101,7 +101,7 @@ O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tag
 
 Samples locais podem ser apontados pela variavel `SPARKEDGE_SAMPLES_DIR`. Se ela nao existir, a aplicacao tenta localizar `extensions/samples` em caminhos relativos comuns ao ambiente de desenvolvimento.
 
-Instancias ja possuem CRUD, listagem por projeto, listagem de ativas, sincronizacao de tags por nome, persistencia de `instance_destinations`, persistencia de `data_mappings` e trigger manual com execucao Sparkit registrada em `instance_executions`. O envio para providers e fallback ainda sera conectado nas proximas ondas.
+Instancias ja possuem CRUD, listagem por projeto, listagem de ativas, sincronizacao de tags por nome, persistencia de `instance_destinations`, persistencia de `data_mappings` e trigger manual com execucao Sparkit registrada em `instance_executions`. O runner ja aplica mapping/template/custom fields dos destinos e registra payloads mapeados; o envio real para servers/resources/credentials e fallback ainda sera conectado nas proximas ondas.
 
 ## Ambiente Go no Windows
 

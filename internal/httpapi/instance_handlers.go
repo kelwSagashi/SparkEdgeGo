@@ -95,10 +95,11 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 		}
 	}
 
-	instance, err := s.deps.Instances.FindByID(r.Context(), r.PathValue("id"))
+	instanceWithDestinations, err := s.deps.Instances.GetWithDestinations(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return instanceError(err)
 	}
+	instance := instanceWithDestinations.Instance
 	script, err := s.deps.Scripts.FindByID(r.Context(), instance.ScriptID)
 	if err != nil {
 		return scriptError(err)
@@ -123,7 +124,7 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 	}
 
 	_, _ = s.deps.Instances.UpdateStatus(r.Context(), instance.ID, domain.InstanceStatusRunning)
-	result, runErr := s.deps.Runtime.Trigger(r.Context(), runtimeTriggerRequest(instance, script, triggerType, req.Input))
+	result, runErr := s.deps.Runtime.Trigger(r.Context(), runtimeTriggerRequest(instance, script, instanceWithDestinations.Destinations, triggerType, req.Input))
 
 	finishedAt := result.FinishedAt
 	if finishedAt.IsZero() {
@@ -140,8 +141,8 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 		}
 	}
 	errorMessage := result.Error
-	destinationSent := false
-	fallbackUsed := false
+	destinationSent := result.DestinationSent
+	fallbackUsed := result.FallbackUsed
 	logs := result.Logs
 	if len(logs) == 0 {
 		logs = []domain.ExecutionLog{{Level: "info", Message: "Execution finished", Timestamp: finishedAt}}
@@ -170,8 +171,9 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 		"data": map[string]any{
 			"execution": publicExecution(updatedExecution),
 			"result": map[string]any{
-				"status": result.Status,
-				"output": result.Output,
+				"status":          result.Status,
+				"output":          result.Output,
+				"mapped_payloads": result.MappedPayloads,
 			},
 		},
 		"error": nil,
@@ -187,15 +189,16 @@ type instanceTriggerRequest struct {
 	TriggerType domain.TriggerType `json:"trigger_type"`
 }
 
-func runtimeTriggerRequest(instance domain.Instance, script domain.DownloadedScript, triggerType domain.TriggerType, input map[string]any) runtime.TriggerRequest {
+func runtimeTriggerRequest(instance domain.Instance, script domain.DownloadedScript, destinations []domain.InstanceDestinationWithMapping, triggerType domain.TriggerType, input map[string]any) runtime.TriggerRequest {
 	if input == nil {
 		input = map[string]any{}
 	}
 	return runtime.TriggerRequest{
-		Instance: instance,
-		Script:   script,
-		Trigger:  triggerType,
-		Input:    input,
+		Instance:     instance,
+		Script:       script,
+		Destinations: destinations,
+		Trigger:      triggerType,
+		Input:        input,
 	}
 }
 
