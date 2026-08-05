@@ -15,24 +15,26 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/python/sparkit"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/scripts"
+	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 	"github.com/kelwSagashi/sparkedge-go/internal/tags"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
 type App struct {
-	DB         *sqlite.Store
-	Auth       *auth.Service
-	Users      *users.Service
-	Projects   *projects.Service
-	Scripts    *scripts.Service
-	Devices    *devices.Service
-	Tags       *tags.Service
-	Instances  *instances.Service
-	Executions *executions.Service
-	MQTT       *mqtt.Client
-	Providers  *providers.Registry
-	Runtime    *runtime.Runner
+	DB          *sqlite.Store
+	Auth        *auth.Service
+	Users       *users.Service
+	Projects    *projects.Service
+	Scripts     *scripts.Service
+	Devices     *devices.Service
+	Tags        *tags.Service
+	Instances   *instances.Service
+	Executions  *executions.Service
+	MQTT        *mqtt.Client
+	Providers   *providers.Registry
+	Runtime     *runtime.Runner
+	ServerInfra *serverinfra.Service
 }
 
 func New() *App {
@@ -62,22 +64,24 @@ func New() *App {
 			Sparkit:   sparkitExecutor,
 			Providers: providerRegistry,
 		}),
+		ServerInfra: serverinfra.NewService(store),
 	}
 }
 
 func (a *App) HTTPServer(addr string) *httpapi.Server {
 	return httpapi.NewServer(addr, httpapi.Dependencies{
-		DB:         a.DB,
-		Auth:       a.Auth,
-		Users:      a.Users,
-		Projects:   a.Projects,
-		Scripts:    a.Scripts,
-		Devices:    a.Devices,
-		Tags:       a.Tags,
-		Instances:  a.Instances,
-		Executions: a.Executions,
-		MQTT:       a.MQTT,
-		Providers:  a.Providers,
-		Runtime:    a.Runtime,
+		DB:          a.DB,
+		Auth:        a.Auth,
+		Users:       a.Users,
+		Projects:    a.Projects,
+		Scripts:     a.Scripts,
+		Devices:     a.Devices,
+		Tags:        a.Tags,
+		Instances:   a.Instances,
+		Executions:  a.Executions,
+		MQTT:        a.MQTT,
+		Providers:   a.Providers,
+		Runtime:     a.Runtime,
+		ServerInfra: a.ServerInfra,
 	})
 }

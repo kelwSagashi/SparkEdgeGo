@@ -14,24 +14,26 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
 	"github.com/kelwSagashi/sparkedge-go/internal/scripts"
+	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 	"github.com/kelwSagashi/sparkedge-go/internal/tags"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
 type Dependencies struct {
-	DB         *sqlite.Store
-	Auth       *auth.Service
-	Users      *users.Service
-	Projects   *projects.Service
-	Scripts    *scripts.Service
-	Devices    *devices.Service
-	Tags       *tags.Service
-	Instances  *instances.Service
-	Executions *executions.Service
-	MQTT       *mqtt.Client
-	Providers  *providers.Registry
-	Runtime    *runtime.Runner
+	DB          *sqlite.Store
+	Auth        *auth.Service
+	Users       *users.Service
+	Projects    *projects.Service
+	Scripts     *scripts.Service
+	Devices     *devices.Service
+	Tags        *tags.Service
+	Instances   *instances.Service
+	Executions  *executions.Service
+	MQTT        *mqtt.Client
+	Providers   *providers.Registry
+	Runtime     *runtime.Runner
+	ServerInfra *serverinfra.Service
 }
 
 type Server struct {
@@ -132,6 +134,20 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/projects/{id}", Adapt(s.handleProjectDelete))
 	mux.HandleFunc("GET /api/projects/{id}/members", Adapt(s.handleProjectMembersList))
 	mux.HandleFunc("POST /api/projects/{id}/members", Adapt(s.handleProjectMemberAdd))
+
+	mux.HandleFunc("GET /api/server-types", Adapt(s.handleServerTypesList))
+	mux.HandleFunc("GET /api/credentials", Adapt(s.handleCredentialsList))
+	mux.HandleFunc("POST /api/credentials", Adapt(s.handleCredentialCreate))
+	mux.HandleFunc("GET /api/credentials/{id}", Adapt(s.handleCredentialGet))
+	mux.HandleFunc("PUT /api/credentials/{id}", Adapt(s.handleCredentialUpdate))
+	mux.HandleFunc("DELETE /api/credentials/{id}", Adapt(s.handleCredentialDelete))
+	mux.HandleFunc("GET /api/servers", Adapt(s.handleServersList))
+	mux.HandleFunc("POST /api/servers", Adapt(s.handleServerCreate))
+	mux.HandleFunc("GET /api/servers/{id}", Adapt(s.handleServerGet))
+	mux.HandleFunc("PUT /api/servers/{id}", Adapt(s.handleServerUpdate))
+	mux.HandleFunc("DELETE /api/servers/{id}", Adapt(s.handleServerDelete))
+	mux.HandleFunc("GET /api/servers/{id}/resources", Adapt(s.handleServerResourcesList))
+	mux.HandleFunc("GET /api/resources/{id}/operations", Adapt(s.handleResourceOperationsList))
 }
 
 func (s *Server) withMiddlewares(next http.Handler) http.Handler {

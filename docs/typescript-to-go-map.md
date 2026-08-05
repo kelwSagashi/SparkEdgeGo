@@ -487,6 +487,10 @@ Equivalencias praticas:
 | `UserController.createApiKey` | `users.Service.CreateAPIKey` + `handleUserCreateAPIKey` | gera nova API key |
 | `dbManager.users` | `sqlite.UsersRepository` | persistencia local SQLite com GORM |
 
+Os controllers Express de `credentials`, `servers`, `server-types`, `resources` e `operations` correspondem aos handlers em `internal/httpapi/server_infrastructure_handlers.go`. A camada equivalente aos services de infraestrutura esta em `internal/serverinfra/service.go`, que valida requests e delega persistencia aos repositorios GORM.
+
+O cadastro local de servidor nao executa a integracao: `driver_key`, `credential_id` e a operacao resolvida sao a configuracao consumida futuramente pelo provider/driver.
+
 Por seguranca, as respostas REST usam a funcao `publicUser`, que nao devolve `password_hash`. A rota de API key devolve apenas `{ userId, apiKey }`, como no comportamento antigo.
 
 ## CLI

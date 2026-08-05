@@ -167,6 +167,33 @@ func (r *CredentialsRepository) FindByID(ctx context.Context, id string) (domain
 	return credentialFromModel(model), nil
 }
 
+func (r *CredentialsRepository) ListByOwner(ctx context.Context, ownerID string) ([]domain.Credential, error) {
+	var models []credentialModel
+	query := r.db.WithContext(ctx).Order("name ASC")
+	if ownerID != "" {
+		query = query.Where("owner_id = ? OR owner_id = ''", ownerID)
+	}
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.Credential, 0, len(models))
+	for _, model := range models {
+		result = append(result, credentialFromModel(model))
+	}
+	return result, nil
+}
+
+func (r *CredentialsRepository) Delete(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Delete(&credentialModel{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *ServersRepository) Upsert(ctx context.Context, params UpsertServerParams) (domain.Server, error) {
 	model := serverModel{ID: params.ID, Name: params.Name, Type: params.Type, ServerTypeID: params.ServerTypeID, DriverKey: params.DriverKey, CredentialID: params.CredentialID, Headers: mapJSON(params.Headers), ProjectID: params.ProjectID, CreatedBy: params.CreatedBy}
 	if model.ID == "" {
@@ -187,6 +214,33 @@ func (r *ServersRepository) FindByID(ctx context.Context, id string) (domain.Ser
 		return domain.Server{}, err
 	}
 	return serverFromModel(model), nil
+}
+
+func (r *ServersRepository) ListByProject(ctx context.Context, projectID string) ([]domain.Server, error) {
+	var models []serverModel
+	query := r.db.WithContext(ctx).Order("name ASC")
+	if projectID != "" {
+		query = query.Where("project_id = ?", projectID)
+	}
+	if err := query.Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.Server, 0, len(models))
+	for _, model := range models {
+		result = append(result, serverFromModel(model))
+	}
+	return result, nil
+}
+
+func (r *ServersRepository) Delete(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Delete(&serverModel{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *ServerResourcesRepository) Upsert(ctx context.Context, params UpsertServerResourceParams) (domain.ServerResource, error) {
@@ -211,6 +265,18 @@ func (r *ServerResourcesRepository) FindByID(ctx context.Context, id string) (do
 	return serverResourceFromModel(model), nil
 }
 
+func (r *ServerResourcesRepository) ListByServer(ctx context.Context, serverID string) ([]domain.ServerResource, error) {
+	var models []serverResourceModel
+	if err := r.db.WithContext(ctx).Where("server_id = ?", serverID).Order("name ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.ServerResource, 0, len(models))
+	for _, model := range models {
+		result = append(result, serverResourceFromModel(model))
+	}
+	return result, nil
+}
+
 func (r *ResourceOperationsRepository) Upsert(ctx context.Context, params UpsertResourceOperationParams) (domain.ResourceOperation, error) {
 	model := resourceOperationModel{ID: params.ID, ResourceID: params.ResourceID, Name: params.Name, Type: params.Type, Config: mapJSON(params.Config), InputSchema: mapJSON(params.InputSchema), OutputSchema: mapJSON(params.OutputSchema)}
 	if model.ID == "" {
@@ -228,6 +294,18 @@ func (r *ResourceOperationsRepository) FindByID(ctx context.Context, id string) 
 		return domain.ResourceOperation{}, err
 	}
 	return resourceOperationFromModel(model), nil
+}
+
+func (r *ResourceOperationsRepository) ListByResource(ctx context.Context, resourceID string) ([]domain.ResourceOperation, error) {
+	var models []resourceOperationModel
+	if err := r.db.WithContext(ctx).Where("resource_id = ?", resourceID).Order("name ASC").Find(&models).Error; err != nil {
+		return nil, err
+	}
+	result := make([]domain.ResourceOperation, 0, len(models))
+	for _, model := range models {
+		result = append(result, resourceOperationFromModel(model))
+	}
+	return result, nil
 }
 
 func (r *ResourceOperationsRepository) ResolveTarget(ctx context.Context, id string) (OperationTarget, error) {
