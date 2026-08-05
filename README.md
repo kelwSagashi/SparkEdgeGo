@@ -50,6 +50,12 @@ Rotas ja iniciadas:
 - `GET /api/scripts/{id}`
 - `PUT /api/scripts/{id}`
 - `DELETE /api/scripts/{id}`
+- `GET /api/scripts/{id}/contents/{filename}`
+- `POST /api/scripts/upload/inspect`
+- `POST /api/scripts/upload/finalize`
+- `POST /api/scripts/playground/run`
+- `GET /api/scripts/samples/list`
+- `GET /api/scripts/samples/{name}/schema`
 - `GET /api/projects`
 - `POST /api/projects`
 - `GET /api/projects/{id}`
@@ -66,7 +72,9 @@ O token de sessao permanece sendo JWT assinado com HS256. Ele e retornado no log
 
 Na camada de banco, os schemas iniciais ficam em structs Go usadas pela ORM. Isso deixa a migracao mais parecida com o Drizzle do projeto TypeScript: as tabelas sao descritas como tipos e os repositories manipulam entidades sem escrever SQL diretamente.
 
-O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. As rotas de upload, inspect, finalize e playground ainda serao migradas em uma onda propria, junto da integracao Sparkit/Python.
+O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. O fluxo de upload tambem ja valida `requirements.txt` com `sparkit`, cria venv, instala dependencias, captura schema via `--schema` e executa playground com `--input-file`.
+
+Samples locais podem ser apontados pela variavel `SPARKEDGE_SAMPLES_DIR`. Se ela nao existir, a aplicacao tenta localizar `extensions/samples` em caminhos relativos comuns ao ambiente de desenvolvimento.
 
 ## Ambiente Go no Windows
 

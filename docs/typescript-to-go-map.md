@@ -193,20 +193,17 @@ Equivalencias praticas:
 | `ScriptsController.create` | `scripts.Service.Create` + `handleScriptCreate` | cria registro manual |
 | `ScriptsController.update` | `scripts.Service.Update` + `handleScriptUpdate` | atualiza metadados |
 | `ScriptsController.remove` | `scripts.Service.Delete` + `handleScriptDelete` | remove registro e tenta remover pasta local |
+| `ScriptsController.getFileContent` | `scripts.Service.FileContent` + `handleScriptFileContent` | le arquivo dentro da pasta do script |
+| `ScriptsController.uploadInspect` | `scripts.Service.InspectZip` + `handleScriptUploadInspect` | extrai zip em temp e exige `sparkit` |
+| `ScriptsController.uploadFinalize` | `scripts.Service.FinalizeUpload` + `handleScriptUploadFinalize` | move pasta, cria venv, instala requirements e captura schema |
+| `ScriptsController.runPlayground` | `scripts.Service.RunPlayground` + `handleScriptPlaygroundRun` | executa script instalado com `--input-file` |
+| `ScriptsController.listSamples` | `scripts.Service.ListSamples` + `handleScriptSamplesList` | lista samples locais |
+| `ScriptsController.sampleSchema` | `scripts.Service.SampleSchema` + `handleScriptSampleSchema` | captura schema de sample |
 | `dbManager.downloadedScripts` | `sqlite.ScriptsRepository` | persistencia local SQLite com GORM |
 
 Campos JSON como `tags` e `schema_config` sao salvos por tipos auxiliares em `internal/sqlite/json.go`. Isso evita SQL manual e prepara a base para outros campos JSON de instancias, destinos, mappings e fallback.
 
-Ainda faltam em scripts:
-
-- `GET /api/scripts/{id}/contents/{filename}`;
-- `POST /api/scripts/upload/inspect`;
-- `POST /api/scripts/upload/finalize`;
-- `GET /api/scripts/samples/list`;
-- `GET /api/scripts/samples/{name}/schema`;
-- `POST /api/scripts/playground/run`.
-
-Essas rotas dependem de filesystem, zip, ambiente Python e Sparkit, entao entram melhor na proxima onda, junto de `internal/python/sparkit`.
+Samples locais sao resolvidos pela variavel `SPARKEDGE_SAMPLES_DIR` ou por caminhos relativos como `extensions/samples`. O playground agora aceita tanto `script_id` quanto `sample_name`.
 
 ## Providers e drivers
 

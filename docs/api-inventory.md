@@ -111,11 +111,11 @@ Origem: `packages/cli/src/scripts/script.controller.ts`
 | POST | `/api/scripts` | protegida | P1 | Cria registro manual. |
 | PUT | `/api/scripts/:id` | protegida | P1 | Atualiza registro. |
 | DELETE | `/api/scripts/:id` | protegida | P1 | Remove registro. |
-| POST | `/api/scripts/upload/inspect` | protegida | P0 | Upload via `multer`; valida `requirements.txt` com `sparkit`. |
-| POST | `/api/scripts/upload/finalize` | protegida | P0 | Cria venv, instala requirements e captura schema via `--schema`. |
-| GET | `/api/scripts/samples/list` | protegida | P2 | Lista exemplos locais. |
-| GET | `/api/scripts/samples/:name/schema` | protegida | P2 | Captura schema de sample. |
-| POST | `/api/scripts/playground/run` | protegida | P1 | Executa script/sample com input. |
+| POST | `/api/scripts/upload/inspect` | protegida | P0 | Migrada em Go com multipart, zip e validacao de `sparkit`. |
+| POST | `/api/scripts/upload/finalize` | protegida | P0 | Migrada em Go: cria venv, instala requirements e captura schema via `--schema`. |
+| GET | `/api/scripts/samples/list` | protegida | P2 | Migrada em Go com `SPARKEDGE_SAMPLES_DIR` e fallback para `extensions/samples`. |
+| GET | `/api/scripts/samples/:name/schema` | protegida | P2 | Migrada em Go via Sparkit `--schema`. |
+| POST | `/api/scripts/playground/run` | protegida | P1 | Migrada em Go para `script_id` e `sample_name`. |
 
 ## Instances
 

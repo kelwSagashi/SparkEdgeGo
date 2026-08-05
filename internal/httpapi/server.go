@@ -82,6 +82,12 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
 	mux.HandleFunc("POST /api/scripts", Adapt(s.handleScriptCreate))
+	mux.HandleFunc("POST /api/scripts/upload/inspect", Adapt(s.handleScriptUploadInspect))
+	mux.HandleFunc("POST /api/scripts/upload/finalize", Adapt(s.handleScriptUploadFinalize))
+	mux.HandleFunc("POST /api/scripts/playground/run", Adapt(s.handleScriptPlaygroundRun))
+	mux.HandleFunc("GET /api/scripts/samples/list", Adapt(s.handleScriptSamplesList))
+	mux.HandleFunc("GET /api/scripts/samples/{name}/schema", Adapt(s.handleScriptSampleSchema))
+	mux.HandleFunc("GET /api/scripts/{id}/contents/{filename}", Adapt(s.handleScriptFileContent))
 	mux.HandleFunc("GET /api/scripts/{id}", Adapt(s.handleScriptGet))
 	mux.HandleFunc("PUT /api/scripts/{id}", Adapt(s.handleScriptUpdate))
 	mux.HandleFunc("DELETE /api/scripts/{id}", Adapt(s.handleScriptDelete))

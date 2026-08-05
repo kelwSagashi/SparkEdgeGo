@@ -29,6 +29,7 @@ type App struct {
 
 func New() *App {
 	providerRegistry := providers.NewRegistry()
+	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
 	if err := store.Open(context.Background()); err != nil {
 		panic(err)
@@ -41,11 +42,11 @@ func New() *App {
 		Auth:      auth.NewService(store.Users, store.Projects, jwtSecret),
 		Users:     users.NewService(store.Users),
 		Projects:  projects.NewService(store.Projects, store.ProjectMembers),
-		Scripts:   scripts.NewService(store.Scripts),
+		Scripts:   scripts.NewService(store.Scripts, sparkitExecutor),
 		MQTT:      mqtt.NewClient(),
 		Providers: providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{
-			Sparkit:   sparkit.NewExecutor(),
+			Sparkit:   sparkitExecutor,
 			Providers: providerRegistry,
 		}),
 	}
