@@ -97,6 +97,8 @@ O token de sessao permanece sendo JWT assinado com HS256. Ele e retornado no log
 
 Na camada de banco, os schemas iniciais ficam em structs Go usadas pela ORM. Isso deixa a migracao mais parecida com o Drizzle do projeto TypeScript: as tabelas sao descritas como tipos e os repositories manipulam entidades sem escrever SQL diretamente.
 
+A infraestrutura de providers ja possui tabelas SQLite/GORM para `server_types`, `auth_type`, `credentials`, `servers`, `server_resources` e `resource_operations`. Isso prepara o caminho para o runner resolver `resource_operation_id` ate server/resource/credential antes de chamar adapters concretos.
+
 O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. O fluxo de upload tambem ja valida `requirements.txt` com `sparkit`, cria venv, instala dependencias, captura schema via `--schema` e executa playground com `--input-file`.
 
 Samples locais podem ser apontados pela variavel `SPARKEDGE_SAMPLES_DIR`. Se ela nao existir, a aplicacao tenta localizar `extensions/samples` em caminhos relativos comuns ao ambiente de desenvolvimento.

@@ -31,6 +31,12 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `TemplateResolver` | `internal/runtime.TemplateResolver` | templates, contexto e JSONPath |
 | `DestinationFactory` | `internal/providers.Registry` | cria adapter pelo tipo configurado |
 | `BaseAdapter` | interface `providers.Adapter` | contrato para destinos externos |
+| `ServerTypesTable` | `sqlite.serverTypeModel` | tipos de servidores externos |
+| `AuthorizationsTypeTable` | `sqlite.authTypeModel` | metadados de autenticacao |
+| `CredentialsTable` | `sqlite.credentialModel` | credenciais configuradas pelo usuario |
+| `ServersTable` | `sqlite.serverModel` | servidores externos configurados |
+| `ServerResourcesTable` | `sqlite.serverResourceModel` | recursos descobertos/configurados |
+| `ResourceOperationsTable` | `sqlite.resourceOperationModel` | operacoes usadas por destinos |
 | `spark-edge-core/modules/mqtt` | `internal/mqtt` | cliente EMQX, topicos e lifecycle |
 | `CommandRegistry` | `cmd/sparkedge-cli` | comandos locais |
 
@@ -361,6 +367,7 @@ No Go:
 - `internal/providers.Registry` registra factories;
 - cada provider implementa `providers.Adapter`;
 - `Send`, `Test` e `Discover` preservam o contrato atual.
+- `internal/sqlite/server_infrastructure.go` resolve `resource_operation_id` ate operation, resource, server e credential.
 
 Exemplo mental:
 

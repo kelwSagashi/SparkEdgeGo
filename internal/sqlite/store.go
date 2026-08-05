@@ -9,19 +9,25 @@ import (
 )
 
 type Store struct {
-	Path           string
-	db             *gorm.DB
-	Users          *UsersRepository
-	Projects       *ProjectsRepository
-	ProjectMembers *ProjectMembersRepository
-	Scripts        *ScriptsRepository
-	Devices        *DevicesRepository
-	Tags           *TagsRepository
-	InstanceTags   *InstanceTagsRepository
-	Instances      *InstancesRepository
-	Destinations   *InstanceDestinationsRepository
-	DataMappings   *DataMappingsRepository
-	Executions     *InstanceExecutionsRepository
+	Path               string
+	db                 *gorm.DB
+	Users              *UsersRepository
+	Projects           *ProjectsRepository
+	ProjectMembers     *ProjectMembersRepository
+	ServerTypes        *ServerTypesRepository
+	AuthTypes          *AuthTypesRepository
+	Credentials        *CredentialsRepository
+	Servers            *ServersRepository
+	ServerResources    *ServerResourcesRepository
+	ResourceOperations *ResourceOperationsRepository
+	Scripts            *ScriptsRepository
+	Devices            *DevicesRepository
+	Tags               *TagsRepository
+	InstanceTags       *InstanceTagsRepository
+	Instances          *InstancesRepository
+	Destinations       *InstanceDestinationsRepository
+	DataMappings       *DataMappingsRepository
+	Executions         *InstanceExecutionsRepository
 }
 
 func NewStore() *Store {
@@ -52,6 +58,12 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Users = NewUsersRepository(db)
 	s.Projects = NewProjectsRepository(db)
 	s.ProjectMembers = NewProjectMembersRepository(db)
+	s.ServerTypes = NewServerTypesRepository(db)
+	s.AuthTypes = NewAuthTypesRepository(db)
+	s.Credentials = NewCredentialsRepository(db)
+	s.Servers = NewServersRepository(db)
+	s.ServerResources = NewServerResourcesRepository(db)
+	s.ResourceOperations = NewResourceOperationsRepository(db)
 	s.Scripts = NewScriptsRepository(db)
 	s.Devices = NewDevicesRepository(db)
 	s.Tags = NewTagsRepository(db)
@@ -75,5 +87,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{})
 }

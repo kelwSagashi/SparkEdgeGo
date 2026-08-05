@@ -46,6 +46,89 @@ func (projectMemberModel) TableName() string {
 	return "project_members"
 }
 
+type serverTypeModel struct {
+	ID          string `gorm:"primaryKey;type:text"`
+	Key         string `gorm:"uniqueIndex;not null;type:text"`
+	Name        string `gorm:"not null;type:text"`
+	Description string `gorm:"type:text"`
+}
+
+func (serverTypeModel) TableName() string {
+	return "server_types"
+}
+
+type authTypeModel struct {
+	ID           string             `gorm:"primaryKey;type:text"`
+	Name         string             `gorm:"not null;type:text"`
+	Strategy     string             `gorm:"not null;type:text"`
+	Fields       authTypeFieldsJSON `gorm:"type:text"`
+	ServerTypeID string             `gorm:"type:text"`
+}
+
+func (authTypeModel) TableName() string {
+	return "auth_type"
+}
+
+type credentialModel struct {
+	ID         string  `gorm:"primaryKey;type:text"`
+	Name       string  `gorm:"not null;type:text"`
+	AuthTypeID string  `gorm:"not null;type:text"`
+	Data       mapJSON `gorm:"not null;type:text"`
+	OwnerID    string  `gorm:"type:text"`
+	ProjectID  string  `gorm:"type:text"`
+	CreatedAt  time.Time
+}
+
+func (credentialModel) TableName() string {
+	return "credentials"
+}
+
+type serverModel struct {
+	ID           string  `gorm:"primaryKey;type:text"`
+	Name         string  `gorm:"not null;type:text"`
+	Type         string  `gorm:"not null;type:text"`
+	ServerTypeID string  `gorm:"type:text"`
+	DriverKey    string  `gorm:"not null;type:text"`
+	CredentialID string  `gorm:"type:text"`
+	Headers      mapJSON `gorm:"type:text"`
+	ProjectID    string  `gorm:"not null;type:text"`
+	CreatedBy    string  `gorm:"type:text"`
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+func (serverModel) TableName() string {
+	return "servers"
+}
+
+type serverResourceModel struct {
+	ID        string  `gorm:"primaryKey;type:text"`
+	ServerID  string  `gorm:"not null;index;type:text"`
+	Name      string  `gorm:"not null;type:text"`
+	Type      string  `gorm:"not null;type:text"`
+	Config    mapJSON `gorm:"not null;type:text"`
+	CreatedAt time.Time
+}
+
+func (serverResourceModel) TableName() string {
+	return "server_resources"
+}
+
+type resourceOperationModel struct {
+	ID           string  `gorm:"primaryKey;type:text"`
+	ResourceID   string  `gorm:"not null;index;type:text"`
+	Name         string  `gorm:"not null;type:text"`
+	Type         string  `gorm:"not null;type:text"`
+	Config       mapJSON `gorm:"type:text"`
+	InputSchema  mapJSON `gorm:"type:text"`
+	OutputSchema mapJSON `gorm:"type:text"`
+	CreatedAt    time.Time
+}
+
+func (resourceOperationModel) TableName() string {
+	return "resource_operations"
+}
+
 type downloadedScriptModel struct {
 	ID               string          `gorm:"primaryKey;type:text"`
 	Name             string          `gorm:"not null;type:text"`
