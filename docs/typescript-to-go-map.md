@@ -397,6 +397,16 @@ Equivalencias praticas dos adapters HTTP:
 
 No envio de destinos, o runner tenta selecionar o provider pela credencial (`auth_type_id`) quando ela existe. Isso preserva a ideia dos adapters TypeScript, onde o tipo de autorizacao escolhe a estrategia concreta. Quando nao ha credencial e o servidor e HTTP, o runner usa `no_auth`.
 
+Equivalencias praticas do adapter Supabase:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `SupabaseServerType` | `supabaseprovider.ServerType` | cadastra o tipo `supabase` no catalogo |
+| `SupabaseAdapter.metadata` | `supabaseprovider.AuthTypes` | cadastra campos `url` e `apiKey` |
+| `SupabaseDriver.request` | `supabaseprovider.Adapter.request` | chama `/rest/v1/{table}` com `apikey` e bearer |
+| `SupabaseAdapter.send` | `supabaseprovider.Adapter.Send` | suporta `insert`, `update`, `upsert` e `select` |
+| `SupabaseAdapter.discover` | `supabaseprovider.Adapter.Discover` | le `definitions` do schema PostgREST |
+
 ## Middlewares
 
 No Express, temos:
