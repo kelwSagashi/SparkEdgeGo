@@ -1,0 +1,24 @@
+# Go
+/bin/
+/dist/
+/coverage.out
+.gocache/
+.gomodcache/
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+.sparkedge/
+.spark-edge/
+
+# Python script runtime
+venvs/
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
