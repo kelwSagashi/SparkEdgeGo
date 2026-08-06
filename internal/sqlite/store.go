@@ -31,6 +31,7 @@ type Store struct {
 	MqttCommands       *MqttCommandsRepository
 	MqttQueue          *MqttQueueRepository
 	Edge               *EdgeRepository
+	LocalFallback      *LocalFallbackRepository
 }
 
 func NewStore() *Store {
@@ -78,6 +79,7 @@ func (s *Store) Open(ctx context.Context) error {
 	s.MqttCommands = NewMqttCommandsRepository(db)
 	s.MqttQueue = NewMqttQueueRepository(db)
 	s.Edge = NewEdgeRepository(db)
+	s.LocalFallback = NewLocalFallbackRepository(db)
 	return nil
 }
 
@@ -93,5 +95,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{}, &localFallbackStorageModel{})
 }

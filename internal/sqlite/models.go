@@ -347,3 +347,23 @@ type edgeCredentialModel struct {
 func (edgeCredentialModel) TableName() string {
 	return "edge_credentials"
 }
+
+type localFallbackStorageModel struct {
+	ID            string `gorm:"primaryKey;type:text"`
+	InstanceID    string `gorm:"not null;index;type:text"`
+	DestinationID string `gorm:"type:text"`
+	ExecutionID   string `gorm:"type:text"`
+	Status        string `gorm:"not null;default:pending;type:text"`
+	Payload       string `gorm:"not null;type:text"`
+	Filepath      string `gorm:"type:text"`
+	RetryCount    int    `gorm:"not null;default:0"`
+	LastRetryAt   *time.Time
+	NextRetryAt   *time.Time
+	LastError     string `gorm:"type:text"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (localFallbackStorageModel) TableName() string {
+	return "local_fallback_storage"
+}

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -25,6 +26,17 @@ type Dependencies struct {
 	ResourceOperations interface {
 		ResolveTarget(context.Context, string) (sqlite.OperationTarget, error)
 	}
+	Fallback interface {
+		Create(context.Context, sqlite.CreateLocalFallbackParams) (domain.LocalFallbackItem, error)
+		ListPending(context.Context) ([]domain.LocalFallbackItem, error)
+		MarkAsSending(context.Context, string) (domain.LocalFallbackItem, error)
+		MarkAsSent(context.Context, string) (domain.LocalFallbackItem, error)
+		IncrementRetry(context.Context, string, string) (domain.LocalFallbackItem, error)
+		MarkAsFailed(context.Context, string, string) (domain.LocalFallbackItem, error)
+	}
+	Destinations interface {
+		FindByID(context.Context, string) (domain.InstanceDestination, error)
+	}
 }
 
 type Runner struct {
@@ -36,6 +48,7 @@ func NewRunner(deps Dependencies) *Runner {
 }
 
 type TriggerRequest struct {
+	ExecutionID  string
 	Instance     domain.Instance
 	Script       domain.DownloadedScript
 	Destinations []domain.InstanceDestinationWithMapping
@@ -112,6 +125,9 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 	result.FallbackUsed = delivery.fallback
 	result.Logs = append(result.Logs, delivery.logs...)
 	if deliveryErr != nil {
+		if delivery.fallback {
+			return finish(result, domain.ExecutionSuccess, ""), nil
+		}
 		return finish(result, domain.ExecutionFailed, deliveryErr.Error()), nil
 	}
 	return finish(result, domain.ExecutionSuccess, ""), nil
@@ -150,42 +166,10 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 			Payload:             payload,
 		})
 
-		providerKey := strings.TrimSpace(destination.ResourceOperationID)
-		providerConfig := providers.Config{Operation: map[string]any{"resource_operation_id": destination.ResourceOperationID}}
-		if r.deps.ResourceOperations != nil {
-			target, err := r.deps.ResourceOperations.ResolveTarget(ctx, destination.ResourceOperationID)
-			if err != nil {
-				failures = append(failures, destination.ID+": "+err.Error())
+		if err := r.sendToDestination(ctx, destination, payload); err != nil {
+			if r.enqueueFallback(ctx, req, destination.ID, payload, err.Error(), &result) {
 				continue
 			}
-			providerKey = strings.TrimSpace(target.Server.DriverKey)
-			providerConfig.Server = map[string]any{"id": target.Server.ID, "name": target.Server.Name, "type": target.Server.Type, "server_type_id": target.Server.ServerTypeID, "credential_id": target.Server.CredentialID, "headers": target.Server.Headers, "project_id": target.Server.ProjectID}
-			providerConfig.Resource = map[string]any{"id": target.Resource.ID, "server_id": target.Resource.ServerID, "name": target.Resource.Name, "type": target.Resource.Type, "config": target.Resource.Config}
-			providerConfig.Operation = map[string]any{"id": target.Operation.ID, "resource_id": target.Operation.ResourceID, "name": target.Operation.Name, "type": target.Operation.Type, "config": target.Operation.Config, "input_schema": target.Operation.InputSchema, "output_schema": target.Operation.OutputSchema}
-			if target.Credential != nil {
-				providerConfig.Credentials = map[string]any{"id": target.Credential.ID, "name": target.Credential.Name, "auth_type_id": target.Credential.AuthTypeID, "data": target.Credential.Data}
-				if strings.TrimSpace(target.Credential.AuthTypeID) != "" {
-					providerKey = strings.TrimSpace(target.Credential.AuthTypeID)
-				}
-			}
-			if providerKey == "http" && target.Credential == nil {
-				providerKey = "no_auth"
-			}
-		}
-		if r.deps.Providers == nil || providerKey == "" {
-			failures = append(failures, destination.ID+": provider not configured")
-			continue
-		}
-		adapter, ok, err := r.deps.Providers.Create(providerKey, providerConfig)
-		if err != nil {
-			failures = append(failures, destination.ID+": "+err.Error())
-			continue
-		}
-		if !ok {
-			failures = append(failures, destination.ID+": provider "+providerKey+" not registered")
-			continue
-		}
-		if err := adapter.Send(ctx, payload); err != nil {
 			failures = append(failures, destination.ID+": "+err.Error())
 			continue
 		}
@@ -199,6 +183,113 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 		result.logs = append(result.logs, newLog("info", "Destination dispatch completed", time.Now().UTC()))
 	}
 	return result, nil
+}
+
+func (r *Runner) FlushFallback(ctx context.Context, maxRetries int) (int, error) {
+	if r == nil || r.deps.Fallback == nil {
+		return 0, nil
+	}
+	items, err := r.deps.Fallback.ListPending(ctx)
+	if err != nil {
+		return 0, err
+	}
+	sent := 0
+	var failures []string
+	for _, item := range items {
+		if maxRetries > 0 && item.RetryCount >= maxRetries {
+			_, _ = r.deps.Fallback.MarkAsFailed(ctx, item.ID, "max retries exceeded")
+			continue
+		}
+		if item.DestinationID == "" || r.deps.Destinations == nil {
+			_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, "destination not configured")
+			failures = append(failures, item.ID+": destination not configured")
+			continue
+		}
+		destination, err := r.deps.Destinations.FindByID(ctx, item.DestinationID)
+		if err != nil {
+			_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, err.Error())
+			failures = append(failures, item.ID+": "+err.Error())
+			continue
+		}
+		payload := map[string]any{}
+		if err := json.Unmarshal([]byte(item.Payload), &payload); err != nil {
+			_, _ = r.deps.Fallback.MarkAsFailed(ctx, item.ID, err.Error())
+			failures = append(failures, item.ID+": "+err.Error())
+			continue
+		}
+		_, _ = r.deps.Fallback.MarkAsSending(ctx, item.ID)
+		if err := r.sendToDestination(ctx, destination, payload); err != nil {
+			if maxRetries > 0 && item.RetryCount+1 >= maxRetries {
+				_, _ = r.deps.Fallback.MarkAsFailed(ctx, item.ID, err.Error())
+			} else {
+				_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, err.Error())
+			}
+			failures = append(failures, item.ID+": "+err.Error())
+			continue
+		}
+		_, _ = r.deps.Fallback.MarkAsSent(ctx, item.ID)
+		sent++
+	}
+	if len(failures) > 0 {
+		return sent, errors.New(strings.Join(failures, "; "))
+	}
+	return sent, nil
+}
+
+func (r *Runner) sendToDestination(ctx context.Context, destination domain.InstanceDestination, payload map[string]any) error {
+	providerKey := strings.TrimSpace(destination.ResourceOperationID)
+	providerConfig := providers.Config{Operation: map[string]any{"resource_operation_id": destination.ResourceOperationID}}
+	if r.deps.ResourceOperations != nil {
+		target, err := r.deps.ResourceOperations.ResolveTarget(ctx, destination.ResourceOperationID)
+		if err != nil {
+			return err
+		}
+		providerKey = strings.TrimSpace(target.Server.DriverKey)
+		providerConfig.Server = map[string]any{"id": target.Server.ID, "name": target.Server.Name, "type": target.Server.Type, "server_type_id": target.Server.ServerTypeID, "credential_id": target.Server.CredentialID, "headers": target.Server.Headers, "project_id": target.Server.ProjectID}
+		providerConfig.Resource = map[string]any{"id": target.Resource.ID, "server_id": target.Resource.ServerID, "name": target.Resource.Name, "type": target.Resource.Type, "config": target.Resource.Config}
+		providerConfig.Operation = map[string]any{"id": target.Operation.ID, "resource_id": target.Operation.ResourceID, "name": target.Operation.Name, "type": target.Operation.Type, "config": target.Operation.Config, "input_schema": target.Operation.InputSchema, "output_schema": target.Operation.OutputSchema}
+		if target.Credential != nil {
+			providerConfig.Credentials = map[string]any{"id": target.Credential.ID, "name": target.Credential.Name, "auth_type_id": target.Credential.AuthTypeID, "data": target.Credential.Data}
+			if strings.TrimSpace(target.Credential.AuthTypeID) != "" {
+				providerKey = strings.TrimSpace(target.Credential.AuthTypeID)
+			}
+		}
+		if providerKey == "http" && target.Credential == nil {
+			providerKey = "no_auth"
+		}
+	}
+	if r.deps.Providers == nil || providerKey == "" {
+		return errors.New("provider not configured")
+	}
+	adapter, ok, err := r.deps.Providers.Create(providerKey, providerConfig)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.New("provider " + providerKey + " not registered")
+	}
+	return adapter.Send(ctx, payload)
+}
+
+func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destinationID string, payload map[string]any, reason string, result *deliveryResult) bool {
+	if !req.Instance.FallbackEnabled || r.deps.Fallback == nil {
+		return false
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return false
+	}
+	if _, err := r.deps.Fallback.Create(ctx, sqlite.CreateLocalFallbackParams{
+		InstanceID:    req.Instance.ID,
+		DestinationID: destinationID,
+		ExecutionID:   req.ExecutionID,
+		Payload:       string(encoded),
+	}); err != nil {
+		return false
+	}
+	result.fallback = true
+	result.logs = append(result.logs, newLog("info", "Enqueued destination "+destinationID+" into fallback storage: "+reason, time.Now().UTC()))
+	return true
 }
 
 func applyMapping(mapping *domain.DataMapping, output map[string]any, req TriggerRequest) map[string]any {

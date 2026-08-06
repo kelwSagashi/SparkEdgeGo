@@ -102,6 +102,7 @@ func (a *App) triggerInstance(ctx context.Context, instanceID string, input map[
 
 	_, _ = a.Instances.UpdateStatus(ctx, instance.ID, domain.InstanceStatusRunning)
 	result, runErr := a.Runtime.Trigger(ctx, apperuntime.TriggerRequest{
+		ExecutionID:  execution.ID,
 		Instance:     instance,
 		Script:       script,
 		Destinations: instanceWithDestinations.Destinations,

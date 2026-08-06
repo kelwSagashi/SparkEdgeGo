@@ -27,6 +27,7 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | Drizzle schemas | GORM models | definicao das tabelas por structs |
 | `dbManager.repositories` | repositories Go usando GORM | acesso ao banco por entidade |
 | `InstanceRunnerService` | `internal/runtime.Runner` | motor de execucao de instancias |
+| `FallbackQueueService` | `internal/sqlite.LocalFallbackRepository` + `runtime.Runner.FlushFallback` | fila local e retry de destinos |
 | `PythonVenvService` | `internal/python/sparkit.Executor` | execucao de scripts Python |
 | `TemplateResolver` | `internal/runtime.TemplateResolver` | templates, contexto e JSONPath |
 | `DestinationFactory` | `internal/providers.Registry` | cria adapter pelo tipo configurado |
@@ -348,8 +349,37 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 
 Ainda falta para instancias:
 
-- `instance_executions`;
-- integracao com fallback e providers.
+- scheduler automatico por intervalo/webhook.
+
+## Fallback local
+
+No TypeScript, a fila local fica em:
+
+- `packages/cli/src/instances/fallback-queue.service.ts`;
+- `packages/db/src/repositories/localFallbackStorage.repository.ts`;
+- tabela `local_fallback_storage`.
+
+No Go:
+
+- `internal/domain/fallback.go`: status e entidade `LocalFallbackItem`;
+- `internal/sqlite/local_fallback.go`: repository GORM da tabela `local_fallback_storage`;
+- `internal/runtime.Runner`: enfileira fallback quando destino falha;
+- `runtime.Runner.FlushFallback`: tenta reenviar itens pendentes;
+- `GET /api/fallback/stats`: estatisticas da fila;
+- `POST /api/fallback/flush`: flush manual da fila.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `FallbackQueueService.enqueue` | `LocalFallbackRepository.Create` chamado pelo runner | salva payload mapeado quando destino falha |
+| `FallbackQueueService.flush` | `runtime.Runner.FlushFallback` | reenvia usando destino original |
+| `localFallback.listPending` | `LocalFallbackRepository.ListPending` | lista itens `pending` em ordem de criacao |
+| `localFallback.markAsSending` | `LocalFallbackRepository.MarkAsSending` | marca tentativa em andamento |
+| `localFallback.markAsSent` | `LocalFallbackRepository.MarkAsSent` | marca envio concluido |
+| `localFallback.incrementRetry` | `LocalFallbackRepository.IncrementRetry` | volta para pending e incrementa contador |
+| retry excedido | `LocalFallbackRepository.MarkAsFailed` | marca como `failed` quando passa do limite |
+| `InstanceScheduler.triggerFallbackFlush` | `POST /api/fallback/flush` | flush manual enquanto scheduler nao e migrado |
 
 ## Providers e drivers
 

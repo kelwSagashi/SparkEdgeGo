@@ -91,6 +91,8 @@ func New() *App {
 			Sparkit:            sparkitExecutor,
 			Providers:          providerRegistry,
 			ResourceOperations: store.ResourceOperations,
+			Fallback:           store.LocalFallback,
+			Destinations:       store.Destinations,
 		}),
 		ServerInfra: serverInfraService,
 	}

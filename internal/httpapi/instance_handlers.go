@@ -124,7 +124,9 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 	}
 
 	_, _ = s.deps.Instances.UpdateStatus(r.Context(), instance.ID, domain.InstanceStatusRunning)
-	result, runErr := s.deps.Runtime.Trigger(r.Context(), runtimeTriggerRequest(instance, script, instanceWithDestinations.Destinations, triggerType, req.Input))
+	runtimeReq := runtimeTriggerRequest(instance, script, instanceWithDestinations.Destinations, triggerType, req.Input)
+	runtimeReq.ExecutionID = execution.ID
+	result, runErr := s.deps.Runtime.Trigger(r.Context(), runtimeReq)
 
 	finishedAt := result.FinishedAt
 	if finishedAt.IsZero() {
@@ -194,6 +196,7 @@ func runtimeTriggerRequest(instance domain.Instance, script domain.DownloadedScr
 		input = map[string]any{}
 	}
 	return runtime.TriggerRequest{
+		ExecutionID:  "",
 		Instance:     instance,
 		Script:       script,
 		Destinations: destinations,
