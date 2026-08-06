@@ -29,6 +29,7 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `InstanceRunnerService` | `internal/runtime.Runner` | motor de execucao de instancias |
 | `FallbackQueueService` | `internal/sqlite.LocalFallbackRepository` + `runtime.Runner.FlushFallback` | fila local e retry de destinos |
 | `InstanceSchedulerService` | `internal/app.StartScheduler` | poll de instancias por intervalo e flush de fallback |
+| `WebhookController` | `internal/httpapi/webhook_handlers.go` | trigger de instancia via `/api/webhook/{instanceId}` |
 | `PythonVenvService` | `internal/python/sparkit.Executor` | execucao de scripts Python |
 | `TemplateResolver` | `internal/runtime.TemplateResolver` | templates, contexto e JSONPath |
 | `DestinationFactory` | `internal/providers.Registry` | cria adapter pelo tipo configurado |
@@ -348,9 +349,7 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 - aceita `retry_policy` e `retryPolicy` para politica de retry do destino.
 - no runner, aplica `mapping`, `payload_template`/`payloadTemplate` e `custom_fields`/`customFields` antes do envio.
 
-Ainda falta para instancias:
-
-- endpoint webhook dedicado em `/api/webhook/*`.
+Com isso, os triggers principais ja existem no Go: manual, MQTT, intervalo e webhook.
 
 ## Fallback local
 

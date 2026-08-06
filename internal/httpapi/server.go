@@ -149,6 +149,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/executions/{id}", Adapt(s.handleExecutionGet))
 	mux.HandleFunc("GET /api/fallback/stats", Adapt(s.handleFallbackStats))
 	mux.HandleFunc("POST /api/fallback/flush", Adapt(s.handleFallbackFlush))
+	mux.HandleFunc("POST /api/webhook/{instanceId}", Adapt(s.handleWebhookReceive))
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
 	mux.HandleFunc("POST /api/scripts", Adapt(s.handleScriptCreate))
