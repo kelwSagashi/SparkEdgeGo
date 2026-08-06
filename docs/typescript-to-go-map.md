@@ -566,6 +566,8 @@ Equivalencias praticas:
 | `CliController.disconnect` | `handleCliDisconnect` | `POST /api/cli/disconnect` preserva credenciais |
 | `CliController.reconnect` | `handleCliReconnect` | `POST /api/cli/reconnect` usa credenciais salvas |
 | `CliController.remove` | `handleCliRemove` | `POST /api/cli/remove` limpa provisionamento local |
+| `CliController.getConfig` | `handleCliConfigGet` | `GET /api/cli/config` le config efetiva de env/defaults |
+| `CliController.updateConfig` | `handleCliConfigUpdate` | `PUT /api/cli/config` valida payload e orienta restart com envs |
 
 No `sparkedge-cli`, os comandos equivalentes ja existem como `status`, `onboarding`, `pair`, `connect`, `disconnect`, `reconnect` e `remove`.
 
@@ -613,6 +615,8 @@ Equivalencias praticas:
 | cookie `spark_edge_token` | cookie `spark_edge_token` | mantido para compatibilidade conceitual |
 | `Authorization: Bearer` | `Authorization: Bearer` | mantido |
 | `x-api-key` | `x-api-key` | mantido |
+| `AuthController.logout` | `POST /api/auth/logout` | limpa cookie de sessao |
+| `AuthController.generateNewApiKey` | `POST /api/auth/generate-new-api-key/{userId}` | rota compativel alem de `/users/{id}/api-key` |
 
 ## Projetos
 

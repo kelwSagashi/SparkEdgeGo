@@ -55,9 +55,9 @@ Origem: `packages/cli/src/auth/auth.controller.ts`
 | --- | --- | --- | --- | --- |
 | POST | `/api/auth/register` | aberta | P0 | Cria usuario local. |
 | POST | `/api/auth/login` | aberta | P0 | Cria cookie `spark_edge_token` e publica contexto via MQTT. |
-| POST | `/api/auth/logout` | aberta | P0 | Limpa cookie e contexto MQTT. |
+| POST | `/api/auth/logout` | aberta | P0 | Migrada em Go; limpa cookie. |
 | GET | `/api/auth/me` | aberta | P0 | Retorna usuario resolvido pelo middleware, se houver. |
-| POST | `/api/auth/generate-new-api-key/:userId` | aberta | P1 | Gera nova API key. Rever se deve permanecer aberta. |
+| POST | `/api/auth/generate-new-api-key/:userId` | aberta | P1 | Migrada em Go; gera nova API key. Rever se deve permanecer aberta. |
 
 ## Users
 
@@ -276,8 +276,8 @@ Origem: `packages/cli/src/integrations/mqtt/cli.controller.ts`
 | POST | `/api/cli/disconnect` | nao protegida pelo middleware atual | P1 | Desconecta preservando identidade. |
 | POST | `/api/cli/reconnect` | nao protegida pelo middleware atual | P1 | Reconecta com credenciais atuais. |
 | POST | `/api/cli/remove` | nao protegida pelo middleware atual | P1 | Remove vinculo cloud. |
-| GET | `/api/cli/config` | nao protegida pelo middleware atual | P1 | Le config local. |
-| PUT | `/api/cli/config` | nao protegida pelo middleware atual | P1 | Atualiza config local. |
+| GET | `/api/cli/config` | nao protegida pelo middleware atual | P1 | Migrada em Go lendo env/defaults. |
+| PUT | `/api/cli/config` | nao protegida pelo middleware atual | P1 | Migrada em Go como validacao; aplicacao efetiva via env/restart. |
 
 ## Spark Cloud Proxy
 

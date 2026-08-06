@@ -82,7 +82,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/auth/register", Adapt(s.handleRegister))
 	mux.HandleFunc("POST /api/auth/login", Adapt(s.handleLogin))
+	mux.HandleFunc("POST /api/auth/logout", Adapt(s.handleLogout))
 	mux.HandleFunc("GET /api/auth/me", Adapt(s.handleMe))
+	mux.HandleFunc("POST /api/auth/generate-new-api-key/{userId}", Adapt(s.handleAuthGenerateAPIKey))
 
 	mux.HandleFunc("GET /api/cli/onboarding", Adapt(s.handleCliOnboardingGet))
 	mux.HandleFunc("POST /api/cli/onboarding", Adapt(s.handleCliOnboardingSave))
@@ -92,6 +94,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/cli/disconnect", Adapt(s.handleCliDisconnect))
 	mux.HandleFunc("POST /api/cli/reconnect", Adapt(s.handleCliReconnect))
 	mux.HandleFunc("POST /api/cli/remove", Adapt(s.handleCliRemove))
+	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
+	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
 
 	mux.HandleFunc("GET /api/users", Adapt(s.handleUsersList))
 	mux.HandleFunc("POST /api/users", Adapt(s.handleUserCreate))

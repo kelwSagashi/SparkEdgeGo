@@ -74,6 +74,31 @@ func (s *Server) handleMe(r *http.Request) (any, error) {
 	}}, nil
 }
 
+func (s *Server) handleLogout(_ *http.Request) (any, error) {
+	return ResponsePayload{
+		Status: http.StatusOK,
+		Headers: map[string]string{
+			"Set-Cookie": (&http.Cookie{
+				Name:     authCookieName,
+				Value:    "",
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				Path:     "/",
+				MaxAge:   -1,
+			}).String(),
+		},
+		Body: map[string]any{"data": map[string]any{"success": true}, "error": nil},
+	}, nil
+}
+
+func (s *Server) handleAuthGenerateAPIKey(r *http.Request) (any, error) {
+	apiKey, err := s.deps.Auth.GenerateAPIKey(r.Context(), r.PathValue("userId"))
+	if err != nil {
+		return userError(err)
+	}
+	return map[string]any{"data": map[string]any{"userId": r.PathValue("userId"), "apiKey": apiKey}, "error": nil}, nil
+}
+
 func loginResponseWriter(token string, user map[string]any) ResponsePayload {
 	return ResponsePayload{
 		Status: http.StatusOK,
