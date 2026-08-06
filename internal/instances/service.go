@@ -30,8 +30,10 @@ type TagsService interface {
 
 type DestinationRepository interface {
 	Upsert(ctx context.Context, params sqlite.UpsertInstanceDestinationParams) (domain.InstanceDestination, error)
+	FindByID(ctx context.Context, id string) (domain.InstanceDestination, error)
 	ListByInstance(ctx context.Context, instanceID string) ([]domain.InstanceDestination, error)
 	DeleteByInstance(ctx context.Context, instanceID string) error
+	Delete(ctx context.Context, id string) error
 }
 
 type DataMappingRepository interface {
@@ -228,6 +230,86 @@ func (s *Service) UpdateStatus(ctx context.Context, id string, status domain.Ins
 		return domain.Instance{}, ErrInvalidInstance
 	}
 	return s.instances.UpdateStatus(ctx, id, status)
+}
+
+func (s *Service) ListDestinations(ctx context.Context, instanceID string) ([]domain.InstanceDestinationWithMapping, error) {
+	if strings.TrimSpace(instanceID) == "" {
+		return nil, ErrInvalidInstance
+	}
+	return s.destinationsWithMappings(ctx, instanceID)
+}
+
+func (s *Service) AddDestination(ctx context.Context, instanceID string, payload DestinationPayload) (domain.InstanceDestinationWithMapping, error) {
+	if strings.TrimSpace(instanceID) == "" || s.destinations == nil {
+		return domain.InstanceDestinationWithMapping{}, ErrInvalidInstance
+	}
+	destination, err := s.destinations.Upsert(ctx, destinationParams(instanceID, payload))
+	if err != nil {
+		return domain.InstanceDestinationWithMapping{}, err
+	}
+	item := domain.InstanceDestinationWithMapping{Destination: destination}
+	mapping := firstMappingData(payload.Mapping, payload.DataMapping, payload.DataMappingCamel)
+	if s.mappings != nil && mapping != nil {
+		saved, err := s.mappings.Upsert(ctx, mappingParams(destination.ID, *mapping))
+		if err != nil {
+			return domain.InstanceDestinationWithMapping{}, err
+		}
+		item.Mapping = &saved
+	}
+	return item, nil
+}
+
+func (s *Service) UpdateDestination(ctx context.Context, destinationID string, payload DestinationPayload) (domain.InstanceDestinationWithMapping, error) {
+	if strings.TrimSpace(destinationID) == "" || s.destinations == nil {
+		return domain.InstanceDestinationWithMapping{}, ErrInvalidInstance
+	}
+	existing, err := s.destinations.FindByID(ctx, destinationID)
+	if err != nil {
+		return domain.InstanceDestinationWithMapping{}, err
+	}
+	payload.Destination = &DestinationData{
+		ID:                  destinationID,
+		ResourceOperationID: existing.ResourceOperationID,
+		Enabled:             &existing.Enabled,
+		Priority:            existing.Priority,
+		RetryPolicy: map[string]any{
+			"max_retries":    existing.RetryPolicy.MaxRetries,
+			"retry_interval": existing.RetryPolicy.RetryInterval,
+		},
+	}
+	destination, err := s.destinations.Upsert(ctx, destinationParams(existing.InstanceID, payload))
+	if err != nil {
+		return domain.InstanceDestinationWithMapping{}, err
+	}
+	item := domain.InstanceDestinationWithMapping{Destination: destination}
+	if s.mappings != nil {
+		mapping, err := s.mappings.GetByInstanceDestination(ctx, destination.ID)
+		if err == nil {
+			item.Mapping = &mapping
+		} else if !errors.Is(err, sqlite.ErrNotFound) {
+			return domain.InstanceDestinationWithMapping{}, err
+		}
+	}
+	return item, nil
+}
+
+func (s *Service) DeleteDestination(ctx context.Context, destinationID string) error {
+	if strings.TrimSpace(destinationID) == "" || s.destinations == nil {
+		return ErrInvalidInstance
+	}
+	if s.mappings != nil {
+		if err := s.mappings.DeleteByInstanceDestination(ctx, destinationID); err != nil {
+			return err
+		}
+	}
+	return s.destinations.Delete(ctx, destinationID)
+}
+
+func (s *Service) SetDataMapping(ctx context.Context, destinationID string, payload MappingData) (domain.DataMapping, error) {
+	if strings.TrimSpace(destinationID) == "" || s.mappings == nil {
+		return domain.DataMapping{}, ErrInvalidInstance
+	}
+	return s.mappings.Upsert(ctx, mappingParams(destinationID, payload))
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {

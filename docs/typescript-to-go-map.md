@@ -311,6 +311,26 @@ Equivalencias praticas:
 | `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit, aplica mappings e registra `instance_executions`; envio real/fallback ainda pendentes |
 | `InstanceController.listExecutions` | `handleInstanceExecutionsList` | placeholder ate migrar executions |
 
+`instance-advanced.controller.ts` existia no TypeScript, mas nao era registrado no servidor Express. Na versao Go ele foi consolidado em `/api/instance-advanced`, sem sobrescrever `/api/instances`.
+
+Equivalencias praticas do controller avancado:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `InstanceAdvancedController.listAll` | `GET /api/instance-advanced` | alias para listagem de instancias |
+| `InstanceAdvancedController.listByProject` | `GET /api/instance-advanced/project/{projectId}` | usa service de instancias |
+| `InstanceAdvancedController.getDestinations` | `GET /api/instance-advanced/{id}/destinations` | retorna destinos com mapping |
+| `InstanceAdvancedController.addDestination` | `POST /api/instance-advanced/{id}/destinations` | cria destino da instancia |
+| `InstanceAdvancedController.updateDestination` | `PUT /api/instance-advanced/{id}/destinations/{destinationId}` | atualiza destino |
+| `InstanceAdvancedController.deleteDestination` | `DELETE /api/instance-advanced/{id}/destinations/{destinationId}` | remove destino e mapping associado |
+| `InstanceAdvancedController.setDataMapping` | `PUT /api/instance-advanced/{id}/destinations/{destinationId}/mapping` | cria/atualiza mapping |
+| `InstanceAdvancedController.getAvailableFields` | `GET /api/instance-advanced/{id}/available-fields` | retorna schema do script vinculado |
+| `InstanceAdvancedController.toggleActive` | `PUT /api/instance-advanced/{id}/active` | atualiza `active` |
+| `InstanceAdvancedController.getStatus` | `GET /api/instance-advanced/{id}/status` | retorna status e active |
+| `InstanceAdvancedController.updateTriggerConfig` | `PUT /api/instance-advanced/{id}/trigger-config` | update parcial de trigger |
+| `InstanceAdvancedController.updateScriptParams` | `PUT /api/instance-advanced/{id}/script-params` | update parcial de parametros |
+| `InstanceAdvancedController.updateFallbackConfig` | `PUT /api/instance-advanced/{id}/fallback-config` | update parcial de fallback |
+
 O service Go ja preserva a normalizacao importante do TypeScript:
 
 - aceita `project_id` e `projectId`;

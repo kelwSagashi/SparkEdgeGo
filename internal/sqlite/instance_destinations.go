@@ -84,6 +84,17 @@ func (r *InstanceDestinationsRepository) DeleteByInstance(ctx context.Context, i
 	return r.db.WithContext(ctx).Where("instance_id = ?", instanceID).Delete(&instanceDestinationModel{}).Error
 }
 
+func (r *InstanceDestinationsRepository) Delete(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&instanceDestinationModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func destinationModelFromParams(params UpsertInstanceDestinationParams) instanceDestinationModel {
 	model := instanceDestinationModel{ID: params.ID}
 	applyDestinationParams(&model, params)
