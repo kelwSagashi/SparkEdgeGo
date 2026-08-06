@@ -285,8 +285,8 @@ Origem: `packages/cli/src/integrations/spark-cloud/spark-cloud.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade | Observacao |
 | --- | --- | --- | --- | --- |
-| POST | `/api/spark-cloud/auth/login` | nao protegida pelo middleware atual | P1 | Proxy/login no Spark Cloud. |
-| POST | `/api/spark-cloud/edges/register` | nao protegida pelo middleware atual | P1 | Registro de edge. |
+| POST | `/api/spark-cloud/auth/login` | nao protegida pelo middleware atual | Migrada | Simulador local do Spark Cloud para login de provisionamento. |
+| POST | `/api/spark-cloud/edges/register` | nao protegida pelo middleware atual | Migrada | Simulador local de registro de edge com credenciais MQTT/EMQX. |
 
 ## Ordem sugerida para portar
 

@@ -50,6 +50,8 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `provision.service.ts` | `internal/edge.Service` | identidade, credenciais MQTT e pareamento |
 | `edge.cloud.ts` | `internal/edge.HTTPCloudClient` | login, register, pair e unpair via HTTP |
 | `cli.controller.ts` | `internal/httpapi/cli_handlers.go` | rotas `/api/cli/*` para frontend local |
+| `SparkCloudController.login` | `POST /api/spark-cloud/auth/login` | simulador local de login do Spark Cloud |
+| `SparkCloudController.register` | `POST /api/spark-cloud/edges/register` | simulador local de registro e credenciais MQTT |
 | `CommandRegistry` | `cmd/sparkedge-cli` | comandos locais |
 
 ## Como pensar em Go
