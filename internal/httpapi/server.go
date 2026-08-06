@@ -173,6 +173,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/credentials/config/meta", Adapt(s.handleAuthTypesList))
 	mux.HandleFunc("GET /api/credentials", Adapt(s.handleCredentialsList))
 	mux.HandleFunc("POST /api/credentials", Adapt(s.handleCredentialCreate))
+	mux.HandleFunc("POST /api/credentials/test", Adapt(s.handleCredentialTest))
 	mux.HandleFunc("GET /api/credentials/{id}", Adapt(s.handleCredentialGet))
 	mux.HandleFunc("PUT /api/credentials/{id}", Adapt(s.handleCredentialUpdate))
 	mux.HandleFunc("DELETE /api/credentials/{id}", Adapt(s.handleCredentialDelete))

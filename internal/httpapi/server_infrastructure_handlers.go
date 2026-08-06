@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers"
 	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 )
@@ -73,6 +74,34 @@ func (s *Server) handleCredentialDelete(r *http.Request) (any, error) {
 		return infraError(err)
 	}
 	return map[string]any{"data": map[string]any{"deleted": true}, "error": nil}, nil
+}
+
+func (s *Server) handleCredentialTest(r *http.Request) (any, error) {
+	var req struct {
+		AuthTypeID string         `json:"auth_type_id"`
+		Data       map[string]any `json:"data"`
+		Payload    map[string]any `json:"payload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	if req.AuthTypeID == "" {
+		return nil, NewHTTPError(http.StatusBadRequest, "auth_type_id is required")
+	}
+	adapter, ok, err := s.deps.Providers.Create(req.AuthTypeID, providerTestConfig(req.AuthTypeID, req.Data))
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}, nil
+	}
+	if !ok {
+		return map[string]any{"success": false, "error": "Provider not registered"}, nil
+	}
+	if req.Payload == nil {
+		req.Payload = map[string]any{}
+	}
+	if err := adapter.Test(r.Context(), req.Payload); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}, nil
+	}
+	return map[string]any{"success": true, "data": map[string]any{"ok": true}}, nil
 }
 
 func (s *Server) handleServersList(r *http.Request) (any, error) {
@@ -177,4 +206,16 @@ func publicServers(items []domain.Server) []map[string]any {
 }
 func publicServer(item domain.Server) map[string]any {
 	return map[string]any{"id": item.ID, "name": item.Name, "type": item.Type, "server_type_id": item.ServerTypeID, "driver_key": item.DriverKey, "credential_id": item.CredentialID, "headers": item.Headers, "project_id": item.ProjectID, "created_by": item.CreatedBy, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt}
+}
+
+func providerTestConfig(authTypeID string, data map[string]any) providers.Config {
+	if data == nil {
+		data = map[string]any{}
+	}
+	return providers.Config{
+		Server:      map[string]any{"type": authTypeID, "driver_key": authTypeID},
+		Resource:    map[string]any{"type": "test", "config": map[string]any{}},
+		Operation:   map[string]any{"type": "test", "config": map[string]any{}},
+		Credentials: map[string]any{"auth_type_id": authTypeID, "data": data},
+	}
 }
