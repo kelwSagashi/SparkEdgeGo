@@ -96,6 +96,22 @@ func (s *Server) handleCliRemove(r *http.Request) (any, error) {
 	return map[string]any{"success": true, "message": "Edge resetado com sucesso (conexao removida)."}, nil
 }
 
+func (s *Server) handleCliMQTTConfigGet(r *http.Request) (any, error) {
+	provisioned, err := s.deps.Edge.Load(r.Context())
+	if errors.Is(err, edge.ErrNotProvisioned) {
+		return map[string]any{"broker_url": "", "username": "", "has_password": false}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"broker_url":   provisioned.MQTT.URL,
+		"username":     provisioned.MQTT.Username,
+		"has_password": provisioned.MQTT.Password != "",
+		"password":     provisioned.MQTT.Password,
+	}, nil
+}
+
 func cliEdgeError(err error) (any, error) {
 	if errors.Is(err, edge.ErrInvalidOnboarding) {
 		return nil, NewHTTPError(http.StatusBadRequest, "invalid edge onboarding")

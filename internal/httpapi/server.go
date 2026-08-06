@@ -94,6 +94,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/cli/disconnect", Adapt(s.handleCliDisconnect))
 	mux.HandleFunc("POST /api/cli/reconnect", Adapt(s.handleCliReconnect))
 	mux.HandleFunc("POST /api/cli/remove", Adapt(s.handleCliRemove))
+	mux.HandleFunc("GET /api/cli/mqtt-config", Adapt(s.handleCliMQTTConfigGet))
 	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
 	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
@@ -161,6 +162,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/webhook/{instanceId}", Adapt(s.handleWebhookReceive))
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
+	mux.HandleFunc("GET /api/scripts/downloaded", Adapt(s.handleScriptsList))
 	mux.HandleFunc("POST /api/scripts", Adapt(s.handleScriptCreate))
 	mux.HandleFunc("POST /api/scripts/upload/inspect", Adapt(s.handleScriptUploadInspect))
 	mux.HandleFunc("POST /api/scripts/upload/finalize", Adapt(s.handleScriptUploadFinalize))
