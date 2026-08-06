@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
@@ -119,6 +120,55 @@ func (s *Server) handleServerGet(r *http.Request) (any, error) {
 	return map[string]any{"data": publicServer(item), "error": nil}, nil
 }
 func (s *Server) handleServerCreate(r *http.Request) (any, error) { return s.upsertServer(r, "") }
+func (s *Server) handleServerRegister(r *http.Request) (any, error) {
+	var req serverinfra.RegisterServerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	if identity, ok := CurrentIdentity(r.Context()); ok && identity.Verified {
+		req.Server.CreatedBy = identity.UserID
+	}
+	result, err := s.deps.ServerInfra.RegisterServer(r.Context(), req)
+	if err != nil {
+		return infraError(err)
+	}
+	return map[string]any{"data": result, "error": nil}, nil
+}
+
+func (s *Server) handleServerExecute(r *http.Request) (any, error) {
+	var req struct {
+		ResourceOperationID  string         `json:"resource_operation_id"`
+		ResourceOperationID2 string         `json:"resourceOperationId"`
+		Payload              map[string]any `json:"payload"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	operationID := idOr(req.ResourceOperationID, req.ResourceOperationID2)
+	if operationID == "" {
+		return nil, NewHTTPError(http.StatusBadRequest, "resource_operation_id is required")
+	}
+	target, err := s.deps.DB.ResourceOperations.ResolveTarget(r.Context(), operationID)
+	if err != nil {
+		return infraError(err)
+	}
+	providerKey, config := providerConfigFromTarget(target)
+	adapter, ok, err := s.deps.Providers.Create(providerKey, config)
+	if err != nil {
+		return map[string]any{"success": false, "error": err.Error()}, nil
+	}
+	if !ok {
+		return map[string]any{"success": false, "error": "Provider not registered"}, nil
+	}
+	if req.Payload == nil {
+		req.Payload = map[string]any{}
+	}
+	if err := adapter.Send(r.Context(), req.Payload); err != nil {
+		return map[string]any{"success": false, "error": err.Error()}, nil
+	}
+	return map[string]any{"success": true, "data": map[string]any{"sent": true}}, nil
+}
+
 func (s *Server) handleServerUpdate(r *http.Request) (any, error) {
 	return s.upsertServer(r, r.PathValue("id"))
 }
@@ -218,4 +268,23 @@ func providerTestConfig(authTypeID string, data map[string]any) providers.Config
 		Operation:   map[string]any{"type": "test", "config": map[string]any{}},
 		Credentials: map[string]any{"auth_type_id": authTypeID, "data": data},
 	}
+}
+
+func providerConfigFromTarget(target sqlite.OperationTarget) (string, providers.Config) {
+	providerKey := strings.TrimSpace(target.Server.DriverKey)
+	config := providers.Config{
+		Server:    map[string]any{"id": target.Server.ID, "name": target.Server.Name, "type": target.Server.Type, "server_type_id": target.Server.ServerTypeID, "credential_id": target.Server.CredentialID, "headers": target.Server.Headers, "project_id": target.Server.ProjectID},
+		Resource:  map[string]any{"id": target.Resource.ID, "server_id": target.Resource.ServerID, "name": target.Resource.Name, "type": target.Resource.Type, "config": target.Resource.Config},
+		Operation: map[string]any{"id": target.Operation.ID, "resource_id": target.Operation.ResourceID, "name": target.Operation.Name, "type": target.Operation.Type, "config": target.Operation.Config, "input_schema": target.Operation.InputSchema, "output_schema": target.Operation.OutputSchema},
+	}
+	if target.Credential != nil {
+		config.Credentials = map[string]any{"id": target.Credential.ID, "name": target.Credential.Name, "auth_type_id": target.Credential.AuthTypeID, "data": target.Credential.Data}
+		if strings.TrimSpace(target.Credential.AuthTypeID) != "" {
+			providerKey = strings.TrimSpace(target.Credential.AuthTypeID)
+		}
+	}
+	if providerKey == "http" && target.Credential == nil {
+		providerKey = "no_auth"
+	}
+	return providerKey, config
 }

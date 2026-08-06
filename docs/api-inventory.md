@@ -132,7 +132,7 @@ Origem:
 | POST | `/api/instances` | protegida | P0 | Migrada em Go com normalizacao de payload, tags, destinos e mappings. |
 | PUT | `/api/instances/:id` | protegida | P0 | Migrada em Go com update parcial ou upsert completo com destinos. |
 | DELETE | `/api/instances/:id` | protegida | P0 | Migrada em Go. |
-| POST | `/api/instances/:id/trigger` | protegida | P0 | Migrada em Go com execucao Sparkit e registro em `instance_executions`; providers/fallback pendentes. |
+| POST | `/api/instances/:id/trigger` | protegida | P0 | Migrada em Go com execucao Sparkit, registro em `instance_executions`, envio para providers e fallback local. |
 | GET | `/api/instances/:id/executions` | protegida | P0 | Migrada em Go usando `instance_executions`. |
 
 ## Instance Advanced
@@ -148,27 +148,27 @@ Observacao:
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/instance-advanced` | protegida | Review |
-| GET | `/api/instance-advanced/project/:projectId` | protegida | Review |
-| GET | `/api/instance-advanced/:id` | protegida | Review |
-| POST | `/api/instance-advanced` | protegida | Review |
-| PUT | `/api/instance-advanced/:id` | protegida | Review |
-| DELETE | `/api/instance-advanced/:id` | protegida | Review |
-| POST | `/api/instance-advanced/:id/trigger` | protegida | Review |
-| GET | `/api/instance-advanced/:id/executions` | protegida | Review |
-| GET | `/api/instance-advanced/:id/executions/:executionId` | protegida | P1 |
-| GET | `/api/instance-advanced/:id/destinations` | protegida | P0 |
-| POST | `/api/instance-advanced/:id/destinations` | protegida | P0 |
-| PUT | `/api/instance-advanced/:id/destinations/:destinationId` | protegida | P0 |
-| DELETE | `/api/instance-advanced/:id/destinations/:destinationId` | protegida | P0 |
-| GET | `/api/instance-advanced/:id/available-fields` | protegida | P1 |
-| POST | `/api/instance-advanced/:id/mappings/test` | protegida | Review |
-| PUT | `/api/instance-advanced/:id/destinations/:destinationId/mapping` | protegida | P0 |
-| PUT | `/api/instance-advanced/:id/active` | protegida | P0 |
-| GET | `/api/instance-advanced/:id/status` | protegida | P0 |
-| PUT | `/api/instance-advanced/:id/trigger-config` | protegida | P0 |
-| PUT | `/api/instance-advanced/:id/script-params` | protegida | P0 |
-| PUT | `/api/instance-advanced/:id/fallback-config` | protegida | P0 |
+| GET | `/api/instance-advanced` | protegida | Migrada |
+| GET | `/api/instance-advanced/project/:projectId` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id` | protegida | Migrada |
+| POST | `/api/instance-advanced` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id` | protegida | Migrada |
+| DELETE | `/api/instance-advanced/:id` | protegida | Migrada |
+| POST | `/api/instance-advanced/:id/trigger` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id/executions` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id/executions/:executionId` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id/destinations` | protegida | Migrada |
+| POST | `/api/instance-advanced/:id/destinations` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/destinations/:destinationId` | protegida | Migrada |
+| DELETE | `/api/instance-advanced/:id/destinations/:destinationId` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id/available-fields` | protegida | Migrada |
+| POST | `/api/instance-advanced/:id/mappings/test` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/destinations/:destinationId/mapping` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/active` | protegida | Migrada |
+| GET | `/api/instance-advanced/:id/status` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/trigger-config` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/script-params` | protegida | Migrada |
+| PUT | `/api/instance-advanced/:id/fallback-config` | protegida | Migrada |
 
 ## Executions
 
@@ -198,15 +198,15 @@ Origem: `packages/cli/src/servers/server.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/servers` | protegida | P0 |
-| GET | `/api/servers/:id` | protegida | P0 |
-| GET | `/api/servers/:id/resources` | protegida | P0 |
-| GET | `/api/servers/:id/endpoints` | protegida | P1 |
-| POST | `/api/servers/execute` | protegida | P0 |
-| POST | `/api/servers` | protegida | P0 |
-| POST | `/api/servers/register` | protegida | P0 |
-| PUT | `/api/servers/:id` | protegida | P0 |
-| DELETE | `/api/servers/:id` | protegida | P1 |
+| GET | `/api/servers` | protegida | Migrada |
+| GET | `/api/servers/:id` | protegida | Migrada |
+| GET | `/api/servers/:id/resources` | protegida | Migrada |
+| GET | `/api/servers/:id/endpoints` | protegida | Migrada |
+| POST | `/api/servers/execute` | protegida | Migrada |
+| POST | `/api/servers` | protegida | Migrada |
+| POST | `/api/servers/register` | protegida | Migrada |
+| PUT | `/api/servers/:id` | protegida | Migrada |
+| DELETE | `/api/servers/:id` | protegida | Migrada |
 
 ## Server Types
 

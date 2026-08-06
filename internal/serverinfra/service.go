@@ -48,6 +48,34 @@ type ServerRequest struct {
 	CreatedBy    string         `json:"created_by"`
 }
 
+type RegisterServerRequest struct {
+	Server    ServerRequest             `json:"server"`
+	Resources []RegisterResourceRequest `json:"resources"`
+}
+
+type RegisterResourceRequest struct {
+	Resource   ResourceRequest    `json:"resource"`
+	Operations []OperationRequest `json:"operations"`
+}
+
+type ResourceRequest struct {
+	ID       string         `json:"id"`
+	ServerID string         `json:"server_id"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type"`
+	Config   map[string]any `json:"config"`
+}
+
+type OperationRequest struct {
+	ID           string         `json:"id"`
+	ResourceID   string         `json:"resource_id"`
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	Config       map[string]any `json:"config"`
+	InputSchema  map[string]any `json:"input_schema"`
+	OutputSchema map[string]any `json:"output_schema"`
+}
+
 func (s *Service) ListServerTypes(ctx context.Context) ([]domain.ServerType, error) {
 	return s.serverTypes.ListAll(ctx)
 }
@@ -96,6 +124,43 @@ func (s *Service) UpsertServer(ctx context.Context, req ServerRequest) (domain.S
 		return domain.Server{}, ErrInvalidInput
 	}
 	return s.servers.Upsert(ctx, sqlite.UpsertServerParams{ID: req.ID, Name: req.Name, Type: req.Type, ServerTypeID: req.ServerTypeID, DriverKey: req.DriverKey, CredentialID: req.CredentialID, Headers: req.Headers, ProjectID: req.ProjectID, CreatedBy: req.CreatedBy})
+}
+func (s *Service) RegisterServer(ctx context.Context, req RegisterServerRequest) (map[string]any, error) {
+	server, err := s.UpsertServer(ctx, req.Server)
+	if err != nil {
+		return nil, err
+	}
+	resources := make([]map[string]any, 0, len(req.Resources))
+	for _, item := range req.Resources {
+		resource, err := s.serverResources.Upsert(ctx, sqlite.UpsertServerResourceParams{
+			ID:       item.Resource.ID,
+			ServerID: server.ID,
+			Name:     item.Resource.Name,
+			Type:     item.Resource.Type,
+			Config:   item.Resource.Config,
+		})
+		if err != nil {
+			return nil, err
+		}
+		operations := make([]domain.ResourceOperation, 0, len(item.Operations))
+		for _, op := range item.Operations {
+			operation, err := s.resourceOperations.Upsert(ctx, sqlite.UpsertResourceOperationParams{
+				ID:           op.ID,
+				ResourceID:   resource.ID,
+				Name:         op.Name,
+				Type:         op.Type,
+				Config:       op.Config,
+				InputSchema:  op.InputSchema,
+				OutputSchema: op.OutputSchema,
+			})
+			if err != nil {
+				return nil, err
+			}
+			operations = append(operations, operation)
+		}
+		resources = append(resources, map[string]any{"resource": resource, "operations": operations})
+	}
+	return map[string]any{"server": server, "resources": resources}, nil
 }
 func (s *Service) DeleteServer(ctx context.Context, id string) error {
 	if strings.TrimSpace(id) == "" {

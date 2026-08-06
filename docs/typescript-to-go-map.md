@@ -36,6 +36,10 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `BaseAdapter` | interface `providers.Adapter` | contrato para destinos externos |
 | `AdaptersController.getMetadata` | `GET /api/adapters/metadata` | expoe catalogo de server/auth types |
 | `AdaptersController.discover` | `POST /api/adapters/{id}/discover` | cria adapter virtual e chama `Discover` |
+| `ServersController.list` | `GET /api/servers` | lista servidores externos configurados |
+| `ServersController.listEndpoints` | `GET /api/servers/{id}/endpoints` | alias para recursos/endpoints do servidor |
+| `ServersController.execute` | `POST /api/servers/execute` | resolve a operacao e chama o provider/driver correspondente |
+| `ServersController.register` | `POST /api/servers/register` | registra servidor, recursos e operacoes em lote |
 | `ServerTypesTable` | `sqlite.serverTypeModel` | tipos de servidores externos |
 | `AuthorizationsTypeTable` | `sqlite.authTypeModel` | metadados de autenticacao |
 | `CredentialsTable` | `sqlite.credentialModel` | credenciais configuradas pelo usuario |
@@ -687,6 +691,14 @@ Equivalencias praticas:
 | `dbManager.users` | `sqlite.UsersRepository` | persistencia local SQLite com GORM |
 
 Os controllers Express de `credentials`, `servers`, `server-types`, `resources` e `operations` correspondem aos handlers em `internal/httpapi/server_infrastructure_handlers.go`. A camada equivalente aos services de infraestrutura esta em `internal/serverinfra/service.go`, que valida requests e delega persistencia aos repositorios GORM.
+
+As rotas auxiliares de servidores tambem foram preservadas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `ServersController.listEndpoints` | `handleServerResourcesList` em `/api/servers/{id}/endpoints` | no Go, endpoint e resource usam a mesma tabela local |
+| `ServersController.execute` | `handleServerExecute` | recebe `resource_operation_id`, resolve operation/resource/server/credential e chama `Adapter.Send` |
+| `ServersController.register` | `serverinfra.Service.RegisterServer` | faz upsert do servidor e cadastra recursos e operacoes em uma unica chamada |
 
 O cadastro local de servidor nao executa a integracao: `driver_key`, `credential_id` e a operacao resolvida sao a configuracao consumida futuramente pelo provider/driver.
 

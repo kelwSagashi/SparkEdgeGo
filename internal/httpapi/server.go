@@ -191,10 +191,13 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/credentials/{id}", Adapt(s.handleCredentialDelete))
 	mux.HandleFunc("GET /api/servers", Adapt(s.handleServersList))
 	mux.HandleFunc("POST /api/servers", Adapt(s.handleServerCreate))
+	mux.HandleFunc("POST /api/servers/execute", Adapt(s.handleServerExecute))
+	mux.HandleFunc("POST /api/servers/register", Adapt(s.handleServerRegister))
 	mux.HandleFunc("GET /api/servers/{id}", Adapt(s.handleServerGet))
 	mux.HandleFunc("PUT /api/servers/{id}", Adapt(s.handleServerUpdate))
 	mux.HandleFunc("DELETE /api/servers/{id}", Adapt(s.handleServerDelete))
 	mux.HandleFunc("GET /api/servers/{id}/resources", Adapt(s.handleServerResourcesList))
+	mux.HandleFunc("GET /api/servers/{id}/endpoints", Adapt(s.handleServerResourcesList))
 	mux.HandleFunc("GET /api/resources/{id}/operations", Adapt(s.handleResourceOperationsList))
 }
 
