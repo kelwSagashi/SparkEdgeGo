@@ -47,6 +47,7 @@ func runStart(ctx context.Context, args []string) {
 	_ = flags.Parse(args)
 
 	application := app.New()
+	application.StartScheduler(ctx, 0)
 	if err := application.HTTPServer(*addr).ListenAndServe(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

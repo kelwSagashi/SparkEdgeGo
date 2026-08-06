@@ -12,6 +12,7 @@ import (
 func main() {
 	ctx := context.Background()
 	application := app.New()
+	application.StartScheduler(ctx, 0)
 
 	addr := os.Getenv("SPARKEDGE_HTTP_ADDR")
 	if addr == "" {

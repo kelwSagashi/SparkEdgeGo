@@ -5,9 +5,10 @@ import "time"
 type TriggerType string
 
 const (
-	TriggerManual   TriggerType = "manual"
-	TriggerWebhook  TriggerType = "webhook"
-	TriggerInterval TriggerType = "interval"
+	TriggerManual             TriggerType = "manual"
+	TriggerWebhook            TriggerType = "webhook"
+	TriggerInterval           TriggerType = "interval"
+	TriggerIntervalAndWebhook TriggerType = "interval_and_webhook"
 )
 
 type InstanceStatus string
