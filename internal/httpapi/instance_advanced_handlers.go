@@ -9,7 +9,11 @@ import (
 )
 
 func (s *Server) handleInstanceAdvancedByProjectList(r *http.Request) (any, error) {
-	items, err := s.deps.Instances.ListByProject(r.Context(), r.PathValue("projectId"))
+	projectID, ok := lastPathSegment(r.URL.Path, "/api/instance-advanced/project/")
+	if !ok {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid project path")
+	}
+	items, err := s.deps.Instances.ListByProject(r.Context(), projectID)
 	if err != nil {
 		return instanceError(err)
 	}

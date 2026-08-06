@@ -35,6 +35,7 @@ Esta base ainda esta no inicio da migracao, mas ja possui a fundacao do reposito
 - `internal/python/sparkit`: integracao com scripts Sparkit.
 - `internal/providers`: registry de destinos externos.
 - `internal/mqtt`: fronteira EMQX.
+- `frontend`: frontend Vite migrado para dentro do repositorio Go.
 
 Rotas ja iniciadas:
 
@@ -101,6 +102,10 @@ A infraestrutura de providers ja possui tabelas SQLite/GORM para `server_types`,
 
 O runner agora resolve cada `resource_operation_id` pelo SQLite antes do dispatch. O `driver_key` do servidor seleciona o provider e o adapter recebe configuracoes separadas de servidor, recurso, operacao e credencial.
 
+O frontend Vite ja foi trazido para `frontend/`, ganhou tipos locais proprios e agora gera `frontend/dist`, que e servido pelo binario Go no mesmo host do backend.
+
+A arvore de rotas HTTP foi adaptada para conviver com o `ServeMux` moderno do Go: familias com paths dinamicos mais ambiguos, como `instances`, `instance-advanced` e `scripts`, passaram a usar dispatch por prefixo para evitar conflitos de bootstrap.
+
 Os endpoints de credenciais e servidores estao organizados em `internal/serverinfra` e conectados ao `httpapi`. Eles representam o cadastro local das integracoes; a comunicacao com cada servico externo continuara sendo responsabilidade dos drivers/providers.
 
 O CRUD de scripts ja grava `downloaded_scripts`, incluindo campos JSON como `tags` e `schema_config`. O fluxo de upload tambem ja valida `requirements.txt` com `sparkit`, cria venv, instala dependencias, captura schema via `--schema` e executa playground com `--input-file`.
@@ -124,11 +129,14 @@ $env:GOCACHE="$PWD\.gocache"
 & 'C:\Program Files\Go\bin\go.exe' test ./...
 ```
 
+## Build e execucao
+
+O guia detalhado para modo dev, geracao de executavel local e cross-compilation esta em [docs/build-and-dev.md](./docs/build-and-dev.md).
+
 ## Proximas ondas
 
-1. Validar os fluxos integrados com scripts reais usando `sparkit`.
-2. Validar EMQX/MQTT e providers externos com credenciais reais.
-3. Integrar o frontend Vite ao servidor Go.
-4. Empacotar distribuicao local com SQLite, assets do frontend e binarios.
-
-Antes da etapa do frontend, devemos fazer uma pausa de alinhamento: o Vite continuara sendo usado, mas ao sair do monorepo TypeScript alguns caminhos, variaveis e configuracoes de build precisam ser ajustados antes de o Go servir os assets finais.
+1. Validar navegacao ponta a ponta do frontend servido pelo Go, cobrindo login, instancias, scripts, dados locais e telas de configuracao.
+2. Consolidar a camada HTTP do frontend, reduzindo a duplicacao entre `server.service.ts` e `rest-api-client/*`.
+3. Executar testes funcionais reais com scripts `sparkit`, EMQX/MQTT e providers externos com credenciais verdadeiras.
+4. Revisar outras familias de rotas dinamicas para manter compatibilidade com o `ServeMux` do Go sem depender de comportamento ambiguo.
+5. Empacotar distribuicao local com SQLite, `frontend/dist`, binarios Go e configuracao de producao.

@@ -23,6 +23,15 @@ Para reduzir atrito na futura migracao do frontend, a versao Go agora expoe ambo
 }
 ```
 
+## O que ja foi resolvido na migracao Go
+
+- o frontend foi movido para `frontend/` dentro do repositorio Go;
+- os tipos antes puxados do monorepo TypeScript passaram a existir localmente em `src/types`;
+- o build do Vite agora gera `frontend/dist`;
+- o binario Go ja consegue servir `GET /`, `GET /api/health` e os assets do Vite no mesmo host;
+- o cliente HTTP do frontend foi parcialmente consolidado em uma instancia central de API;
+- o contrato de `GET /api/instances/{id}` foi alinhado para o formato `{ instance, destinations }`.
+
 ## Pontos de atencao ainda abertos
 
 ### 1. Tipagem duplicada de instancias no frontend
@@ -46,37 +55,26 @@ A resposta real do backend Go para `GET /api/instances/{id}` e:
 
 `server.service.ts` ja espera esse formato. `instances.service.ts` ainda tipa essa rota como se retornasse apenas `InstanceReturningValues`.
 
-Quando trouxermos o frontend para o repositorio Go, este e um dos ajustes que precisam ser feitos.
+Este ajuste ja foi aplicado na camada `rest-api-client`, mas ainda vale revisar chamadas antigas que passam por `server.service.ts`.
 
-### 2. Base URLs e modo de execucao
+### 2. Camada HTTP ainda duplicada
 
-Hoje o frontend usa:
+Ainda existem duas abordagens convivendo no frontend:
 
-- `fetch("/api/...")` em alguns pontos
-- `axios` com `baseURL: "/api"` em outros
+- `src/server/server.service.ts`
+- `src/rest-api-client/*`
 
-Isso e bom para servir o frontend pelo mesmo host do backend Go, mas ao sair do monorepo TypeScript precisamos revisar:
+Hoje ambas funcionam sobre o mesmo host `/api`, mas ainda e desejavel consolidar isso em uma unica camada para reduzir divergencias de tipagem e manutencao.
 
-- pipeline de build do Vite
-- localizacao final dos assets estaticos
-- variaveis de ambiente do frontend
-- paths relativos usados no desenvolvimento e na distribuicao
+### 3. Tipos locais ainda estao amplos
 
-### 3. Tipos importados do monorepo TypeScript
+Para desacoplar a migracao do monorepo TypeScript, varios contratos foram internalizados no frontend com tipagem propositalmente mais permissiva.
 
-O frontend ainda importa varios tipos de `spark-edge-db/src/types`.
-
-Quando ele for separado do monorepo TypeScript, precisaremos decidir entre:
-
-- gerar tipos locais para o frontend
-- copiar contratos necessarios para um pacote compartilhado novo
-- substituir imports por tipos proprios do frontend
+O proximo refinamento natural e endurecer esses tipos conforme os contratos do backend Go forem estabilizando.
 
 ## Recomendacao para a fase de integracao
 
-Antes de mover o frontend:
-
-1. consolidar o cliente HTTP do frontend em uma unica camada
-2. alinhar as tipagens das respostas reais do backend Go
-3. decidir como os tipos compartilhados vao sair do monorepo TypeScript
-4. so depois conectar o build do Vite ao servidor Go
+1. validar as principais telas do frontend ja servido pelo binario Go
+2. consolidar a camada HTTP em uma unica estrategia
+3. endurecer as tipagens locais mais permissivas
+4. seguir para empacotamento final e validacoes com integracoes reais

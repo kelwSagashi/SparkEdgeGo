@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -30,7 +31,11 @@ func (s *Server) handleInstancesActiveList(r *http.Request) (any, error) {
 }
 
 func (s *Server) handleInstancesByProjectList(r *http.Request) (any, error) {
-	items, err := s.deps.Instances.ListByProject(r.Context(), r.PathValue("project_id"))
+	projectID, ok := lastPathSegment(r.URL.Path, "/api/instances/project/")
+	if !ok {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid project path")
+	}
+	items, err := s.deps.Instances.ListByProject(r.Context(), projectID)
 	if err != nil {
 		return instanceError(err)
 	}
@@ -306,4 +311,15 @@ func publicDataMapping(mapping domain.DataMapping) map[string]any {
 		"transform_script":        mapping.TransformScript,
 		"created_at":              mapping.CreatedAt,
 	}
+}
+
+func lastPathSegment(path string, prefix string) (string, bool) {
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	value := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+	if value == "" || strings.Contains(value, "/") {
+		return "", false
+	}
+	return value, true
 }
