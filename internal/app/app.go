@@ -7,6 +7,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
+	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/httpapi"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
@@ -34,6 +35,7 @@ type App struct {
 	Projects    *projects.Service
 	Scripts     *scripts.Service
 	Devices     *devices.Service
+	Edge        *edge.Service
 	Tags        *tags.Service
 	Instances   *instances.Service
 	Executions  *executions.Service
@@ -67,6 +69,7 @@ func New() *App {
 	}
 	mqttClient := mqtt.NewClient()
 	mqttClient.UseStores(store.MqttCommands, store.MqttQueue)
+	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(os.Getenv("SPARK_CLOUD_URL")), mqttClient)
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
@@ -78,6 +81,7 @@ func New() *App {
 		Projects:   projects.NewService(store.Projects, store.ProjectMembers),
 		Scripts:    scripts.NewService(store.Scripts, sparkitExecutor),
 		Devices:    devices.NewService(store.Devices),
+		Edge:       edgeService,
 		Tags:       tagsService,
 		Instances:  instances.NewService(store.Instances, tagsService, store.Destinations, store.DataMappings),
 		Executions: executions.NewService(store.Executions),
@@ -100,6 +104,7 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		Projects:    a.Projects,
 		Scripts:     a.Scripts,
 		Devices:     a.Devices,
+		Edge:        a.Edge,
 		Tags:        a.Tags,
 		Instances:   a.Instances,
 		Executions:  a.Executions,

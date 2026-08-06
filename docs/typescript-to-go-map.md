@@ -38,6 +38,9 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `ServerResourcesTable` | `sqlite.serverResourceModel` | recursos descobertos/configurados |
 | `ResourceOperationsTable` | `sqlite.resourceOperationModel` | operacoes usadas por destinos |
 | `spark-edge-core/modules/mqtt` | `internal/mqtt` | cliente EMQX, topicos e lifecycle |
+| `provision.service.ts` | `internal/edge.Service` | identidade, credenciais MQTT e pareamento |
+| `edge.cloud.ts` | `internal/edge.HTTPCloudClient` | login, register, pair e unpair via HTTP |
+| `cli.controller.ts` | `internal/httpapi/cli_handlers.go` | rotas `/api/cli/*` para frontend local |
 | `CommandRegistry` | `cmd/sparkedge-cli` | comandos locais |
 
 ## Como pensar em Go
@@ -464,6 +467,50 @@ Equivalencias praticas:
 | `dbManager.edge.updateCommandStatus` | `sqlite.MqttCommandsRepository.UpdateStatus` | atualiza `running`, `done` ou `error` |
 | `mqtt.queue.enqueue` | `sqlite.MqttQueueRepository.Enqueue` | grava mensagem offline |
 | `mqtt.queue.retryAll` | `mqtt.Client.RetryQueue` | reenvia mensagens pendentes e remove as entregues |
+
+## Edge, provisionamento e CLI local
+
+No TypeScript, esta parte fica principalmente em:
+
+- `packages/core/src/modules/mqtt/provision.service.ts`;
+- `packages/core/src/modules/mqtt/edge.identity.ts`;
+- `packages/core/src/modules/mqtt/edge.credentials.ts`;
+- `packages/core/src/modules/mqtt/edge.cloud.ts`;
+- `packages/cli/src/integrations/mqtt/cli.controller.ts`.
+
+No Go:
+
+- `internal/domain/edge.go`: structs `EdgeIdentity`, `EdgeCredentials`, `EdgeConfig` e `ProvisionedEdge`;
+- `internal/sqlite/edge.go`: repository GORM para `edge_identity`, `edge_credentials` e `edge_config`;
+- `internal/edge/service.go`: regra de onboarding, load/save de provisionamento, pair, connect, disconnect, reconnect e remove;
+- `internal/edge/cloud.go`: cliente HTTP do Spark Cloud;
+- `internal/httpapi/cli_handlers.go`: rotas REST `/api/cli/*`;
+- `cmd/sparkedge-cli`: comandos locais que usam o mesmo service da API.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `provisionService.load` | `edge.Service.Load` | carrega identidade + credenciais MQTT do SQLite |
+| `provisionService.save` | `edge.Service.SaveProvisioned` | salva `edge_identity` e `edge_credentials` |
+| `provisionService.clear` | `edge.Service.Remove` | limpa identidade, credenciais e onboarding local |
+| `getSystemIdentity` | `sqlite.EdgeRepository.GetIdentity` | le a identidade local singleton |
+| `saveMqttCredentials` | `sqlite.EdgeRepository.UpsertMqttCredentials` | persiste broker, usuario e senha MQTT |
+| `getMqttCredentials` | `edge.Service.Load` | aplica override `MQTT_URL` quando existir |
+| `cloudLogin` | `edge.HTTPCloudClient.Login` | autentica no Spark Cloud e recebe JWT efemero |
+| `registerEdge` | `edge.HTTPCloudClient.Register` | registra Edge usando JWT efemero |
+| `pairWithToken` | `edge.HTTPCloudClient.Pair` | pareia com token curto gerado pelo Cloud |
+| `unpairWithCloud` | `edge.HTTPCloudClient.Unpair` | sinaliza remocao para o Cloud |
+| `CliController.getOnboarding` | `handleCliOnboardingGet` | `GET /api/cli/onboarding` |
+| `CliController.saveOnboarding` | `handleCliOnboardingSave` | `POST /api/cli/onboarding` |
+| `CliController.getStatus` | `handleCliStatus` | `GET /api/cli/status` |
+| `CliController.pair` | `handleCliPair` | `POST /api/cli/pair` |
+| `CliController.connect` | `handleCliConnect` | `POST /api/cli/connect` |
+| `CliController.disconnect` | `handleCliDisconnect` | `POST /api/cli/disconnect` preserva credenciais |
+| `CliController.reconnect` | `handleCliReconnect` | `POST /api/cli/reconnect` usa credenciais salvas |
+| `CliController.remove` | `handleCliRemove` | `POST /api/cli/remove` limpa provisionamento local |
+
+No `sparkedge-cli`, os comandos equivalentes ja existem como `status`, `onboarding`, `pair`, `connect`, `disconnect`, `reconnect` e `remove`.
 
 ## Middlewares
 

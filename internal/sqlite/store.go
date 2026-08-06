@@ -30,6 +30,7 @@ type Store struct {
 	Executions         *InstanceExecutionsRepository
 	MqttCommands       *MqttCommandsRepository
 	MqttQueue          *MqttQueueRepository
+	Edge               *EdgeRepository
 }
 
 func NewStore() *Store {
@@ -76,6 +77,7 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Executions = NewInstanceExecutionsRepository(db)
 	s.MqttCommands = NewMqttCommandsRepository(db)
 	s.MqttQueue = NewMqttQueueRepository(db)
+	s.Edge = NewEdgeRepository(db)
 	return nil
 }
 
@@ -91,5 +93,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{})
 }

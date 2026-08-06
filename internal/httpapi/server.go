@@ -7,6 +7,7 @@ import (
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
@@ -27,6 +28,7 @@ type Dependencies struct {
 	Projects    *projects.Service
 	Scripts     *scripts.Service
 	Devices     *devices.Service
+	Edge        *edge.Service
 	Tags        *tags.Service
 	Instances   *instances.Service
 	Executions  *executions.Service
@@ -81,6 +83,15 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/auth/register", Adapt(s.handleRegister))
 	mux.HandleFunc("POST /api/auth/login", Adapt(s.handleLogin))
 	mux.HandleFunc("GET /api/auth/me", Adapt(s.handleMe))
+
+	mux.HandleFunc("GET /api/cli/onboarding", Adapt(s.handleCliOnboardingGet))
+	mux.HandleFunc("POST /api/cli/onboarding", Adapt(s.handleCliOnboardingSave))
+	mux.HandleFunc("GET /api/cli/status", Adapt(s.handleCliStatus))
+	mux.HandleFunc("POST /api/cli/pair", Adapt(s.handleCliPair))
+	mux.HandleFunc("POST /api/cli/connect", Adapt(s.handleCliConnect))
+	mux.HandleFunc("POST /api/cli/disconnect", Adapt(s.handleCliDisconnect))
+	mux.HandleFunc("POST /api/cli/reconnect", Adapt(s.handleCliReconnect))
+	mux.HandleFunc("POST /api/cli/remove", Adapt(s.handleCliRemove))
 
 	mux.HandleFunc("GET /api/users", Adapt(s.handleUsersList))
 	mux.HandleFunc("POST /api/users", Adapt(s.handleUserCreate))

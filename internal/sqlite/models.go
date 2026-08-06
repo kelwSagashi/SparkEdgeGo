@@ -302,3 +302,48 @@ type mqttQueueModel struct {
 func (mqttQueueModel) TableName() string {
 	return "mqtt_queue"
 }
+
+type edgeConfigModel struct {
+	ID             string          `gorm:"primaryKey;type:text"`
+	EdgeName       string          `gorm:"type:text"`
+	Lat            string          `gorm:"type:text"`
+	Lng            string          `gorm:"type:text"`
+	LocationSource string          `gorm:"type:text;default:manual"`
+	Tags           stringSliceJSON `gorm:"type:text"`
+	OS             string          `gorm:"column:os;type:text"`
+	OSVersion      string          `gorm:"type:text"`
+	EdgeVersion    string          `gorm:"type:text"`
+	Hardware       string          `gorm:"type:text"`
+	Environment    string          `gorm:"type:text;default:production"`
+	Description    string          `gorm:"type:text"`
+	UpdatedAt      time.Time
+}
+
+func (edgeConfigModel) TableName() string {
+	return "edge_config"
+}
+
+type edgeIdentityModel struct {
+	ID          string `gorm:"primaryKey;type:text"`
+	EdgeID      string `gorm:"uniqueIndex;not null;type:text"`
+	EdgeName    string `gorm:"type:text"`
+	Provisioned bool   `gorm:"not null;default:false"`
+	CreatedAt   time.Time
+}
+
+func (edgeIdentityModel) TableName() string {
+	return "edge_identity"
+}
+
+type edgeCredentialModel struct {
+	ID        string `gorm:"primaryKey;type:text"`
+	Type      string `gorm:"uniqueIndex;not null;default:mqtt;type:text"`
+	BrokerURL string `gorm:"type:text"`
+	Username  string `gorm:"type:text"`
+	Password  string `gorm:"type:text"`
+	UpdatedAt time.Time
+}
+
+func (edgeCredentialModel) TableName() string {
+	return "edge_credentials"
+}
