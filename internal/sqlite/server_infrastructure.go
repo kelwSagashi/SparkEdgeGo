@@ -125,6 +125,17 @@ func (r *ServerTypesRepository) Upsert(ctx context.Context, params UpsertServerT
 	return saveServerType(ctx, r.db, model)
 }
 
+func (r *ServerTypesRepository) FindByID(ctx context.Context, id string) (domain.ServerType, error) {
+	var model serverTypeModel
+	if err := r.db.WithContext(ctx).Where("id = ?", id).First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.ServerType{}, ErrNotFound
+		}
+		return domain.ServerType{}, err
+	}
+	return serverTypeFromModel(model), nil
+}
+
 func (r *ServerTypesRepository) ListAll(ctx context.Context) ([]domain.ServerType, error) {
 	var models []serverTypeModel
 	if err := r.db.WithContext(ctx).Order("name ASC").Find(&models).Error; err != nil {
@@ -135,6 +146,17 @@ func (r *ServerTypesRepository) ListAll(ctx context.Context) ([]domain.ServerTyp
 		result = append(result, serverTypeFromModel(model))
 	}
 	return result, nil
+}
+
+func (r *ServerTypesRepository) Delete(ctx context.Context, id string) error {
+	result := r.db.WithContext(ctx).Delete(&serverTypeModel{}, "id = ?", id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *AuthTypesRepository) Upsert(ctx context.Context, params UpsertAuthTypeParams) (domain.AuthType, error) {

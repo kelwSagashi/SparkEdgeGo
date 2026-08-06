@@ -181,6 +181,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/projects/{id}/members", Adapt(s.handleProjectMemberAdd))
 
 	mux.HandleFunc("GET /api/server-types", Adapt(s.handleServerTypesList))
+	mux.HandleFunc("POST /api/server-types", Adapt(s.handleServerTypeCreate))
+	mux.HandleFunc("GET /api/server-types/{id}", Adapt(s.handleServerTypeGet))
+	mux.HandleFunc("PUT /api/server-types/{id}", Adapt(s.handleServerTypeUpdate))
+	mux.HandleFunc("DELETE /api/server-types/{id}", Adapt(s.handleServerTypeDelete))
 	mux.HandleFunc("GET /api/auth-types", Adapt(s.handleAuthTypesList))
 	mux.HandleFunc("GET /api/credentials/config/meta", Adapt(s.handleAuthTypesList))
 	mux.HandleFunc("GET /api/adapters/metadata", Adapt(s.handleAdaptersMetadata))

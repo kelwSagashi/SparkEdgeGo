@@ -20,6 +20,42 @@ func (s *Server) handleServerTypesList(r *http.Request) (any, error) {
 	return map[string]any{"data": publicServerTypes(items), "error": nil}, nil
 }
 
+func (s *Server) handleServerTypeGet(r *http.Request) (any, error) {
+	item, err := s.deps.ServerInfra.FindServerType(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return infraError(err)
+	}
+	return map[string]any{"data": publicServerType(item), "error": nil}, nil
+}
+
+func (s *Server) handleServerTypeCreate(r *http.Request) (any, error) {
+	return s.upsertServerType(r, "")
+}
+
+func (s *Server) handleServerTypeUpdate(r *http.Request) (any, error) {
+	return s.upsertServerType(r, r.PathValue("id"))
+}
+
+func (s *Server) upsertServerType(r *http.Request, id string) (any, error) {
+	var req serverinfra.ServerTypeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	req.ID = idOr(req.ID, id)
+	item, err := s.deps.ServerInfra.UpsertServerType(r.Context(), req)
+	if err != nil {
+		return infraError(err)
+	}
+	return map[string]any{"data": publicServerType(item), "error": nil}, nil
+}
+
+func (s *Server) handleServerTypeDelete(r *http.Request) (any, error) {
+	if err := s.deps.ServerInfra.DeleteServerType(r.Context(), r.PathValue("id")); err != nil {
+		return infraError(err)
+	}
+	return map[string]any{"data": map[string]any{"deleted": true}, "error": nil}, nil
+}
+
 func (s *Server) handleAuthTypesList(r *http.Request) (any, error) {
 	items, err := s.deps.ServerInfra.ListAuthTypes(r.Context(), r.URL.Query().Get("server_type_id"))
 	if err != nil {
@@ -226,9 +262,12 @@ func infraError(err error) (any, error) {
 func publicServerTypes(items []domain.ServerType) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, map[string]any{"id": item.ID, "key": item.Key, "name": item.Name, "description": item.Description})
+		result = append(result, publicServerType(item))
 	}
 	return result
+}
+func publicServerType(item domain.ServerType) map[string]any {
+	return map[string]any{"id": item.ID, "key": item.Key, "name": item.Name, "description": item.Description}
 }
 func publicAuthTypes(items []domain.AuthType) []map[string]any {
 	result := make([]map[string]any, 0, len(items))

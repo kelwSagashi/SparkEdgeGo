@@ -214,11 +214,11 @@ Origem: `packages/cli/src/servers/server-types.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/server-types` | protegida | P0 |
-| GET | `/api/server-types/:id` | protegida | P0 |
-| POST | `/api/server-types` | protegida | P1 |
-| PUT | `/api/server-types/:id` | protegida | P1 |
-| DELETE | `/api/server-types/:id` | protegida | P1 |
+| GET | `/api/server-types` | protegida | Migrada |
+| GET | `/api/server-types/:id` | protegida | Migrada |
+| POST | `/api/server-types` | protegida | Migrada |
+| PUT | `/api/server-types/:id` | protegida | Migrada |
+| DELETE | `/api/server-types/:id` | protegida | Migrada |
 
 ## Credentials
 

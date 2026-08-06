@@ -36,6 +36,13 @@ type CredentialRequest struct {
 	ProjectID  string         `json:"project_id"`
 }
 
+type ServerTypeRequest struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 type ServerRequest struct {
 	ID           string         `json:"id"`
 	Name         string         `json:"name"`
@@ -78,6 +85,24 @@ type OperationRequest struct {
 
 func (s *Service) ListServerTypes(ctx context.Context) ([]domain.ServerType, error) {
 	return s.serverTypes.ListAll(ctx)
+}
+func (s *Service) FindServerType(ctx context.Context, id string) (domain.ServerType, error) {
+	if strings.TrimSpace(id) == "" {
+		return domain.ServerType{}, ErrInvalidInput
+	}
+	return s.serverTypes.FindByID(ctx, id)
+}
+func (s *Service) UpsertServerType(ctx context.Context, req ServerTypeRequest) (domain.ServerType, error) {
+	if strings.TrimSpace(req.Key) == "" || strings.TrimSpace(req.Name) == "" {
+		return domain.ServerType{}, ErrInvalidInput
+	}
+	return s.serverTypes.Upsert(ctx, sqlite.UpsertServerTypeParams{ID: req.ID, Key: req.Key, Name: req.Name, Description: req.Description})
+}
+func (s *Service) DeleteServerType(ctx context.Context, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return ErrInvalidInput
+	}
+	return s.serverTypes.Delete(ctx, id)
 }
 func (s *Service) ListAuthTypes(ctx context.Context, serverTypeID string) ([]domain.AuthType, error) {
 	return s.authTypes.ListByServerType(ctx, serverTypeID)

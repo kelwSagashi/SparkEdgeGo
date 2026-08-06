@@ -40,6 +40,7 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `ServersController.listEndpoints` | `GET /api/servers/{id}/endpoints` | alias para recursos/endpoints do servidor |
 | `ServersController.execute` | `POST /api/servers/execute` | resolve a operacao e chama o provider/driver correspondente |
 | `ServersController.register` | `POST /api/servers/register` | registra servidor, recursos e operacoes em lote |
+| `ServerTypesController` | `handleServerType*` | CRUD de tipos de servidores externos |
 | `ServerTypesTable` | `sqlite.serverTypeModel` | tipos de servidores externos |
 | `AuthorizationsTypeTable` | `sqlite.authTypeModel` | metadados de autenticacao |
 | `CredentialsTable` | `sqlite.credentialModel` | credenciais configuradas pelo usuario |
