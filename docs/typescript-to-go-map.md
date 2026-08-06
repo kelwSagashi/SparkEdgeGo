@@ -320,8 +320,8 @@ Equivalencias praticas:
 | `InstanceController.create` | `instances.Service.Create` + `handleInstanceCreate` | cria instancia, sincroniza tags por nome e salva destinos |
 | `InstanceController.update` | `instances.Service.Update` + `handleInstanceUpdate` | update parcial ou upsert completo quando houver destinos |
 | `InstanceController.remove` | `instances.Service.Delete` + `handleInstanceDelete` | remove instancia |
-| `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit, aplica mappings e registra `instance_executions`; envio real/fallback ainda pendentes |
-| `InstanceController.listExecutions` | `handleInstanceExecutionsList` | placeholder ate migrar executions |
+| `InstanceController.triggerManual` | `handleInstanceTrigger` | executa Sparkit, aplica mappings, envia para providers, usa fallback local e registra `instance_executions` |
+| `InstanceController.listExecutions` | `handleInstanceExecutionsList` | lista execucoes registradas em `instance_executions` |
 
 `instance-advanced.controller.ts` existia no TypeScript, mas nao era registrado no servidor Express. Na versao Go ele foi consolidado em `/api/instance-advanced`, sem sobrescrever `/api/instances`.
 
@@ -357,6 +357,7 @@ O service Go ja preserva a normalizacao importante do TypeScript:
 - salva `mapping`, `data_mapping` ou `dataMapping` em `data_mappings`;
 - aceita `retry_policy` e `retryPolicy` para politica de retry do destino.
 - no runner, aplica `mapping`, `payload_template`/`payloadTemplate` e `custom_fields`/`customFields` antes do envio.
+- `TemplateResolver` em `internal/runtime/template.go` corresponde a `instances/template-resolver.ts`: resolve `{{dot.path}}`, `{{$.json.path}}`, fallback com `||`, arrays e objetos recursivamente.
 
 Com isso, os triggers principais ja existem no Go: manual, MQTT, intervalo e webhook.
 

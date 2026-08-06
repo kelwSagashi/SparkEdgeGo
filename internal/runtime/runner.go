@@ -337,21 +337,32 @@ func applyMapping(mapping *domain.DataMapping, output map[string]any, req Trigge
 		context[key] = value
 	}
 
+	resolver := TemplateResolver{}
 	payload := map[string]any{}
 	if mapping != nil {
-		for key, value := range mapping.PayloadTemplate {
-			payload[key] = resolveValue(value, context)
+		if resolvedTemplate, ok := resolver.Resolve(mapping.PayloadTemplate, context).(map[string]any); ok {
+			for key, value := range resolvedTemplate {
+				payload[key] = value
+			}
 		}
 		for target, source := range mapping.Mapping {
 			if sourceText, ok := source.(string); ok {
-				payload[target] = resolveString(sourceText, context)
+				if strings.HasPrefix(strings.TrimSpace(sourceText), "$") {
+					if value := resolver.ResolvePath(sourceText, context); value != nil {
+						payload[target] = value
+					}
+					continue
+				}
+				if value := resolver.Resolve(sourceText, context); value != nil {
+					payload[target] = value
+				}
 			} else {
 				payload[target] = source
 			}
 		}
 		for _, field := range mapping.CustomFields {
 			if field.Key != "" {
-				payload[field.Key] = resolveString(field.Value, context)
+				payload[field.Key] = resolver.Resolve(field.Value, context)
 			}
 		}
 	}
@@ -361,44 +372,6 @@ func applyMapping(mapping *domain.DataMapping, output map[string]any, req Trigge
 		}
 	}
 	return payload
-}
-
-func resolveValue(value any, context map[string]any) any {
-	if text, ok := value.(string); ok {
-		return resolveString(text, context)
-	}
-	return value
-}
-
-func resolveString(value string, context map[string]any) any {
-	if strings.HasPrefix(value, "$.") {
-		return lookupPath(context, strings.TrimPrefix(value, "$."))
-	}
-	if strings.HasPrefix(value, "{{") && strings.HasSuffix(value, "}}") {
-		key := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "{{"), "}}"))
-		return lookupPath(context, key)
-	}
-	return value
-}
-
-func lookupPath(context map[string]any, pathValue string) any {
-	var current any = context
-	for _, part := range strings.Split(pathValue, ".") {
-		switch typed := current.(type) {
-		case map[string]any:
-			current = typed[part]
-		case domain.Instance:
-			current = instanceContext(typed)[part]
-		case domain.DownloadedScript:
-			current = scriptContext(typed)[part]
-		default:
-			return nil
-		}
-		if current == nil {
-			return nil
-		}
-	}
-	return current
 }
 
 func instanceContext(instance domain.Instance) map[string]any {

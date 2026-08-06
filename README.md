@@ -126,9 +126,9 @@ $env:GOCACHE="$PWD\.gocache"
 
 ## Proximas ondas
 
-1. Inventariar rotas e contratos do backend TypeScript.
-2. Migrar schema SQLite e repositorios.
-3. Portar o motor de execucao de instancias.
-4. Portar providers/drivers.
-5. Portar API REST e CLI.
-6. Reapontar o frontend Vite.
+1. Validar os fluxos integrados com scripts reais usando `sparkit`.
+2. Validar EMQX/MQTT e providers externos com credenciais reais.
+3. Integrar o frontend Vite ao servidor Go.
+4. Empacotar distribuicao local com SQLite, assets do frontend e binarios.
+
+Antes da etapa do frontend, devemos fazer uma pausa de alinhamento: o Vite continuara sendo usado, mas ao sair do monorepo TypeScript alguns caminhos, variaveis e configuracoes de build precisam ser ajustados antes de o Go servir os assets finais.
