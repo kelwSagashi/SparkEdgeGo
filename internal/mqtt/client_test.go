@@ -25,6 +25,26 @@ func TestConnectSubscribesAndPublishesOnlineStatus(t *testing.T) {
 	}
 }
 
+func TestDisconnectPublishesOfflineStatus(t *testing.T) {
+	broker := &fakeBroker{}
+	client := NewClientWithBroker(broker)
+
+	if err := client.Connect(context.Background(), Config{EdgeID: "edge-1", BrokerURL: "mqtt://localhost:1883"}); err != nil {
+		t.Fatal(err)
+	}
+	broker.published = nil
+
+	if err := client.Disconnect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.published) != 1 || broker.published[0].Topic != StatusTopic("edge-1") || string(broker.published[0].Payload) != "offline" || !broker.published[0].Retain {
+		t.Fatalf("unexpected offline publish %#v", broker.published)
+	}
+	if broker.connected {
+		t.Fatal("expected broker to be disconnected")
+	}
+}
+
 func TestHandleCommandPublishesDoneResponse(t *testing.T) {
 	broker := &fakeBroker{}
 	client := NewClientWithBroker(broker)
@@ -127,6 +147,53 @@ func TestPublishJSONQueuesOnPublishFailure(t *testing.T) {
 	}
 	if len(queue.items) != 1 || queue.items[0].Topic != LogTopic("edge-1") {
 		t.Fatalf("expected queued failed publish, queue=%#v", queue.items)
+	}
+}
+
+func TestPublishContextUsesExpectedTopicAndPayload(t *testing.T) {
+	broker := &fakeBroker{connected: true}
+	client := NewClientWithBroker(broker)
+	client.config = Config{EdgeID: "edge-1"}
+
+	if err := client.PublishContext(context.Background(), map[string]any{"id": "user-1", "email": "edge@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.published) != 1 || broker.published[0].Topic != ContextTopic("edge-1") {
+		t.Fatalf("unexpected published context %#v", broker.published)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(broker.published[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["edge_id"] != "edge-1" {
+		t.Fatalf("unexpected edge_id in context payload %#v", payload)
+	}
+	localUser, ok := payload["local_user"].(map[string]any)
+	if !ok || localUser["id"] != "user-1" || localUser["email"] != "edge@example.com" {
+		t.Fatalf("unexpected local_user payload %#v", payload)
+	}
+	if _, ok := payload["timestamp"].(string); !ok {
+		t.Fatalf("expected timestamp in context payload %#v", payload)
+	}
+}
+
+func TestPublishHeartbeatUsesExpectedTopic(t *testing.T) {
+	broker := &fakeBroker{connected: true}
+	client := NewClientWithBroker(broker)
+	client.config = Config{EdgeID: "edge-1"}
+
+	if err := client.PublishHeartbeat(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.published) != 1 || broker.published[0].Topic != HeartbeatTopic("edge-1") {
+		t.Fatalf("unexpected heartbeat publish %#v", broker.published)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(broker.published[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["edge_id"] != "edge-1" {
+		t.Fatalf("unexpected heartbeat payload %#v", payload)
 	}
 }
 
