@@ -40,7 +40,7 @@ function Get-TargetLabel {
     )
 
     if ($ArchName -eq "arm" -and $ArmValue) {
-        return "$OSName-$ArchName`v$ArmValue"
+        return "${OSName}-${ArchName}v${ArmValue}"
     }
     return "$OSName-$ArchName"
 }
