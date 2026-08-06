@@ -467,6 +467,11 @@ Equivalencias praticas:
 | `dbManager.edge.updateCommandStatus` | `sqlite.MqttCommandsRepository.UpdateStatus` | atualiza `running`, `done` ou `error` |
 | `mqtt.queue.enqueue` | `sqlite.MqttQueueRepository.Enqueue` | grava mensagem offline |
 | `mqtt.queue.retryAll` | `mqtt.Client.RetryQueue` | reenvia mensagens pendentes e remove as entregues |
+| `mqtt.handlers.get_stats` | `system.CollectStats` | retorna estatisticas basicas do processo/edge |
+| `registerMqttCommandHandlers` | `app.registerMqttCommandHandlers` | registra comandos CLI-especificos no boot |
+| comando `run_script` | `app.handleMqttRunScript` | executa instancia pelo runner Go e registra execution |
+| comando `CONFIG` | `app.handleMqttConfig` | sincroniza `edge_config` local pelo SQLite |
+| comandos `restart`/`REBOOT` | `app.handleMqttRestart` | reconhece comando; reinicio real exige `SPARKEDGE_ALLOW_RESTART=true` |
 
 ## Edge, provisionamento e CLI local
 

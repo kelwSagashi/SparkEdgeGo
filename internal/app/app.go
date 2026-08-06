@@ -74,7 +74,7 @@ func New() *App {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
 
-	return &App{
+	application := &App{
 		DB:         store,
 		Auth:       auth.NewService(store.Users, store.Projects, jwtSecret),
 		Users:      users.NewService(store.Users),
@@ -94,6 +94,8 @@ func New() *App {
 		}),
 		ServerInfra: serverInfraService,
 	}
+	application.registerMqttCommandHandlers()
+	return application
 }
 
 func (a *App) HTTPServer(addr string) *httpapi.Server {

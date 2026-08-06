@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -82,6 +83,44 @@ func (s *Service) SaveOnboarding(ctx context.Context, req OnboardingRequest) (do
 		Tags:           &req.Tags,
 		LocationSource: &locationSource,
 	})
+}
+
+func (s *Service) UpsertConfigMap(ctx context.Context, values map[string]any) (domain.EdgeConfig, error) {
+	params := sqlite.UpsertEdgeConfigParams{}
+	if value, ok := stringValue(values, "edge_name", "name"); ok {
+		params.EdgeName = &value
+	}
+	if value, ok := stringValue(values, "description"); ok {
+		params.Description = &value
+	}
+	if value, ok := stringValue(values, "lat"); ok {
+		params.Lat = &value
+	}
+	if value, ok := stringValue(values, "lng"); ok {
+		params.Lng = &value
+	}
+	if value, ok := stringValue(values, "location_source"); ok {
+		params.LocationSource = &value
+	}
+	if value, ok := stringValue(values, "os"); ok {
+		params.OS = &value
+	}
+	if value, ok := stringValue(values, "os_version"); ok {
+		params.OSVersion = &value
+	}
+	if value, ok := stringValue(values, "edge_version"); ok {
+		params.EdgeVersion = &value
+	}
+	if value, ok := stringValue(values, "hardware"); ok {
+		params.Hardware = &value
+	}
+	if value, ok := stringValue(values, "environment"); ok {
+		params.Environment = &value
+	}
+	if tags, ok := tagsValue(values["tags"]); ok {
+		params.Tags = &tags
+	}
+	return s.repo.UpsertEdgeConfig(ctx, params)
 }
 
 func (s *Service) Load(ctx context.Context) (domain.ProvisionedEdge, error) {
@@ -255,4 +294,37 @@ func envOrDefault(key string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func stringValue(values map[string]any, keys ...string) (string, bool) {
+	for _, key := range keys {
+		if raw, ok := values[key]; ok {
+			switch value := raw.(type) {
+			case string:
+				return strings.TrimSpace(value), true
+			case nil:
+				return "", true
+			default:
+				return strings.TrimSpace(fmt.Sprint(value)), true
+			}
+		}
+	}
+	return "", false
+}
+
+func tagsValue(raw any) ([]string, bool) {
+	switch value := raw.(type) {
+	case []string:
+		return value, true
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, item := range value {
+			if text, ok := item.(string); ok {
+				result = append(result, strings.TrimSpace(text))
+			}
+		}
+		return result, true
+	default:
+		return nil, false
+	}
 }
