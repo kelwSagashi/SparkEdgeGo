@@ -429,6 +429,39 @@ Equivalencias praticas dos adapters Firebase e Google:
 | `GoogleDriveServerType` | `googleprovider.ServerTypes` | cadastra `googledrive` no catalogo |
 | `GoogleDriveAdapter.send` | `googleprovider.DriveAdapter.Send` | cria arquivo JSON em pasta do Drive |
 
+## MQTT e EMQX
+
+No TypeScript, MQTT fica principalmente em:
+
+- `packages/core/src/modules/mqtt/mqtt.client.ts`;
+- `packages/core/src/modules/mqtt/mqtt.topics.ts`;
+- `packages/core/src/modules/mqtt/mqtt.service.ts`;
+- `packages/core/src/modules/mqtt/mqtt.subscriber.ts`;
+- `packages/core/src/modules/mqtt/mqtt.handlers.ts`;
+- `packages/core/src/modules/mqtt/mqtt.queue.ts`.
+
+No Go:
+
+- `internal/mqtt.Client` encapsula conexao, publish, subscribe e dispatch de comandos;
+- `pahoBroker` usa `github.com/eclipse/paho.mqtt.golang`, compativel com EMQX;
+- `Config.EdgeID` vira `clientId`, como no TypeScript;
+- o Last Will publica `offline` em `spark/{edge_id}/status` com retain;
+- `Connect` assina `spark/{edge_id}/commands` e publica `online`;
+- `PublishHeartbeat`, `PublishResponse`, `PublishLog` e `PublishContext` preservam os topicos atuais.
+
+Equivalencias praticas:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `mqtt.client.connect` | `mqtt.Client.Connect` | conecta no broker EMQX com clientId igual ao edge id |
+| `mqtt.topics.ts` | funcoes `StatusTopic`, `CommandTopic`, etc. | mantem `spark/{edge_id}/{subject}` |
+| `mqtt.service.publishStatus` | `mqtt.Client.PublishStatus` | envia `online`/`offline` como string retida |
+| `mqtt.service.publishHeartbeat` | `mqtt.Client.PublishHeartbeat` | publica heartbeat JSON |
+| `mqtt.subscriber.subscribe` | `mqtt.Client.SubscribeCommands` | assina comandos do edge |
+| `mqtt.handlers.handleCommand` | `mqtt.Client.HandleCommand` | parseia comando, chama handler e publica response |
+
+Ainda falta migrar a fila `mqtt_queue` e persistencia de `mqtt_commands` no SQLite. Por enquanto, a idempotencia de comandos esta em memoria no client Go.
+
 ## Middlewares
 
 No Express, temos:
