@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	frontendembed "github.com/kelwSagashi/sparkedge-go/frontend/embedfs"
+	frontendassets "github.com/kelwSagashi/sparkedge-go/frontend"
 )
 
 func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +64,7 @@ func resolveFrontendSource() (frontendSource, error) {
 		}
 	}
 
-	distFS, err := frontendembed.Dist()
+	distFS, err := frontendassets.Dist()
 	if err == nil {
 		if _, statErr := fs.Stat(distFS, "index.html"); statErr == nil {
 			return embeddedFrontendSource{distFS: distFS}, nil

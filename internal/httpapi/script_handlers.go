@@ -153,7 +153,7 @@ func (s *Server) handleScriptPlaygroundRun(r *http.Request) (any, error) {
 	if err != nil {
 		return scriptError(err)
 	}
-	return map[string]any{"data": result}, nil
+	return map[string]any{"data": publicScriptExecutionResult(result)}, nil
 }
 
 func scriptError(err error) (any, error) {
@@ -169,7 +169,7 @@ func scriptError(err error) (any, error) {
 	if strings.Contains(strings.ToLower(err.Error()), "unique") {
 		return map[string]any{"data": nil, "error": "Script already exists"}, nil
 	}
-	return nil, err
+	return nil, NewHTTPError(http.StatusInternalServerError, err.Error())
 }
 
 func publicScripts(items []domain.DownloadedScript) []map[string]any {
@@ -201,4 +201,24 @@ func publicScript(script domain.DownloadedScript) map[string]any {
 		"created_at":        script.CreatedAt,
 		"updated_at":        script.UpdatedAt,
 	}
+}
+
+func publicScriptExecutionResult(result domain.ScriptResult) map[string]any {
+	if result.Data != nil {
+		return result.Data
+	}
+
+	payload := map[string]any{
+		"stdout": nil,
+		"stderr": nil,
+	}
+
+	if strings.TrimSpace(result.Stdout) != "" {
+		payload["stdout"] = result.Stdout
+	}
+	if strings.TrimSpace(result.Stderr) != "" {
+		payload["stderr"] = result.Stderr
+	}
+
+	return payload
 }

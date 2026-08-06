@@ -230,18 +230,31 @@ func (s *Server) handleServerDelete(r *http.Request) (any, error) {
 	return map[string]any{"data": map[string]any{"deleted": true}, "error": nil}, nil
 }
 func (s *Server) handleServerResourcesList(r *http.Request) (any, error) {
-	items, err := s.deps.ServerInfra.ListResources(r.Context(), r.PathValue("id"))
+	resources, err := s.deps.ServerInfra.ListResources(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"data": items, "error": nil}, nil
+
+	result := make([]map[string]any, 0, len(resources))
+	for _, resource := range resources {
+		operations, err := s.deps.ServerInfra.ListOperations(r.Context(), resource.ID)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, map[string]any{
+			"resource":   publicServerResource(resource),
+			"operations": publicResourceOperations(operations),
+		})
+	}
+
+	return map[string]any{"data": result, "error": nil}, nil
 }
 func (s *Server) handleResourceOperationsList(r *http.Request) (any, error) {
 	items, err := s.deps.ServerInfra.ListOperations(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"data": items, "error": nil}, nil
+	return map[string]any{"data": publicResourceOperations(items), "error": nil}, nil
 }
 
 func idOr(value, fallback string) string {
@@ -295,6 +308,35 @@ func publicServers(items []domain.Server) []map[string]any {
 }
 func publicServer(item domain.Server) map[string]any {
 	return map[string]any{"id": item.ID, "name": item.Name, "type": item.Type, "server_type_id": item.ServerTypeID, "driver_key": item.DriverKey, "credential_id": item.CredentialID, "headers": item.Headers, "project_id": item.ProjectID, "created_by": item.CreatedBy, "created_at": item.CreatedAt, "updated_at": item.UpdatedAt}
+}
+func publicServerResource(item domain.ServerResource) map[string]any {
+	return map[string]any{
+		"id":         item.ID,
+		"server_id":  item.ServerID,
+		"name":       item.Name,
+		"type":       item.Type,
+		"config":     item.Config,
+		"created_at": item.CreatedAt,
+	}
+}
+func publicResourceOperations(items []domain.ResourceOperation) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, publicResourceOperation(item))
+	}
+	return result
+}
+func publicResourceOperation(item domain.ResourceOperation) map[string]any {
+	return map[string]any{
+		"id":            item.ID,
+		"resource_id":   item.ResourceID,
+		"name":          item.Name,
+		"type":          item.Type,
+		"config":        item.Config,
+		"input_schema":  item.InputSchema,
+		"output_schema": item.OutputSchema,
+		"created_at":    item.CreatedAt,
+	}
 }
 
 func providerTestConfig(authTypeID string, data map[string]any) providers.Config {

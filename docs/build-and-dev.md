@@ -14,14 +14,15 @@ Hoje o projeto tem dois binarios Go principais:
 - `cmd/sparkedge-api`: servidor HTTP que atende a API e serve o frontend Vite compilado;
 - `cmd/sparkedge-cli`: entrada de linha de comando para operacoes locais do Edge.
 
-Importante: o frontend nao esta embutido no binario Go. Em producao, o executavel procura os arquivos compilados do frontend nestes lugares:
+Importante: o frontend agora pode ser embutido no binario Go para producao. A ordem de resolucao ficou assim:
 
 1. no caminho definido em `SPARKEDGE_FRONTEND_DIST`;
 2. em `./frontend/dist` a partir do diretorio atual;
 3. em `frontend/dist` ao lado do executavel;
-4. em `../frontend/dist` relativo ao executavel.
+4. em `../frontend/dist` relativo ao executavel;
+5. nos arquivos embutidos no proprio binario.
 
-Por isso, para distribuir a aplicacao com interface web, o binario e a pasta `frontend/dist` precisam ir juntos.
+Em producao, isso simplifica bastante a distribuicao. Em desenvolvimento, o override em disco continua util.
 
 ## Preparacao no Windows
 
@@ -95,7 +96,15 @@ Depois volte para a raiz e rode o backend Go normalmente. Ele vai encontrar `fro
 
 ### Gerar o servidor principal
 
-Na raiz do projeto:
+Antes do `go build`, gere o frontend para que o binario embuta a versao mais recente da interface:
+
+```powershell
+cd .\frontend
+npm.cmd run build
+cd ..
+```
+
+Depois gere o servidor:
 
 ```powershell
 cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo"
@@ -108,15 +117,17 @@ go build -o .\bin\sparkedge-api.exe .\cmd\sparkedge-api
 go build -o .\bin\sparkedge-cli.exe .\cmd\sparkedge-cli
 ```
 
-### Gerar o frontend compilado
+### Estrutura recomendada para distribuicao local
 
-```powershell
-cd .\frontend
-npm.cmd run build
-cd ..
+Com o frontend embutido, a distribuicao minima pode ser apenas:
+
+```text
+bin/
+  sparkedge-api.exe
+  sparkedge-cli.exe
 ```
 
-### Estrutura recomendada para distribuicao local
+Se voce quiser manter override externo para trocar a interface sem recompilar o binario, ainda pode distribuir tambem:
 
 ```text
 bin/
@@ -130,13 +141,13 @@ frontend/
 
 ### Rodar o executavel local
 
-Se voce estiver na raiz do repositorio e o `frontend/dist` ja existir:
+Se voce estiver na raiz do repositorio e compilou o frontend antes do `go build`:
 
 ```powershell
 .\bin\sparkedge-api.exe
 ```
 
-Se quiser rodar o binario a partir de outro lugar, aponte explicitamente onde esta o frontend compilado:
+Se quiser forcar uso de uma pasta externa de frontend, aponte explicitamente onde esta o `dist`:
 
 ```powershell
 $env:SPARKEDGE_FRONTEND_DIST="C:\caminho\para\frontend\dist"
@@ -152,7 +163,7 @@ Regra geral:
 - `GOOS` define o sistema operacional;
 - `GOARCH` define a arquitetura;
 - `GOARM` e usado em builds `linux/arm` de 32 bits;
-- o frontend deve ser compilado uma vez e enviado junto com o binario.
+- para o servidor principal, gere `frontend/dist` antes do `go build`, para que o frontend entre embutido no binario.
 
 Nos exemplos abaixo, o build e do servidor principal. Se quiser a CLI, basta trocar `.\cmd\sparkedge-api` por `.\cmd\sparkedge-cli`.
 
@@ -280,11 +291,17 @@ Leitura rapida:
 Para rodar em outro computador ou dispositivo, envie pelo menos:
 
 1. o binario `sparkedge-api`;
-2. a pasta `frontend/dist`;
-3. os arquivos e diretorios de runtime que a aplicacao usar no ambiente;
-4. a configuracao de ambiente necessaria, como `JWT_SECRET`, `SPARKEDGE_HTTP_ADDR`, `SPARKEDGE_FRONTEND_DIST`, `SPARKEDGE_SAMPLES_DIR` e integracoes externas.
+2. os arquivos e diretorios de runtime que a aplicacao usar no ambiente;
+3. a configuracao de ambiente necessaria, como `JWT_SECRET`, `SPARKEDGE_HTTP_ADDR`, `SPARKEDGE_FRONTEND_DIST`, `SPARKEDGE_SAMPLES_DIR` e integracoes externas.
 
-Uma estrutura simples de deploy fica assim:
+Uma estrutura minima de deploy agora pode ficar assim:
+
+```text
+sparkedge/
+  sparkedge-api
+```
+
+Se quiser manter o frontend fora do binario, voce ainda pode distribuir assim:
 
 ```text
 sparkedge/
@@ -295,7 +312,7 @@ sparkedge/
       assets/
 ```
 
-Se quiser, voce pode manter o frontend fora dessa estrutura e definir:
+E apontar explicitamente:
 
 ```bash
 export SPARKEDGE_FRONTEND_DIST=/opt/sparkedge/frontend/dist
@@ -313,6 +330,6 @@ Depois de gerar um binario de producao:
 
 ## Observacoes
 
-- O frontend em modo de producao depende de `frontend/dist`; sem isso, o servidor Go responde erro ao abrir a interface web.
+- Em producao, o frontend pode ir embutido no binario, desde que `frontend/dist` exista no momento do `go build`.
 - Para desenvolvimento do frontend, use `npm.cmd run dev`; para distribuicao, use `npm.cmd run build`.
 - Se voce quiser automatizar isso depois, vale criar scripts como `build-local.ps1`, `build-linux-arm64.ps1` e `build-raspberry-armv7.ps1`.

@@ -40,6 +40,78 @@ interface AdapterMetadataPayload {
   auth_types?: AdapterMetadata[];
 }
 
+const adapterMetadataFallbacks: Record<
+  string,
+  Pick<AdapterMetadata, "resourceFields" | "operationFields">
+> = {
+  supabase: {
+    resourceFields: [
+      {
+        key: "table",
+        label: "Tabela",
+        type: "text",
+        placeholder: "vehicle_model_catalog",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Ação",
+        type: "select",
+        options: [
+          { label: "Select", value: "select" },
+          { label: "Insert", value: "insert" },
+          { label: "Update", value: "update" },
+          { label: "Upsert", value: "upsert" },
+        ],
+      },
+    ],
+  },
+  mongo: {
+    resourceFields: [
+      {
+        key: "collection",
+        label: "Coleção",
+        type: "text",
+        placeholder: "my_collection",
+      },
+    ],
+    operationFields: [
+      {
+        key: "operation",
+        label: "Ação",
+        type: "select",
+        options: [
+          { label: "Find", value: "find" },
+          { label: "Insert One", value: "insertOne" },
+          { label: "Update One", value: "updateOne" },
+          { label: "Delete One", value: "deleteOne" },
+        ],
+      },
+    ],
+  },
+};
+
+function normalizeAdapterMetadata(item: AdapterMetadata): AdapterMetadata {
+  const fallback =
+    adapterMetadataFallbacks[item.id] ??
+    (item.server_type_id
+      ? adapterMetadataFallbacks[item.server_type_id]
+      : undefined);
+
+  return {
+    ...item,
+    resourceFields:
+      item.resourceFields && item.resourceFields.length > 0
+        ? item.resourceFields
+        : fallback?.resourceFields,
+    operationFields:
+      item.operationFields && item.operationFields.length > 0
+        ? item.operationFields
+        : fallback?.operationFields,
+  };
+}
+
 export class API {
   async listServersTypes() {
     const response =
@@ -54,6 +126,12 @@ export class API {
       await axios_api_instance.get<ReturningQueries<AdapterMetadataPayload>>(
         "/adapters/metadata",
       );
+    const authTypes = response.data?.data?.auth_types;
+    if (Array.isArray(authTypes)) {
+      response.data.data.auth_types = authTypes.map((item) =>
+        normalizeAdapterMetadata(item),
+      );
+    }
     return response;
   }
 

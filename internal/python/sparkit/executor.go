@@ -1,12 +1,15 @@
 package sparkit
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -51,7 +54,7 @@ func (e *Executor) schemaWithPython(ctx context.Context, pythonExecutable string
 	ctx, cancel := context.WithTimeout(ctx, e.DefaultTimeout)
 	defer cancel()
 
-	output, err := exec.CommandContext(ctx, pythonExecutable, scriptPath, "--schema").Output()
+	output, err := commandOutput(ctx, pythonExecutable, scriptPath, "--schema")
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +62,9 @@ func (e *Executor) schemaWithPython(ctx context.Context, pythonExecutable string
 	var result struct {
 		Schema map[string]any `json:"schema"`
 	}
-	if err := json.Unmarshal(output, &result); err != nil {
-		return nil, err
+	trimmed := bytes.TrimSpace(output)
+	if err := json.Unmarshal(trimmed, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse schema from script stdout: %w. stdout: %s", err, strings.TrimSpace(string(trimmed)))
 	}
 	if result.Schema == nil {
 		return map[string]any{}, nil
@@ -87,21 +91,53 @@ func (e *Executor) runWithPython(ctx context.Context, pythonExecutable string, s
 	}
 
 	cmd := exec.CommandContext(ctx, pythonExecutable, scriptPath, "--input-file", tempFile.Name())
-	stdout, err := cmd.Output()
+	var stdoutBuffer bytes.Buffer
+	var stderrBuffer bytes.Buffer
+	cmd.Stdout = &stdoutBuffer
+	cmd.Stderr = &stderrBuffer
+	err = cmd.Run()
+
+	stdout := stdoutBuffer.Bytes()
+	stderr := stderrBuffer.Bytes()
+	var data map[string]any
+	_ = json.Unmarshal(bytes.TrimSpace(stdout), &data)
+
+	result := domain.ScriptResult{
+		Stdout: string(stdout),
+		Stderr: string(stderr),
+		Data:   data,
+	}
+
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
-			return domain.ScriptResult{Stdout: string(stdout), Stderr: string(exitErr.Stderr), ExitCode: exitErr.ExitCode()}, nil
+			result.ExitCode = exitErr.ExitCode()
+			return result, nil
 		}
 		return domain.ScriptResult{}, err
 	}
 
-	var data map[string]any
-	_ = json.Unmarshal(stdout, &data)
-	return domain.ScriptResult{Stdout: string(stdout), ExitCode: 0, Data: data}, nil
+	result.ExitCode = 0
+	return result, nil
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {
-	return exec.CommandContext(ctx, name, args...).Run()
+	output, err := commandOutput(ctx, name, args...)
+	if err != nil {
+		return err
+	}
+	_ = output
+	return nil
+}
+
+func commandOutput(ctx context.Context, name string, args ...string) ([]byte, error) {
+	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if err != nil {
+		if len(output) == 0 {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return output, nil
 }
 
 func pythonExecutable(venvPath string) string {

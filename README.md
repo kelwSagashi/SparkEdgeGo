@@ -102,7 +102,7 @@ A infraestrutura de providers ja possui tabelas SQLite/GORM para `server_types`,
 
 O runner agora resolve cada `resource_operation_id` pelo SQLite antes do dispatch. O `driver_key` do servidor seleciona o provider e o adapter recebe configuracoes separadas de servidor, recurso, operacao e credencial.
 
-O frontend Vite ja foi trazido para `frontend/`, ganhou tipos locais proprios e agora gera `frontend/dist`, que e servido pelo binario Go no mesmo host do backend.
+O frontend Vite ja foi trazido para `frontend/`, ganhou tipos locais proprios e agora gera `frontend/dist`, que pode ser embutido no binario Go para producao e tambem pode ser servido por override em disco no mesmo host do backend.
 
 A arvore de rotas HTTP foi adaptada para conviver com o `ServeMux` moderno do Go: familias com paths dinamicos mais ambiguos, como `instances`, `instance-advanced` e `scripts`, passaram a usar dispatch por prefixo para evitar conflitos de bootstrap.
 

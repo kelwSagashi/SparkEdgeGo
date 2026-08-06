@@ -1,4 +1,4 @@
-package embedfs
+package frontendassets
 
 import (
 	"embed"
