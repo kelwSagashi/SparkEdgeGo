@@ -417,6 +417,18 @@ Equivalencias praticas do adapter MongoDB:
 | `MongoAdapter.send` | `mongoprovider.Adapter.Send` | suporta `insertOne`, `updateOne`, `find` e `findOne` |
 | `MongoAdapter.discover` | `mongoprovider.Adapter.Discover` | lista colecoes como recursos configuraveis |
 
+Equivalencias praticas dos adapters Firebase e Google:
+
+| TypeScript atual | Go novo | Observacao |
+| --- | --- | --- |
+| `FirebaseServerType` | `firebaseprovider.ServerType` | cadastra `firebase` no catalogo |
+| `FirebaseAdapter.send` | `firebaseprovider.Adapter.Send` | suporta `add` e `set` em colecoes Firestore |
+| `FirebaseDriver.connect` | `googleauth.Token` + REST Firestore | autentica service account e chama a API Firestore sem SDK pesado |
+| `GoogleSpreadsheetServerType` | `googleprovider.ServerTypes` | cadastra `googlespreadsheet` no catalogo |
+| `GoogleSheetsAdapter.send` | `googleprovider.SheetsAdapter.Send` | suporta `append` e `update` com `ValueRange` |
+| `GoogleDriveServerType` | `googleprovider.ServerTypes` | cadastra `googledrive` no catalogo |
+| `GoogleDriveAdapter.send` | `googleprovider.DriveAdapter.Send` | cria arquivo JSON em pasta do Drive |
+
 ## Middlewares
 
 No Express, temos:

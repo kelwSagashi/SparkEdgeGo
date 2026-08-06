@@ -13,6 +13,8 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/mqtt"
 	"github.com/kelwSagashi/sparkedge-go/internal/projects"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/firebaseprovider"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/googleprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/httpprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/mongoprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/supabaseprovider"
@@ -43,6 +45,8 @@ type App struct {
 
 func New() *App {
 	providerRegistry := providers.NewRegistry()
+	firebaseprovider.Register(providerRegistry)
+	googleprovider.Register(providerRegistry)
 	httpprovider.Register(providerRegistry)
 	mongoprovider.Register(providerRegistry)
 	supabaseprovider.Register(providerRegistry)
@@ -52,8 +56,11 @@ func New() *App {
 		panic(err)
 	}
 	serverInfraService := serverinfra.NewService(store)
-	serverTypes := []domain.ServerType{httpprovider.ServerType(), mongoprovider.ServerType(), supabaseprovider.ServerType()}
-	authTypes := append(httpprovider.AuthTypes(), mongoprovider.AuthTypes()...)
+	serverTypes := []domain.ServerType{firebaseprovider.ServerType(), httpprovider.ServerType(), mongoprovider.ServerType(), supabaseprovider.ServerType()}
+	serverTypes = append(serverTypes, googleprovider.ServerTypes()...)
+	authTypes := append(firebaseprovider.AuthTypes(), googleprovider.AuthTypes()...)
+	authTypes = append(authTypes, httpprovider.AuthTypes()...)
+	authTypes = append(authTypes, mongoprovider.AuthTypes()...)
 	authTypes = append(authTypes, supabaseprovider.AuthTypes()...)
 	if err := serverInfraService.SeedCatalog(context.Background(), serverTypes, authTypes); err != nil {
 		panic(err)
