@@ -512,6 +512,7 @@ Equivalencias praticas:
 | `mqtt.topics.ts` | funcoes `StatusTopic`, `CommandTopic`, etc. | mantem `spark/{edge_id}/{subject}` |
 | `mqtt.service.publishStatus` | `mqtt.Client.PublishStatus` | envia `online`/`offline` como string retida |
 | `mqtt.service.publishHeartbeat` | `mqtt.Client.PublishHeartbeat` | publica heartbeat JSON |
+| `mqtt.publisher.publish` | `mqtt.Client.publish` | publica ou enfileira quando offline/falha |
 | `mqtt.subscriber.subscribe` | `mqtt.Client.SubscribeCommands` | assina comandos do edge |
 | `mqtt.handlers.handleCommand` | `mqtt.Client.HandleCommand` | parseia comando, salva status no SQLite, chama handler e publica response |
 | `dbManager.edge.saveCommand` | `sqlite.MqttCommandsRepository.Save` | persiste comando como `pending` |

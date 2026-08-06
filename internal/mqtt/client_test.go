@@ -100,6 +100,36 @@ func TestRetryQueueDeletesDeliveredMessages(t *testing.T) {
 	}
 }
 
+func TestPublishJSONQueuesWhenOffline(t *testing.T) {
+	broker := &fakeBroker{connected: false}
+	queue := &fakeQueueStore{}
+	client := NewClientWithBroker(broker)
+	client.UseStores(nil, queue)
+	client.config = Config{EdgeID: "edge-1"}
+
+	if err := client.PublishLog(context.Background(), "info", "offline message"); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.items) != 1 || queue.items[0].Topic != LogTopic("edge-1") || len(broker.published) != 0 {
+		t.Fatalf("expected queued offline publish, broker=%#v queue=%#v", broker.published, queue.items)
+	}
+}
+
+func TestPublishJSONQueuesOnPublishFailure(t *testing.T) {
+	broker := &fakeBroker{connected: true, publishErr: errors.New("broker down")}
+	queue := &fakeQueueStore{}
+	client := NewClientWithBroker(broker)
+	client.UseStores(nil, queue)
+	client.config = Config{EdgeID: "edge-1"}
+
+	if err := client.PublishLog(context.Background(), "info", "failed message"); err == nil {
+		t.Fatal("expected publish error")
+	}
+	if len(queue.items) != 1 || queue.items[0].Topic != LogTopic("edge-1") {
+		t.Fatalf("expected queued failed publish, queue=%#v", queue.items)
+	}
+}
+
 func TestTopicsMatchTypeScriptTemplates(t *testing.T) {
 	edgeID := "edge-1"
 	if StatusTopic(edgeID) != "spark/edge-1/status" || HeartbeatTopic(edgeID) != "spark/edge-1/heartbeat" || CommandTopic(edgeID) != "spark/edge-1/commands" {
@@ -167,6 +197,7 @@ type fakeBroker struct {
 	subscribedTopic string
 	published       []Message
 	handler         func(string, []byte)
+	publishErr      error
 }
 
 func (b *fakeBroker) Connect(ctx context.Context, config Config, handler func(string, []byte)) error {
@@ -183,6 +214,9 @@ func (b *fakeBroker) Disconnect() {
 func (b *fakeBroker) Publish(ctx context.Context, message Message) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if b.publishErr != nil {
+		return b.publishErr
 	}
 	b.published = append(b.published, message)
 	return nil

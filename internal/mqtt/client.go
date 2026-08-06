@@ -133,7 +133,7 @@ func (c *Client) SubscribeCommands(ctx context.Context) error {
 }
 
 func (c *Client) PublishStatus(ctx context.Context, status string) error {
-	return c.broker.Publish(ctx, Message{Topic: StatusTopic(c.config.EdgeID), Payload: []byte(status), QOS: 1, Retain: true})
+	return c.publish(ctx, Message{Topic: StatusTopic(c.config.EdgeID), Payload: []byte(status), QOS: 1, Retain: true})
 }
 
 func (c *Client) PublishHeartbeat(ctx context.Context) error {
@@ -166,7 +166,24 @@ func (c *Client) PublishJSON(ctx context.Context, topic string, payload map[stri
 	if err != nil {
 		return err
 	}
-	return c.broker.Publish(ctx, Message{Topic: topic, Payload: encoded, QOS: 1, Retain: retain})
+	return c.publish(ctx, Message{Topic: topic, Payload: encoded, QOS: 1, Retain: retain})
+}
+
+func (c *Client) publish(ctx context.Context, message Message) error {
+	if !c.IsConnected() {
+		if c.queue != nil {
+			_, err := c.queue.Enqueue(ctx, message.Topic, string(message.Payload))
+			return err
+		}
+		return c.broker.Publish(ctx, message)
+	}
+	if err := c.broker.Publish(ctx, message); err != nil {
+		if c.queue != nil {
+			_, _ = c.queue.Enqueue(ctx, message.Topic, string(message.Payload))
+		}
+		return err
+	}
+	return nil
 }
 
 func (c *Client) StartHeartbeat(interval time.Duration) {
