@@ -272,3 +272,33 @@ type instanceExecutionModel struct {
 func (instanceExecutionModel) TableName() string {
 	return "instance_executions"
 }
+
+type mqttCommandModel struct {
+	ID         string  `gorm:"primaryKey;type:text"`
+	CommandID  string  `gorm:"uniqueIndex;not null;type:text"`
+	Type       string  `gorm:"not null;type:text"`
+	Payload    mapJSON `gorm:"type:text"`
+	Status     string  `gorm:"not null;default:pending;type:text"`
+	Result     mapJSON `gorm:"type:text"`
+	Error      string  `gorm:"type:text"`
+	CreatedAt  time.Time
+	StartedAt  *time.Time
+	FinishedAt *time.Time
+}
+
+func (mqttCommandModel) TableName() string {
+	return "mqtt_commands"
+}
+
+type mqttQueueModel struct {
+	ID            string `gorm:"primaryKey;type:text"`
+	Topic         string `gorm:"not null;type:text"`
+	Payload       string `gorm:"not null;type:text"`
+	Attempts      int    `gorm:"not null;default:0"`
+	LastAttemptAt *time.Time
+	CreatedAt     time.Time
+}
+
+func (mqttQueueModel) TableName() string {
+	return "mqtt_queue"
+}

@@ -65,6 +65,8 @@ func New() *App {
 	if err := serverInfraService.SeedCatalog(context.Background(), serverTypes, authTypes); err != nil {
 		panic(err)
 	}
+	mqttClient := mqtt.NewClient()
+	mqttClient.UseStores(store.MqttCommands, store.MqttQueue)
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
@@ -79,7 +81,7 @@ func New() *App {
 		Tags:       tagsService,
 		Instances:  instances.NewService(store.Instances, tagsService, store.Destinations, store.DataMappings),
 		Executions: executions.NewService(store.Executions),
-		MQTT:       mqtt.NewClient(),
+		MQTT:       mqttClient,
 		Providers:  providerRegistry,
 		Runtime: runtime.NewRunner(runtime.Dependencies{
 			Sparkit:            sparkitExecutor,

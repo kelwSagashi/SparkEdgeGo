@@ -3,7 +3,10 @@ package mqtt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 )
 
 func TestConnectSubscribesAndPublishesOnlineStatus(t *testing.T) {
@@ -65,11 +68,97 @@ func TestHandleCommandIgnoresDuplicateCommandID(t *testing.T) {
 	}
 }
 
+func TestHandleCommandPersistsLifecycleInStore(t *testing.T) {
+	broker := &fakeBroker{}
+	commands := &fakeCommandStore{commands: map[string]domain.MqttCommand{}}
+	client := NewClientWithBroker(broker)
+	client.UseStores(commands, nil)
+	if err := client.Connect(context.Background(), Config{EdgeID: "edge-1", BrokerURL: "mqtt://localhost:1883"}); err != nil {
+		t.Fatal(err)
+	}
+	broker.published = nil
+
+	if err := client.HandleCommand(context.Background(), []byte(`{"command_id":"cmd-1","type":"ping","payload":{}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if commands.saved != 1 || commands.statuses[0] != domain.MqttCommandRunning || commands.statuses[1] != domain.MqttCommandDone {
+		t.Fatalf("unexpected command store %#v", commands)
+	}
+}
+
+func TestRetryQueueDeletesDeliveredMessages(t *testing.T) {
+	broker := &fakeBroker{connected: true}
+	queue := &fakeQueueStore{items: []domain.MqttQueueItem{{ID: "queue-1", Topic: "spark/edge-1/logs", Payload: `{"ok":true}`}}}
+	client := NewClientWithBroker(broker)
+	client.UseStores(nil, queue)
+
+	if err := client.RetryQueue(context.Background(), 10); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.published) != 1 || queue.deletedID != "queue-1" {
+		t.Fatalf("unexpected retry state broker=%#v queue=%#v", broker, queue)
+	}
+}
+
 func TestTopicsMatchTypeScriptTemplates(t *testing.T) {
 	edgeID := "edge-1"
 	if StatusTopic(edgeID) != "spark/edge-1/status" || HeartbeatTopic(edgeID) != "spark/edge-1/heartbeat" || CommandTopic(edgeID) != "spark/edge-1/commands" {
 		t.Fatal("unexpected MQTT topic template")
 	}
+}
+
+type fakeCommandStore struct {
+	commands map[string]domain.MqttCommand
+	saved    int
+	statuses []domain.MqttCommandStatus
+}
+
+func (s *fakeCommandStore) FindByCommandID(ctx context.Context, commandID string) (domain.MqttCommand, error) {
+	if command, ok := s.commands[commandID]; ok {
+		return command, ctx.Err()
+	}
+	return domain.MqttCommand{}, errors.New("not found")
+}
+
+func (s *fakeCommandStore) Save(ctx context.Context, commandID string, commandType string, payload map[string]any) (domain.MqttCommand, error) {
+	command := domain.MqttCommand{CommandID: commandID, Type: commandType, Payload: payload, Status: domain.MqttCommandPending}
+	s.commands[commandID] = command
+	s.saved++
+	return command, ctx.Err()
+}
+
+func (s *fakeCommandStore) UpdateStatus(ctx context.Context, commandID string, status domain.MqttCommandStatus, result map[string]any, errText string) (domain.MqttCommand, error) {
+	command := s.commands[commandID]
+	command.Status = status
+	command.Result = result
+	command.Error = errText
+	s.commands[commandID] = command
+	s.statuses = append(s.statuses, status)
+	return command, ctx.Err()
+}
+
+type fakeQueueStore struct {
+	items     []domain.MqttQueueItem
+	deletedID string
+}
+
+func (s *fakeQueueStore) Enqueue(ctx context.Context, topic string, payload string) (domain.MqttQueueItem, error) {
+	item := domain.MqttQueueItem{ID: "queue-new", Topic: topic, Payload: payload}
+	s.items = append(s.items, item)
+	return item, ctx.Err()
+}
+
+func (s *fakeQueueStore) ListPending(ctx context.Context, maxAttempts int) ([]domain.MqttQueueItem, error) {
+	return s.items, ctx.Err()
+}
+
+func (s *fakeQueueStore) Delete(ctx context.Context, id string) error {
+	s.deletedID = id
+	return ctx.Err()
+}
+
+func (s *fakeQueueStore) IncrementAttempt(ctx context.Context, id string) error {
+	return ctx.Err()
 }
 
 type fakeBroker struct {

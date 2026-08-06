@@ -28,6 +28,8 @@ type Store struct {
 	Destinations       *InstanceDestinationsRepository
 	DataMappings       *DataMappingsRepository
 	Executions         *InstanceExecutionsRepository
+	MqttCommands       *MqttCommandsRepository
+	MqttQueue          *MqttQueueRepository
 }
 
 func NewStore() *Store {
@@ -72,6 +74,8 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Destinations = NewInstanceDestinationsRepository(db)
 	s.DataMappings = NewDataMappingsRepository(db)
 	s.Executions = NewInstanceExecutionsRepository(db)
+	s.MqttCommands = NewMqttCommandsRepository(db)
+	s.MqttQueue = NewMqttQueueRepository(db)
 	return nil
 }
 
@@ -87,5 +91,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{})
 }

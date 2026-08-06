@@ -448,6 +448,7 @@ No Go:
 - o Last Will publica `offline` em `spark/{edge_id}/status` com retain;
 - `Connect` assina `spark/{edge_id}/commands` e publica `online`;
 - `PublishHeartbeat`, `PublishResponse`, `PublishLog` e `PublishContext` preservam os topicos atuais.
+- `mqtt_commands` e `mqtt_queue` sao tabelas GORM no SQLite local.
 
 Equivalencias praticas:
 
@@ -458,9 +459,11 @@ Equivalencias praticas:
 | `mqtt.service.publishStatus` | `mqtt.Client.PublishStatus` | envia `online`/`offline` como string retida |
 | `mqtt.service.publishHeartbeat` | `mqtt.Client.PublishHeartbeat` | publica heartbeat JSON |
 | `mqtt.subscriber.subscribe` | `mqtt.Client.SubscribeCommands` | assina comandos do edge |
-| `mqtt.handlers.handleCommand` | `mqtt.Client.HandleCommand` | parseia comando, chama handler e publica response |
-
-Ainda falta migrar a fila `mqtt_queue` e persistencia de `mqtt_commands` no SQLite. Por enquanto, a idempotencia de comandos esta em memoria no client Go.
+| `mqtt.handlers.handleCommand` | `mqtt.Client.HandleCommand` | parseia comando, salva status no SQLite, chama handler e publica response |
+| `dbManager.edge.saveCommand` | `sqlite.MqttCommandsRepository.Save` | persiste comando como `pending` |
+| `dbManager.edge.updateCommandStatus` | `sqlite.MqttCommandsRepository.UpdateStatus` | atualiza `running`, `done` ou `error` |
+| `mqtt.queue.enqueue` | `sqlite.MqttQueueRepository.Enqueue` | grava mensagem offline |
+| `mqtt.queue.retryAll` | `mqtt.Client.RetryQueue` | reenvia mensagens pendentes e remove as entregues |
 
 ## Middlewares
 

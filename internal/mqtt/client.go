@@ -10,6 +10,7 @@ import (
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 )
 
 type Config struct {
@@ -42,9 +43,24 @@ type Command struct {
 
 type CommandHandler func(context.Context, map[string]any) (map[string]any, error)
 
+type CommandStore interface {
+	FindByCommandID(context.Context, string) (domain.MqttCommand, error)
+	Save(context.Context, string, string, map[string]any) (domain.MqttCommand, error)
+	UpdateStatus(context.Context, string, domain.MqttCommandStatus, map[string]any, string) (domain.MqttCommand, error)
+}
+
+type QueueStore interface {
+	Enqueue(context.Context, string, string) (domain.MqttQueueItem, error)
+	ListPending(context.Context, int) ([]domain.MqttQueueItem, error)
+	Delete(context.Context, string) error
+	IncrementAttempt(context.Context, string) error
+}
+
 type Client struct {
 	config        Config
 	broker        Broker
+	commands      CommandStore
+	queue         QueueStore
 	mu            sync.Mutex
 	handlers      map[string]CommandHandler
 	processed     map[string]struct{}
@@ -65,6 +81,13 @@ func NewClientWithBroker(broker Broker) *Client {
 		return map[string]any{"pong": true, "timestamp": time.Now().UTC().Format(time.RFC3339)}, nil
 	})
 	return client
+}
+
+func (c *Client) UseStores(commands CommandStore, queue QueueStore) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.commands = commands
+	c.queue = queue
 }
 
 func (c *Client) Connect(ctx context.Context, config Config) error {
@@ -196,6 +219,16 @@ func (c *Client) HandleCommand(ctx context.Context, raw []byte) error {
 	if command.CommandID == "" || command.Type == "" {
 		return errors.New("mqtt command requires command_id and type")
 	}
+	if c.commands != nil {
+		if _, err := c.commands.FindByCommandID(ctx, command.CommandID); err == nil {
+			return nil
+		} else if !isNotFound(err) {
+			return err
+		}
+		if _, err := c.commands.Save(ctx, command.CommandID, command.Type, command.Payload); err != nil {
+			return err
+		}
+	}
 	c.mu.Lock()
 	if _, ok := c.processed[command.CommandID]; ok {
 		c.mu.Unlock()
@@ -206,15 +239,66 @@ func (c *Client) HandleCommand(ctx context.Context, raw []byte) error {
 	c.mu.Unlock()
 	if handler == nil {
 		errText := fmt.Sprintf("unknown command type: %s", command.Type)
+		if c.commands != nil {
+			_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandError, nil, errText)
+		}
 		_ = c.PublishResponse(ctx, command.CommandID, "error", nil, errText)
 		return errors.New(errText)
 	}
+	if c.commands != nil {
+		_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandRunning, nil, "")
+	}
 	result, err := handler(ctx, command.Payload)
 	if err != nil {
+		if c.commands != nil {
+			_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandError, nil, err.Error())
+		}
 		_ = c.PublishResponse(ctx, command.CommandID, "error", nil, err.Error())
 		return err
 	}
+	if c.commands != nil {
+		_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandDone, result, "")
+	}
 	return c.PublishResponse(ctx, command.CommandID, "done", result, "")
+}
+
+func isNotFound(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "not found")
+}
+
+func (c *Client) Enqueue(ctx context.Context, topic string, payload []byte) error {
+	if c.queue == nil {
+		return errors.New("mqtt queue store is not configured")
+	}
+	_, err := c.queue.Enqueue(ctx, topic, string(payload))
+	return err
+}
+
+func (c *Client) RetryQueue(ctx context.Context, maxAttempts int) error {
+	if c.queue == nil {
+		return nil
+	}
+	items, err := c.queue.ListPending(ctx, maxAttempts)
+	if err != nil {
+		return err
+	}
+	var failures []string
+	for _, item := range items {
+		err := c.broker.Publish(ctx, Message{Topic: item.Topic, Payload: []byte(item.Payload), QOS: 1})
+		if err == nil {
+			_ = c.queue.Delete(ctx, item.ID)
+			continue
+		}
+		_ = c.queue.IncrementAttempt(ctx, item.ID)
+		if maxAttempts > 0 && item.Attempts+1 >= maxAttempts {
+			_ = c.queue.Delete(ctx, item.ID)
+		}
+		failures = append(failures, item.ID+": "+err.Error())
+	}
+	if len(failures) > 0 {
+		return errors.New(strings.Join(failures, "; "))
+	}
+	return nil
 }
 
 func nullableString(value string) any {
