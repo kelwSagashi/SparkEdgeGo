@@ -34,6 +34,8 @@ A ideia principal: em Go vamos preservar os mesmos conceitos do SparkEdge, mas c
 | `TemplateResolver` | `internal/runtime.TemplateResolver` | templates, contexto e JSONPath |
 | `DestinationFactory` | `internal/providers.Registry` | cria adapter pelo tipo configurado |
 | `BaseAdapter` | interface `providers.Adapter` | contrato para destinos externos |
+| `AdaptersController.getMetadata` | `GET /api/adapters/metadata` | expoe catalogo de server/auth types |
+| `AdaptersController.discover` | `POST /api/adapters/{id}/discover` | cria adapter virtual e chama `Discover` |
 | `ServerTypesTable` | `sqlite.serverTypeModel` | tipos de servidores externos |
 | `AuthorizationsTypeTable` | `sqlite.authTypeModel` | metadados de autenticacao |
 | `CredentialsTable` | `sqlite.credentialModel` | credenciais configuradas pelo usuario |

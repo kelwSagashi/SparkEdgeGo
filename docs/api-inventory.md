@@ -251,8 +251,8 @@ Origem: `packages/cli/src/instances/adapters.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade | Observacao |
 | --- | --- | --- | --- | --- |
-| GET | `/api/adapters/metadata` | nao protegida pelo middleware atual | P0 | Lista metadata dos adapters registrados. |
-| POST | `/api/adapters/:id/discover` | nao protegida pelo middleware atual | P0 | Descobre recursos de adapter. Rever auth no Go. |
+| GET | `/api/adapters/metadata` | nao protegida pelo middleware atual | P0 | Migrada em Go via catalogo `server_types/auth_type`. |
+| POST | `/api/adapters/:id/discover` | nao protegida pelo middleware atual | P0 | Migrada em Go chamando `Adapter.Discover`. |
 
 ## Webhook
 
