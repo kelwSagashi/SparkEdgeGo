@@ -33,6 +33,7 @@ type Dependencies struct {
 		MarkAsSent(context.Context, string) (domain.LocalFallbackItem, error)
 		IncrementRetry(context.Context, string, string) (domain.LocalFallbackItem, error)
 		MarkAsFailed(context.Context, string, string) (domain.LocalFallbackItem, error)
+		FindByID(context.Context, string) (domain.LocalFallbackItem, error)
 	}
 	Destinations interface {
 		FindByID(context.Context, string) (domain.InstanceDestination, error)
@@ -234,6 +235,37 @@ func (r *Runner) FlushFallback(ctx context.Context, maxRetries int) (int, error)
 		return sent, errors.New(strings.Join(failures, "; "))
 	}
 	return sent, nil
+}
+
+func (r *Runner) RetryFallbackItem(ctx context.Context, id string) (bool, error) {
+	if r == nil || r.deps.Fallback == nil {
+		return false, errors.New("fallback store not configured")
+	}
+	item, err := r.deps.Fallback.FindByID(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if item.DestinationID == "" || r.deps.Destinations == nil {
+		_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, "destination not configured")
+		return false, errors.New("destination not configured")
+	}
+	destination, err := r.deps.Destinations.FindByID(ctx, item.DestinationID)
+	if err != nil {
+		_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, err.Error())
+		return false, err
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal([]byte(item.Payload), &payload); err != nil {
+		_, _ = r.deps.Fallback.MarkAsFailed(ctx, item.ID, err.Error())
+		return false, err
+	}
+	_, _ = r.deps.Fallback.MarkAsSending(ctx, item.ID)
+	if err := r.sendToDestination(ctx, destination, payload); err != nil {
+		_, _ = r.deps.Fallback.IncrementRetry(ctx, item.ID, err.Error())
+		return false, err
+	}
+	_, _ = r.deps.Fallback.MarkAsSent(ctx, item.ID)
+	return true, nil
 }
 
 func (r *Runner) sendToDestination(ctx context.Context, destination domain.InstanceDestination, payload map[string]any) error {

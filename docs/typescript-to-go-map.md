@@ -376,6 +376,9 @@ Equivalencias praticas:
 | --- | --- | --- |
 | `FallbackQueueService.enqueue` | `LocalFallbackRepository.Create` chamado pelo runner | salva payload mapeado quando destino falha |
 | `FallbackQueueService.flush` | `runtime.Runner.FlushFallback` | reenvia usando destino original |
+| `FallbackController.listAll` | `GET /api/fallback` | lista historico da fila local |
+| `FallbackController.retry` | `POST /api/fallback/{id}/retry` | reenvia um item especifico |
+| `FallbackController.remove` | `DELETE /api/fallback/{id}` | remove item da fila |
 | `localFallback.listPending` | `LocalFallbackRepository.ListPending` | lista itens `pending` em ordem de criacao |
 | `localFallback.markAsSending` | `LocalFallbackRepository.MarkAsSending` | marca tentativa em andamento |
 | `localFallback.markAsSent` | `LocalFallbackRepository.MarkAsSent` | marca envio concluido |

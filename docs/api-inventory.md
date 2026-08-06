@@ -186,11 +186,11 @@ Origem: `packages/cli/src/fallback/fallback.controller.ts`
 
 | Metodo | Rota | Auth | Prioridade |
 | --- | --- | --- | --- |
-| GET | `/api/fallback` | protegida | P0 |
-| GET | `/api/fallback/stats` | protegida | P0 |
-| POST | `/api/fallback/flush` | protegida | P0 |
-| POST | `/api/fallback/:id/retry` | protegida | P0 |
-| DELETE | `/api/fallback/:id` | protegida | P1 |
+| GET | `/api/fallback` | protegida | P0 | Migrada em Go. |
+| GET | `/api/fallback/stats` | protegida | P0 | Migrada em Go. |
+| POST | `/api/fallback/flush` | protegida | P0 | Migrada em Go. |
+| POST | `/api/fallback/:id/retry` | protegida | P0 | Migrada em Go. |
+| DELETE | `/api/fallback/:id` | protegida | P1 | Migrada em Go. |
 
 ## Servers
 

@@ -152,7 +152,10 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/executions/instance/{instance_id}", Adapt(s.handleExecutionsByInstanceList))
 	mux.HandleFunc("GET /api/executions/{id}", Adapt(s.handleExecutionGet))
 	mux.HandleFunc("GET /api/fallback/stats", Adapt(s.handleFallbackStats))
+	mux.HandleFunc("GET /api/fallback", Adapt(s.handleFallbackList))
 	mux.HandleFunc("POST /api/fallback/flush", Adapt(s.handleFallbackFlush))
+	mux.HandleFunc("POST /api/fallback/{id}/retry", Adapt(s.handleFallbackRetry))
+	mux.HandleFunc("DELETE /api/fallback/{id}", Adapt(s.handleFallbackDelete))
 	mux.HandleFunc("POST /api/webhook/{instanceId}", Adapt(s.handleWebhookReceive))
 
 	mux.HandleFunc("GET /api/scripts", Adapt(s.handleScriptsList))
