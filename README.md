@@ -35,7 +35,7 @@ Esta base ainda esta no inicio da migracao, mas ja possui a fundacao do reposito
 - `internal/python/sparkit`: integracao com scripts Sparkit.
 - `internal/providers`: registry de destinos externos.
 - `internal/mqtt`: fronteira EMQX.
-- `frontend`: frontend Vite migrado para dentro do repositorio Go.
+- `webui`: frontend Vite migrado para dentro do repositorio Go.
 
 Rotas ja iniciadas:
 
@@ -102,7 +102,7 @@ A infraestrutura de providers ja possui tabelas SQLite/GORM para `server_types`,
 
 O runner agora resolve cada `resource_operation_id` pelo SQLite antes do dispatch. O `driver_key` do servidor seleciona o provider e o adapter recebe configuracoes separadas de servidor, recurso, operacao e credencial.
 
-O frontend Vite ja foi trazido para `frontend/`, ganhou tipos locais proprios e agora gera `frontend/dist`, que pode ser embutido no binario Go para producao e tambem pode ser servido por override em disco no mesmo host do backend.
+A WebUI Vite ja foi trazida para `webui/`, ganhou tipos locais proprios e agora gera `webui/dist`, que e servida em disco no mesmo host do backend, inclusive nos pacotes de producao.
 
 A arvore de rotas HTTP foi adaptada para conviver com o `ServeMux` moderno do Go: familias com paths dinamicos mais ambiguos, como `instances`, `instance-advanced` e `scripts`, passaram a usar dispatch por prefixo para evitar conflitos de bootstrap.
 
@@ -139,4 +139,4 @@ O guia detalhado para modo dev, geracao de executavel local e cross-compilation 
 2. Consolidar a camada HTTP do frontend, reduzindo a duplicacao entre `server.service.ts` e `rest-api-client/*`.
 3. Executar testes funcionais reais com scripts `sparkit`, EMQX/MQTT e providers externos com credenciais verdadeiras.
 4. Revisar outras familias de rotas dinamicas para manter compatibilidade com o `ServeMux` do Go sem depender de comportamento ambiguo.
-5. Empacotar distribuicao local com SQLite, `frontend/dist`, binarios Go e configuracao de producao.
+5. Empacotar distribuicao local com `webui/dist`, binario Go e configuracao de producao.

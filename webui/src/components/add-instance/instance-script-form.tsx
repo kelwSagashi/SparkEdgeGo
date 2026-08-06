@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useFormContext, Controller } from "react-hook-form";
+import { Controller, useFormContext } from "react-hook-form";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -10,24 +10,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
-import { Play, ArrowRightLeft, Info, Settings2 } from "lucide-react";
+import { ArrowRightLeft, Info, Play, Settings2 } from "lucide-react";
 import { JsonViewMain } from "../json-view/json-view";
 import type {
-  DownloadedScriptReturningValues,
   DeviceReturningValues,
+  DownloadedScriptReturningValues,
 } from "@/types/db";
 import type { InstanceFormValues } from "./instance-form.schemas";
+import { buildInstanceRuntimePreview } from "@/lib/instance-mapping";
 
 interface InstanceScriptFormProps {
   scripts: DownloadedScriptReturningValues[];
   selectedDevice?: DeviceReturningValues;
   includeDeviceData: boolean;
+  instanceId?: string;
 }
 
 export function InstanceScriptForm({
   scripts,
   selectedDevice,
   includeDeviceData,
+  instanceId,
 }: InstanceScriptFormProps) {
   const {
     control,
@@ -39,99 +42,93 @@ export function InstanceScriptForm({
   const selectedScriptId = watch("script_id");
   const scriptInputs = watch("scriptInputs");
   const instanceName = watch("name");
+  const deviceId = watch("device_id");
 
-  const selectedScript = scripts.find((s) => s.id === selectedScriptId);
+  const selectedScript = scripts.find((script) => script.id === selectedScriptId);
+  const sourceData = buildInstanceRuntimePreview({
+    instanceName,
+    instanceId,
+    deviceId,
+    selectedDevice,
+    includeDeviceData,
+  });
 
-  // 1. Construir o objeto de dados de origem (Source Data)
-  const sourceData: any = {
-    device: selectedDevice
-      ? {
-          id: selectedDevice.id,
-          name: selectedDevice.name,
-          ip_address: selectedDevice.ip_address,
-          ...(typeof selectedDevice.others === "object"
-            ? (selectedDevice.others as any)
-            : {}),
-          include_data_on_send: includeDeviceData,
-        }
-      : null,
-    system: {
-      now: new Date().toISOString(),
-      instance_name: instanceName || "Nova Instância",
-    },
-  };
-
-  // Se o script selecionado já tiver um esquema de saída (stdout) salvo, mostramos na fonte para mapear entre scripts se necessário
-  // (Embora aqui seja entrada do script, talvez o usuário queira mapear saídas de outros scripts no futuro. 
-  // Por enquanto, focamos em device e system).
-
-  // 2. Inicializar campos se não existirem no scriptInputs baseado no schema
   useEffect(() => {
-    if (selectedScript?.schema_config?.inputs) {
-      const currentInputs = { ...(scriptInputs || {}) };
-      let changed = false;
+    if (!selectedScript?.schema_config?.inputs) {
+      return;
+    }
 
-      selectedScript.schema_config.inputs.forEach((inp: any) => {
-        if (currentInputs[inp.name] === undefined) {
-          currentInputs[inp.name] =
-            inp.type === "number"
-              ? 0
-              : inp.type === "boolean"
-              ? false
-              : inp.type === "object" || inp.type === "json"
+    const currentInputs = { ...(scriptInputs || {}) };
+    let changed = false;
+
+    selectedScript.schema_config.inputs.forEach((input: any) => {
+      if (currentInputs[input.name] !== undefined) {
+        return;
+      }
+      currentInputs[input.name] =
+        input.type === "number"
+          ? 0
+          : input.type === "boolean"
+            ? false
+            : input.type === "object" || input.type === "json"
               ? {}
               : "";
-          changed = true;
-        }
-      });
+      changed = true;
+    });
 
-      if (changed) {
-        setValue("scriptInputs", currentInputs);
-      }
+    if (changed) {
+      setValue("scriptInputs", currentInputs);
     }
-  }, [selectedScriptId, setValue]);
+  }, [scriptInputs, selectedScript, setValue]);
 
-  // Helper para atualizar objeto aninhado por path
   const updateNestedValue = (obj: any, path: string, value: any) => {
-    if (!path) return { ...obj };
+    if (!path) {
+      return { ...obj };
+    }
     const keys = path.split(".");
-    let current = JSON.parse(JSON.stringify(obj || {}));
+    const current = JSON.parse(JSON.stringify(obj || {}));
     let ref = current;
     for (let i = 0; i < keys.length - 1; i++) {
-        ref[keys[i]] = ref[keys[i]] || {};
-        ref = ref[keys[i]];
+      ref[keys[i]] = ref[keys[i]] || {};
+      ref = ref[keys[i]];
     }
     ref[keys[keys.length - 1]] = value;
     return current;
   };
 
-  // Helper para deletar campo por path
   const deleteNestedValue = (obj: any, path: string) => {
-    if (!path) return { ...obj };
+    if (!path) {
+      return { ...obj };
+    }
     const keys = path.split(".");
     const lastKey = keys.pop();
-    let current = JSON.parse(JSON.stringify(obj || {}));
+    const current = JSON.parse(JSON.stringify(obj || {}));
     let ref = current;
     for (let i = 0; i < keys.length; i++) {
-      if (!ref[keys[i]]) return obj;
+      if (!ref[keys[i]]) {
+        return obj;
+      }
       ref = ref[keys[i]];
     }
-    if (lastKey) delete ref[lastKey];
+    if (lastKey) {
+      delete ref[lastKey];
+    }
     return current;
   };
 
-  // Helper para desestruturar objeto
-  const handleDestructure = (path: string, key: string, value: any) => {
-    if (typeof value !== 'object' || value === null) return;
-    
+  const handleDestructure = (path: string, _key: string, value: any) => {
+    if (typeof value !== "object" || value === null) {
+      return;
+    }
+
     let currentInputs = { ...(scriptInputs || {}) };
-    const parentPath = path;
-    
-    // Pegar todas as chaves do objeto e adicionar ao nível atual (ou pai)
     Object.entries(value).forEach(([childKey, childValue]) => {
-        currentInputs = updateNestedValue(currentInputs, parentPath ? `${parentPath}.${childKey}` : childKey, childValue);
+      currentInputs = updateNestedValue(
+        currentInputs,
+        path ? `${path}.${childKey}` : childKey,
+        childValue,
+      );
     });
-    
     setValue("scriptInputs", currentInputs);
   };
 
@@ -183,11 +180,12 @@ export function InstanceScriptForm({
                 </span>
               </div>
               <p className="text-[10px] text-violet-300/70 line-clamp-2">
-                {selectedScript.description || "Sem descrição disponível."}
+                {selectedScript.description || "Sem descricao disponivel."}
               </p>
             </Card>
           )}
         </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="md:col-span-2 space-y-4">
             <div className="flex items-center gap-2 mb-2">
@@ -201,12 +199,11 @@ export function InstanceScriptForm({
               <Card className="p-8 bg-black/20 border-border border-dashed text-center flex flex-col items-center justify-center gap-3">
                 <Settings2 className="w-8 h-8 text-secondary" />
                 <p className="text-xs text-secondary max-w-[200px]">
-                  Selecione um script para configurar as entradas de execução.
+                  Selecione um script para configurar as entradas de execucao.
                 </p>
               </Card>
             ) : (
               <div className="grid grid-cols-2 gap-4 h-[400px]">
-                {/* FONTE DE DADOS */}
                 <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
                   <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
@@ -220,6 +217,7 @@ export function InstanceScriptForm({
                     <JsonViewMain
                       data={sourceData}
                       draggableValue={true}
+                      rootPath="$"
                       pProps={{
                         className:
                           "bg-transparent border-none text-xs text-primary",
@@ -228,7 +226,6 @@ export function InstanceScriptForm({
                   </div>
                 </Card>
 
-                {/* ENTRADAS DO SCRIPT */}
                 <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
                   <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
@@ -245,35 +242,39 @@ export function InstanceScriptForm({
                       render={({ field }) => (
                         <JsonViewMain
                           data={field.value || {}}
-                          onParamChange={(path, key, val) => {
+                          onParamChange={(path, key, value) => {
                             const fullPath = path ? `${path}.${key}` : key;
                             setValue(
                               "scriptInputs",
-                              updateNestedValue(field.value, fullPath, val)
+                              updateNestedValue(field.value, fullPath, value),
                             );
                           }}
                           onAddField={(path, key, type) => {
-                            const defaultVal =
+                            const defaultValue =
                               type === "object"
                                 ? {}
                                 : type === "array"
-                                ? []
-                                : type === "number"
-                                ? 0
-                                : type === "boolean"
-                                ? false
-                                : "";
+                                  ? []
+                                  : type === "number"
+                                    ? 0
+                                    : type === "boolean"
+                                      ? false
+                                      : "";
                             const fullPath = path ? `${path}.${key}` : key;
                             setValue(
                               "scriptInputs",
-                              updateNestedValue(field.value, fullPath, defaultVal)
+                              updateNestedValue(
+                                field.value,
+                                fullPath,
+                                defaultValue,
+                              ),
                             );
                           }}
                           onDeleteField={(path, key) => {
                             const fullPath = path ? `${path}.${key}` : key;
                             setValue(
                               "scriptInputs",
-                              deleteNestedValue(field.value, fullPath)
+                              deleteNestedValue(field.value, fullPath),
                             );
                           }}
                           onDestructure={handleDestructure}
@@ -296,10 +297,14 @@ export function InstanceScriptForm({
           <div className="p-4 bg-violet-500/5 border border-violet-500/10 rounded-lg flex items-start gap-3">
             <Info className="w-4 h-4 text-violet-400 mt-0.5" />
             <div className="space-y-1">
-              <p className="text-xs text-primary font-medium">Instruções de Mapeamento</p>
+              <p className="text-xs text-primary font-medium">
+                Instrucoes de Mapeamento
+              </p>
               <p className="text-[10px] text-secondary leading-relaxed">
-                As entradas do script podem ser mapeadas dinamicamente usando a sintaxe <code className="text-violet-400">{"{{device.ip_address}}"}</code>.
-                O sistema substituirá esses valores em tempo de execução com os dados reais do dispositivo monitorado.
+                As entradas do script podem ser mapeadas usando valores como{" "}
+                <code className="text-violet-400">{"{{device.ip_address}}"}</code>
+                , <code className="text-violet-400">{"{{instance.name}}"}</code>{" "}
+                ou <code className="text-violet-400">{"{{system.edge_name}}"}</code>.
               </p>
             </div>
           </div>
@@ -308,4 +313,3 @@ export function InstanceScriptForm({
     </ScrollArea>
   );
 }
-

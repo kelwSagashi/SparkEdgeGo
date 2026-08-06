@@ -1,30 +1,29 @@
-import { useForm, FormProvider } from "react-hook-form";
+import { useEffect, useState } from "react";
+import { FormProvider, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useShallow } from "zustand/react/shallow";
+import { AlertCircle, CheckCircle, Loader2, Save } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Loader2, Save, AlertCircle, CheckCircle } from "lucide-react";
-import { useState, useEffect } from "react";
 import { useAuthStore } from "@/stores/auth-store";
-import { useShallow } from "zustand/react/shallow";
-// instance-form-styles removed — use design tokens directly
+import { api } from "@/server/server.service";
 import {
   InstanceFormSchema,
   type InstanceFormValues,
 } from "./instance-form.schemas";
 import { InstanceBasicForm } from "./instance-basic-form";
+import { InstanceDestinationsForm } from "./instance-destinations-form";
+import { InstanceFallbackForm } from "./instance-fallback-form";
+import { InstanceMappingForm } from "./instance-mapping-form";
 import { InstanceScriptForm } from "./instance-script-form";
 import { InstanceTriggerForm } from "./instance-trigger-form";
-import { InstanceDestinationsForm } from "./instance-destinations-form";
-import { InstanceMappingForm } from "./instance-mapping-form";
-import { InstanceFallbackForm } from "./instance-fallback-form";
-import { api } from "@/server/server.service";
 import type {
   DeviceReturningValues,
-  ServerReturningValues,
-  ProjectReturningValues,
   DownloadedScriptReturningValues,
+  ProjectReturningValues,
   ResourceOperationReturningValues,
+  ServerReturningValues,
 } from "@/types/db";
 
 type Props = {
@@ -64,48 +63,39 @@ const defaultValues: InstanceFormValues = {
   active: true,
 };
 
+type ServerWithResources = ServerReturningValues & {
+  resources?: Array<{
+    resource: any;
+    operations: ResourceOperationReturningValues[];
+  }>;
+};
+
+function flattenOperations(resources: any[]): ResourceOperationReturningValues[] {
+  const operations: ResourceOperationReturningValues[] = [];
+  resources.forEach((item: any) => {
+    (item.operations || []).forEach((operation: any) => {
+      operations.push({ ...(operation as any), id: String(operation.id) });
+    });
+  });
+  return operations;
+}
+
 export default function InstanceStepForm({ instanceId, onClose }: Props) {
-  const [user, project] = useAuthStore(useShallow((s) => [s.user, s.project]));
+  const [, project] = useAuthStore(useShallow((state) => [state.user, state.project]));
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("basic");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Data
   const [projects, setProjects] = useState<ProjectReturningValues[]>([]);
   const [devices, setDevices] = useState<DeviceReturningValues[]>([]);
   const [scripts, setScripts] = useState<DownloadedScriptReturningValues[]>([]);
-  const [servers, setServers] = useState<
-    (ServerReturningValues & {
-      resources?: Array<{
-        resource: any;
-        operations: ResourceOperationReturningValues[];
-      }>;
-    })[]
-  >([]);
-  const [allOperations, setAllOperations] = useState<
-    ResourceOperationReturningValues[]
-  >([]);
+  const [servers, setServers] = useState<ServerWithResources[]>([]);
+  const [allOperations, setAllOperations] = useState<ResourceOperationReturningValues[]>([]);
   const [operationsCache, setOperationsCache] = useState<
     Record<string, ResourceOperationReturningValues[]>
   >({});
-
-  const updateOperationsCache = (
-    serverId: string,
-    ops: ResourceOperationReturningValues[],
-  ) => {
-    setOperationsCache((prev) => {
-      const next = { ...prev, [serverId]: ops };
-      // Also update allOperations to include these new ones (avoiding duplicates)
-      setAllOperations((prevAll) => {
-        const existingIds = new Set(prevAll.map((o) => String(o.id)));
-        const newOps = ops.filter((o) => !existingIds.has(String(o.id)));
-        return [...prevAll, ...newOps];
-      });
-      return next;
-    });
-  };
 
   const form = useForm<InstanceFormValues>({
     resolver: zodResolver(InstanceFormSchema),
@@ -113,12 +103,24 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
     mode: "onSubmit",
   });
 
-  // Load data on mount
+  const updateOperationsCache = (
+    serverId: string,
+    operations: ResourceOperationReturningValues[],
+  ) => {
+    setOperationsCache((previous) => ({ ...previous, [serverId]: operations }));
+    setAllOperations((previous) => {
+      const merged = new Map(previous.map((item) => [String(item.id), item]));
+      operations.forEach((item) => merged.set(String(item.id), item));
+      return Array.from(merged.values());
+    });
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const [resProjects, resDevices, resScripts, resServers] =
+
+        const [projectsResponse, devicesResponse, scriptsResponse, serversResponse] =
           await Promise.all([
             api.listAllProjects(),
             api.listAllDevices(),
@@ -126,93 +128,127 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
             api.listAllServers(),
           ]);
 
-        const projectsData = resProjects.data?.data || [];
-        const devicesData = resDevices.data?.data || [];
-        const scriptsData = resScripts.data?.data || [];
-        const serversData = resServers.data?.data || [];
+        const projectsData = projectsResponse.data?.data || [];
+        const devicesData = devicesResponse.data?.data || [];
+        const scriptsData = scriptsResponse.data?.data || [];
+        const serversData = (serversResponse.data?.data || []) as ServerWithResources[];
 
         setProjects(projectsData);
         setDevices(devicesData);
         setScripts(scriptsData);
         setServers(serversData);
 
-        // Flatten all operations and initialize cache
-        const ops: ResourceOperationReturningValues[] = [];
-        const initialCache: Record<string, ResourceOperationReturningValues[]> =
-          {};
-        
-        // Load instance data if editing
-        if (instanceId) {
-          const resInstance = await api.getInstanceById(instanceId);
-          const instanceData = resInstance.data?.data;
-          
-          if (instanceData) {
-            const { instance, destinations } = instanceData as any;
-            
-            // Convert dictionary params to array for form
-            const scriptParams = Object.entries(instance.script_parameters || {}).map(([key, value]) => ({
-              key,
-              value,
-              sourceType: "manual" as const,
-            }));
+        let initialOperationsCache: Record<string, ResourceOperationReturningValues[]> = {};
+        let initialOperations: ResourceOperationReturningValues[] = [];
 
-            const formValues: InstanceFormValues = {
-              name: instance.name || "",
-              description: instance.description || "",
-              project_id: instance.project_id || "",
-              device_id: instance.device_id || null,
-              tags: instance.tags || [],
-              includeDeviceData: instance.include_device_data || false,
-              script_id: instance.script_id || "",
-              scriptParameters: scriptParams,
-              scriptInputs: instance.script_parameters || {},
-              triggerType: instance.trigger_type || "interval",
-              triggerConfig: instance.trigger_config || defaultValues.triggerConfig,
-              active: instance.active ?? true,
-              destinations: (destinations || []).map((d: any) => ({
-                resourceOperationId: d.destination.resource_operation_id,
-                serverId: "", // We'll find this later or just leave it, individual dest forms load it
-                enabled: d.destination.enabled ?? true,
-                priority: d.destination.priority || 0,
-                retryPolicy: {
-                  maxRetries: d.destination.retry_policy?.max_retries,
-                  retryInterval: d.destination.retry_policy?.retry_interval,
-                },
-                dataMapping: {
-                  instanceDestinationId: d.destination.id,
-                  mapping: d.mapping?.mapping || {},
-                  payloadTemplate: d.mapping?.payload_template || {},
-                  customFields: d.mapping?.custom_fields || [],
-                  transformScript: d.mapping?.transform_script,
-                }
-              })),
-              fallbackConfig: {
-                enabled: instance.fallback_enabled ?? true,
-                strategy: instance.fallback_strategy || "background_job",
-                retry_interval_seconds: instance.fallback_retry_interval_seconds || 300,
-                max_retries: null,
-              },
-              errorConfig: {
-                action: instance.on_error_action || "log_only",
-                notify_url: instance.on_error_config?.notify_url,
-                max_retries: instance.on_error_config?.max_retries,
+        if (instanceId && serversData.length > 0) {
+          const resourceResponses = await Promise.all(
+            serversData.map(async (server) => {
+              try {
+                const response = await api.listResources(String(server.id));
+                const operations = flattenOperations(response.data?.data || []);
+                return [String(server.id), operations] as const;
+              } catch (loadError) {
+                console.error("Failed to load operations for server", server.id, loadError);
+                return [String(server.id), []] as const;
               }
-            };
+            }),
+          );
 
-            form.reset(formValues);
-          }
-        } else if (project?.id) {
-          form.setValue("project_id", project.id);
+          initialOperationsCache = Object.fromEntries(resourceResponses);
+          initialOperations = resourceResponses.flatMap(([, operations]) => operations);
+          setOperationsCache(initialOperationsCache);
+          setAllOperations(initialOperations);
         }
-      } catch (e) {
-        console.error("Failed to load data", e);
+
+        if (!instanceId) {
+          if (project?.id) {
+            form.setValue("project_id", project.id);
+          }
+          return;
+        }
+
+        const instanceResponse = await api.getInstanceById(instanceId);
+        const instanceData = instanceResponse.data?.data as any;
+        if (!instanceData) {
+          return;
+        }
+
+        const operationToServer = new Map<string, string>();
+        Object.entries(initialOperationsCache).forEach(([serverId, operations]) => {
+          operations.forEach((operation) => {
+            operationToServer.set(String(operation.id), serverId);
+          });
+        });
+
+        const { instance, destinations } = instanceData;
+        const scriptInputs = instance.script_parameters || {};
+        const scriptParameters = Object.entries(scriptInputs).map(([key, value]) => ({
+          key,
+          value,
+          sourceType: "manual" as const,
+        }));
+
+        const formValues: InstanceFormValues = {
+          name: instance.name || "",
+          description: instance.description || "",
+          project_id: instance.project_id || "",
+          device_id: instance.device_id || null,
+          tags: instance.tags || [],
+          includeDeviceData: !!instance.include_device_data,
+          script_id: instance.script_id || "",
+          scriptParameters,
+          scriptInputs,
+          triggerType: instance.trigger_type || "interval",
+          triggerConfig: instance.trigger_config || defaultValues.triggerConfig,
+          active: instance.active ?? true,
+          destinations: (destinations || []).map((item: any) => {
+            const mapping =
+              item.mapping || item.data_mapping || item.dataMapping || {};
+            const operationId = String(item.destination?.resource_operation_id || "");
+            return {
+              resourceOperationId: operationId,
+              serverId: operationToServer.get(operationId) || "",
+              enabled: item.destination?.enabled ?? true,
+              priority: item.destination?.priority || 0,
+              retryPolicy: {
+                maxRetries: item.destination?.retry_policy?.max_retries,
+                retryInterval: item.destination?.retry_policy?.retry_interval,
+              },
+              dataMapping: {
+                instanceDestinationId: item.destination?.id || "",
+                mapping: mapping.mapping || {},
+                payloadTemplate: mapping.payload_template || {},
+                customFields: mapping.custom_fields || [],
+                transformScript: mapping.transform_script || "",
+              },
+            };
+          }),
+          fallbackConfig: {
+            enabled: instance.fallback_enabled ?? true,
+            strategy: instance.fallback_strategy || "background_job",
+            retry_interval_seconds:
+              instance.fallback_retry_interval_seconds || 300,
+            max_retries: instance.fallback_config?.max_retries ?? null,
+          },
+          errorConfig: {
+            action: instance.on_error_action || "log_only",
+            notify_url: instance.on_error_config?.notify_url,
+            max_retries: instance.on_error_config?.max_retries,
+          },
+        };
+
+        form.reset(formValues);
+      } catch (loadError) {
+        console.error("Failed to load data", loadError);
+        setError("Nao foi possivel carregar os dados da instancia.");
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [project?.id, form]);
+  }, [form, instanceId, project?.id]);
 
   const onSubmit = async (data: InstanceFormValues) => {
     try {
@@ -220,7 +256,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
       setError(null);
       setSuccess(null);
 
-      // Tipagem correta do payload baseada no servidor
+      const resolvedScriptInputs = data.scriptInputs || {};
       const payload = {
         name: data.name,
         description: data.description,
@@ -228,8 +264,8 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
         device_id: data.device_id,
         tags: data.tags,
         script_id: data.script_id,
-        script_parameters: data.scriptParameters || [],
-        script_inputs: data.scriptInputs || {},
+        script_parameters: resolvedScriptInputs,
+        script_inputs: resolvedScriptInputs,
         trigger_type: data.triggerType,
         trigger_config: data.triggerConfig,
         include_device_data: data.includeDeviceData,
@@ -240,59 +276,58 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
           max_retries: data.errorConfig.max_retries,
         },
         active: data.active,
-        destinations: data.destinations.map((dest) => ({
-          resource_operation_id: dest.resourceOperationId,
-          enabled: dest.enabled,
-          priority: dest.priority,
-          retry_policy: dest.retryPolicy
+        destinations: data.destinations.map((destination) => ({
+          resource_operation_id: destination.resourceOperationId,
+          enabled: destination.enabled,
+          priority: destination.priority,
+          retry_policy: destination.retryPolicy
             ? {
-                max_retries: dest.retryPolicy.maxRetries,
-                retry_interval: dest.retryPolicy.retryInterval,
+                max_retries: destination.retryPolicy.maxRetries,
+                retry_interval: destination.retryPolicy.retryInterval,
               }
             : {},
-          data_mapping: dest.dataMapping
+          data_mapping: destination.dataMapping
             ? {
-                instance_destination_id: dest.dataMapping.instanceDestinationId,
-                mapping: dest.dataMapping.mapping,
-                payload_template: dest.dataMapping.payloadTemplate,
-                custom_fields: dest.dataMapping.customFields,
-                transform_script: dest.dataMapping.transformScript,
+                instance_destination_id: destination.dataMapping.instanceDestinationId,
+                mapping: destination.dataMapping.mapping || {},
+                payload_template: destination.dataMapping.payloadTemplate || {},
+                custom_fields: destination.dataMapping.customFields || [],
+                transform_script: destination.dataMapping.transformScript || "",
               }
             : undefined,
         })),
       };
 
-      const action = instanceId ? "Atualizar" : "Criar";
-      let res;
-      if (instanceId) {
-        res = await api.updateInstance(instanceId, payload);
-      } else {
-        res = await api.createInstance(payload);
-      }
+      const response = instanceId
+        ? await api.updateInstance(instanceId, payload)
+        : await api.createInstance(payload);
 
-      if (res.data.error) {
+      if (response.data.error) {
         throw new Error(
-          typeof res.data.error === "string"
-            ? res.data.error
-            : JSON.stringify(res.data.error),
+          typeof response.data.error === "string"
+            ? response.data.error
+            : JSON.stringify(response.data.error),
         );
       }
 
       setSuccess(
-        `Instância ${action === "Atualizar" ? "atualizada" : "criada"} com sucesso!`,
+        `Instancia ${instanceId ? "atualizada" : "criada"} com sucesso!`,
       );
       setTimeout(() => onClose?.(), 1500);
-    } catch (e: any) {
-      const errorMsg =
-        e?.response?.data?.error || e?.message || "Erro ao salvar instância";
-      setError(errorMsg);
-      console.error("Failed to save instance", e);
+    } catch (submitError: any) {
+      const message =
+        submitError?.response?.data?.error ||
+        submitError?.message ||
+        "Erro ao salvar instancia";
+      setError(message);
+      console.error("Failed to save instance", submitError);
     } finally {
       setSubmitting(false);
     }
   };
-  const selectedScript = scripts.find((s) => s.id === form.watch("script_id"));
-  const selectedDevice = devices.find((d) => d.id === form.watch("device_id"));
+
+  const selectedScript = scripts.find((item) => item.id === form.watch("script_id"));
+  const selectedDevice = devices.find((item) => item.id === form.watch("device_id"));
 
   if (loading) {
     return (
@@ -305,8 +340,10 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
 
   return (
     <FormProvider {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit, (e) => console.log(e))} className="space-y-6">
-        {/* Mensagens de Erro e Sucesso */}
+      <form
+        onSubmit={form.handleSubmit(onSubmit, (formErrors) => console.log(formErrors))}
+        className="space-y-6"
+      >
         {error && (
           <Card className="p-4 bg-destructive/10 border-destructive/20 text-destructive flex gap-3">
             <AlertCircle className="text-destructive shrink-0" size={20} />
@@ -329,38 +366,38 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="grid w-full grid-cols-6 bg-transparent gap-1">
-            <TabsTrigger 
-              value="basic" 
+            <TabsTrigger
+              value="basic"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
-              Básico
+              Basico
             </TabsTrigger>
-            <TabsTrigger 
-              value="script" 
+            <TabsTrigger
+              value="script"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
               Script
             </TabsTrigger>
-            <TabsTrigger 
-              value="trigger" 
+            <TabsTrigger
+              value="trigger"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
               Trigger
             </TabsTrigger>
-            <TabsTrigger 
-              value="destinations" 
+            <TabsTrigger
+              value="destinations"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
               Destinos
             </TabsTrigger>
-            <TabsTrigger 
-              value="mapping" 
+            <TabsTrigger
+              value="mapping"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
               Mapping
             </TabsTrigger>
-            <TabsTrigger 
-              value="fallback" 
+            <TabsTrigger
+              value="fallback"
               className="text-primary hover:bg-primary/10 data-[state=active]:bg-primary/10 data-[state=active]:text-primary transition-all"
             >
               Fallback
@@ -377,6 +414,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
                 scripts={scripts}
                 selectedDevice={selectedDevice}
                 includeDeviceData={form.watch("includeDeviceData")}
+                instanceId={instanceId}
               />
             </TabsContent>
 
@@ -399,6 +437,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
                 selectedScript={selectedScript}
                 selectedDevice={selectedDevice}
                 includeDeviceData={form.watch("includeDeviceData")}
+                instanceId={instanceId}
               />
             </TabsContent>
 
@@ -408,7 +447,6 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
           </div>
         </Tabs>
 
-        {/* Navigation Buttons */}
         <div className="flex justify-between mt-8">
           <Button type="button" variant="outline" onClick={onClose}>
             Cancelar
@@ -435,7 +473,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               disabled={activeTab === "basic"}
               className="text-secondary"
             >
-              ← Anterior
+              Anterior
             </Button>
 
             <Button
@@ -458,17 +496,13 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               disabled={activeTab === "fallback"}
               className="text-secondary"
             >
-              Próximo →
+              Proximo
             </Button>
 
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="gap-2 text-secondary"
-            >
+            <Button type="submit" disabled={submitting} className="gap-2 text-secondary">
               {submitting && <Loader2 className="animate-spin" size={16} />}
               <Save size={16} />
-              {instanceId ? "Atualizar" : "Criar"} Instância
+              {instanceId ? "Atualizar" : "Criar"} Instancia
             </Button>
           </div>
         </div>
@@ -476,4 +510,3 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
     </FormProvider>
   );
 }
-

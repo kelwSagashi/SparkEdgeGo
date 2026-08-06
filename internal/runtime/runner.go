@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"time"
 
@@ -37,6 +38,12 @@ type Dependencies struct {
 	}
 	Destinations interface {
 		FindByID(context.Context, string) (domain.InstanceDestination, error)
+	}
+	Devices interface {
+		FindByID(context.Context, string) (domain.Device, error)
+	}
+	EdgeConfig interface {
+		GetEdgeConfig(context.Context) (domain.EdgeConfig, error)
 	}
 }
 
@@ -101,6 +108,7 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 	for key, value := range req.Input {
 		input[key] = value
 	}
+	input = r.resolveScriptInput(ctx, req, input)
 
 	logs = append(logs, newLog("info", "Running Python script with Sparkit", time.Now().UTC()))
 	scriptResult, err := r.deps.Sparkit.RunFile(ctx, resolvePath(req.Script.LocalPath), req.Script.MainFile, resolvePath(req.Script.VenvPath), input)
@@ -160,7 +168,7 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 			result.logs = append(result.logs, newLog("info", "Destination "+destination.ID+" disabled, skipping", time.Now().UTC()))
 			continue
 		}
-		payload := applyMapping(item.Mapping, output, req)
+		payload := r.applyMapping(ctx, item.Mapping, output, req)
 		result.payloads = append(result.payloads, MappedPayload{
 			DestinationID:       destination.ID,
 			ResourceOperationID: destination.ResourceOperationID,
@@ -324,15 +332,8 @@ func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destin
 	return true
 }
 
-func applyMapping(mapping *domain.DataMapping, output map[string]any, req TriggerRequest) map[string]any {
-	context := map[string]any{
-		"script":            output,
-		"output":            output,
-		"instance":          instanceContext(req.Instance),
-		"script_metadata":   scriptContext(req.Script),
-		"script_parameters": req.Instance.ScriptParameters,
-		"timestamp":         time.Now().UTC().Format(time.RFC3339),
-	}
+func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, output map[string]any, req TriggerRequest) map[string]any {
+	context := r.buildTemplateContext(ctx, req, output)
 	for key, value := range output {
 		context[key] = value
 	}
@@ -374,6 +375,62 @@ func applyMapping(mapping *domain.DataMapping, output map[string]any, req Trigge
 	return payload
 }
 
+func (r *Runner) resolveScriptInput(ctx context.Context, req TriggerRequest, input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+	context := r.buildTemplateContext(ctx, req, nil)
+	resolver := TemplateResolver{}
+
+	resolved, ok := resolver.Resolve(input, context).(map[string]any)
+	if ok {
+		return resolved
+	}
+	return input
+}
+
+func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, output map[string]any) map[string]any {
+	device := r.resolveDeviceContext(ctx, req.Instance.DeviceID)
+	instance := instanceContext(req.Instance)
+	system := r.resolveSystemContext(ctx, req.Instance)
+	context := map[string]any{
+		"script":            output,
+		"output":            output,
+		"instance":          instance,
+		"device":            device,
+		"device_data":       device,
+		"system":            system,
+		"system_data":       system,
+		"script_metadata":   scriptContext(req.Script),
+		"script_parameters": req.Instance.ScriptParameters,
+		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+	}
+	return context
+}
+
+func (r *Runner) resolveDeviceContext(ctx context.Context, deviceID string) map[string]any {
+	context := map[string]any{}
+	if strings.TrimSpace(deviceID) == "" || r == nil || r.deps.Devices == nil {
+		return context
+	}
+
+	device, err := r.deps.Devices.FindByID(ctx, deviceID)
+	if err != nil {
+		return context
+	}
+	return deviceContext(device)
+}
+
+func (r *Runner) resolveSystemContext(ctx context.Context, instance domain.Instance) map[string]any {
+	config := domain.EdgeConfig{}
+	if r != nil && r.deps.EdgeConfig != nil {
+		if loaded, err := r.deps.EdgeConfig.GetEdgeConfig(ctx); err == nil {
+			config = loaded
+		}
+	}
+	return systemContext(config, instance)
+}
+
 func instanceContext(instance domain.Instance) map[string]any {
 	return map[string]any{
 		"id":                instance.ID,
@@ -392,6 +449,72 @@ func scriptContext(script domain.DownloadedScript) map[string]any {
 		"local_path": script.LocalPath,
 		"main_file":  script.MainFile,
 	}
+}
+
+func deviceContext(device domain.Device) map[string]any {
+	others := map[string]any{}
+	for _, field := range device.Others {
+		if strings.TrimSpace(field.Key) == "" {
+			continue
+		}
+		others[field.Key] = field.Value
+	}
+
+	context := map[string]any{
+		"id":                    device.ID,
+		"device_id":             device.DeviceID,
+		"name":                  device.Name,
+		"brand":                 device.Brand,
+		"serial_number":         device.SerialNumber,
+		"connection_method":     string(device.ConnectionMethod),
+		"ip_address":            device.IPAddress,
+		"location":              device.Location,
+		"description":           device.Description,
+		"resource_operation_id": device.ResourceOperationID,
+		"others":                others,
+	}
+	if !device.CreatedAt.IsZero() {
+		context["created_at"] = device.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	if !device.UpdatedAt.IsZero() {
+		context["updated_at"] = device.UpdatedAt.UTC().Format(time.RFC3339)
+	}
+	for key, value := range others {
+		if _, exists := context[key]; !exists {
+			context[key] = value
+		}
+	}
+	return context
+}
+
+func systemContext(config domain.EdgeConfig, instance domain.Instance) map[string]any {
+	return map[string]any{
+		"id":              config.ID,
+		"edge_name":       firstNonBlank(config.EdgeName, os.Getenv("SPARKEDGE_NAME")),
+		"lat":             config.Lat,
+		"lng":             config.Lng,
+		"location_source": firstNonBlank(config.LocationSource, "manual"),
+		"tags":            config.Tags,
+		"os":              firstNonBlank(config.OS, os.Getenv("SPARKEDGE_OS"), goruntime.GOOS),
+		"os_version":      firstNonBlank(config.OSVersion, os.Getenv("SPARKEDGE_OS_VERSION"), goruntime.GOOS+"/"+goruntime.GOARCH),
+		"edge_version":    firstNonBlank(config.EdgeVersion, os.Getenv("SPARKEDGE_VERSION"), "go-dev"),
+		"hardware":        firstNonBlank(config.Hardware, os.Getenv("SPARKEDGE_HARDWARE"), goruntime.GOARCH),
+		"environment":     firstNonBlank(config.Environment, os.Getenv("SPARKEDGE_ENV"), "production"),
+		"description":     config.Description,
+		"now":             time.Now().UTC().Format(time.RFC3339),
+		"instance_name":   instance.Name,
+		"instance_id":     instance.ID,
+		"device_id":       instance.DeviceID,
+	}
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func finish(result TriggerResult, status domain.ExecutionStatus, message string) TriggerResult {

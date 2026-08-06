@@ -1,335 +1,196 @@
 # Build e desenvolvimento
 
-Este guia concentra os comandos para:
+Este guia cobre:
 
-- rodar o SparkEdge Go em modo de desenvolvimento;
-- gerar o executavel local;
-- gerar executaveis para outros sistemas operacionais;
-- gerar binarios para Raspberry Pi.
+- modo de desenvolvimento;
+- build local;
+- empacotamento de producao;
+- cross-compilation para Windows, Linux, macOS e Raspberry Pi;
+- automacao de release no GitHub.
 
-## Visao geral
+## Estrutura de producao
 
-Hoje o projeto tem dois binarios Go principais:
+A distribuicao de producao agora segue a ideia de pacote em pasta, com o binario e a interface lado a lado:
 
-- `cmd/sparkedge-api`: servidor HTTP que atende a API e serve o frontend Vite compilado;
-- `cmd/sparkedge-cli`: entrada de linha de comando para operacoes locais do Edge.
-
-Importante: o frontend agora pode ser embutido no binario Go para producao. A ordem de resolucao ficou assim:
-
-1. no caminho definido em `SPARKEDGE_FRONTEND_DIST`;
-2. em `./frontend/dist` a partir do diretorio atual;
-3. em `frontend/dist` ao lado do executavel;
-4. em `../frontend/dist` relativo ao executavel;
-5. nos arquivos embutidos no proprio binario.
-
-Em producao, isso simplifica bastante a distribuicao. Em desenvolvimento, o override em disco continua util.
-
-## Preparacao no Windows
-
-Na maquina atual, se o cache padrao do Go der problema de permissao, use caches locais dentro do repositorio:
-
-```powershell
-$env:GOCACHE="$PWD\.gocache"
-$env:GOMODCACHE="$PWD\.gomodcache"
+```text
+sparkEdge/
+  sparkedge.exe ou sparkedge
+  sparkedge.db
+  webui/
+    dist/
+      index.html
+      assets/
+  config/
+    .env.example
+  README.md
+  version.txt
 ```
 
-Se o `go` nao estiver disponivel na sessao atual, use o executavel diretamente:
-
-```powershell
-& 'C:\Program Files\Go\bin\go.exe' version
-```
+O banco SQLite permanece no comportamento atual da aplicacao: `sparkedge.db` no local padrao de execucao.
 
 ## Modo dev
 
-No modo dev, o mais confortavel e rodar backend e frontend separadamente.
+### Backend Go
 
-### 1. Subir o backend Go
-
-No diretorio raiz do repositorio:
+Na raiz do repositorio:
 
 ```powershell
-cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo"
 $env:GOCACHE="$PWD\.gocache"
 $env:GOMODCACHE="$PWD\.gomodcache"
-go run ./cmd/sparkedge-api
+& 'C:\Program Files\Go\bin\go.exe' run ./cmd/sparkedge-api
 ```
 
-Por padrao, a API sobe em `http://localhost:3009`.
+Por padrao a API sobe em `http://localhost:3009`.
 
-Se quiser trocar a porta:
-
-```powershell
-$env:SPARKEDGE_HTTP_ADDR=":3010"
-go run ./cmd/sparkedge-api
-```
-
-### 2. Subir o frontend Vite
+### WebUI Vite
 
 Em outro terminal:
 
 ```powershell
-cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo\frontend"
+cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo\webui"
 npm.cmd run dev
 ```
 
-Por padrao, o frontend abre em `http://localhost:5173` e encaminha chamadas `/api` para `http://localhost:3009`.
+Por padrao a WebUI sobe em `http://localhost:5173` e encaminha `/api` para `http://localhost:3009`.
 
-Se quiser apontar o frontend para outra URL da API:
-
-```powershell
-$env:VITE_API_URL="http://localhost:3010"
-npm.cmd run dev
-```
-
-### 3. Build do frontend para teste local de producao
-
-Quando quiser testar o comportamento do binario Go servindo o frontend compilado:
+## Build manual da WebUI
 
 ```powershell
-cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo\frontend"
+cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo\webui"
 npm.cmd run build
 ```
 
-Depois volte para a raiz e rode o backend Go normalmente. Ele vai encontrar `frontend/dist` e servir a interface no mesmo host da API.
+O resultado vai para `webui/dist`.
 
-## Gerar executavel local
-
-### Gerar o servidor principal
-
-Antes do `go build`, gere o frontend para que o binario embuta a versao mais recente da interface:
-
-```powershell
-cd .\frontend
-npm.cmd run build
-cd ..
-```
-
-Depois gere o servidor:
+## Build local do binario
 
 ```powershell
 cd "C:\Users\kelwp\OneDrive\Documentos\bolsa piape\monitor-manager\SparkCloud\SparkEdgeGo"
-go build -o .\bin\sparkedge-api.exe .\cmd\sparkedge-api
+$env:GOCACHE="$PWD\.gocache"
+$env:GOMODCACHE="$PWD\.gomodcache"
+& 'C:\Program Files\Go\bin\go.exe' build -o .\bin\sparkedge.exe .\cmd\sparkedge-api
 ```
 
-### Gerar a CLI
+## Como a aplicacao encontra a WebUI
+
+Em runtime, o servidor procura os arquivos nesta ordem:
+
+1. `SPARKEDGE_WEBUI_DIST`
+2. `SPARKEDGE_FRONTEND_DIST` para compatibilidade temporaria
+3. `./webui/dist`
+4. `./frontend/dist` para compatibilidade temporaria
+5. `webui/dist` ao lado do executavel
+
+## Empacotamento de producao
+
+O script de release prepara o pacote final com a estrutura pronta para distribuicao:
 
 ```powershell
-go build -o .\bin\sparkedge-cli.exe .\cmd\sparkedge-cli
+./scripts/build-release.ps1 -TargetOS windows -TargetArch amd64 -Version v0.1.0
 ```
 
-### Estrutura recomendada para distribuicao local
-
-Com o frontend embutido, a distribuicao minima pode ser apenas:
+Exemplo de saida:
 
 ```text
-bin/
-  sparkedge-api.exe
-  sparkedge-cli.exe
+dist/
+  packages/
+    sparkedge-v0.1.0-windows-amd64.zip
+    staging/
+      windows-amd64/
+        sparkEdge/
+          sparkedge.exe
+          webui/
+            dist/
+          config/
+            .env.example
+          README.md
+          version.txt
 ```
 
-Se voce quiser manter override externo para trocar a interface sem recompilar o binario, ainda pode distribuir tambem:
-
-```text
-bin/
-  sparkedge-api.exe
-  sparkedge-cli.exe
-frontend/
-  dist/
-    index.html
-    assets/
-```
-
-### Rodar o executavel local
-
-Se voce estiver na raiz do repositorio e compilou o frontend antes do `go build`:
-
-```powershell
-.\bin\sparkedge-api.exe
-```
-
-Se quiser forcar uso de uma pasta externa de frontend, aponte explicitamente onde esta o `dist`:
-
-```powershell
-$env:SPARKEDGE_FRONTEND_DIST="C:\caminho\para\frontend\dist"
-.\sparkedge-api.exe
-```
-
-## Cross-compilation para outros sistemas
-
-Como o projeto usa `github.com/glebarez/sqlite`, o SQLite e implementado em Go puro, o que facilita bastante a geracao de binarios para outros alvos.
-
-Regra geral:
-
-- `GOOS` define o sistema operacional;
-- `GOARCH` define a arquitetura;
-- `GOARM` e usado em builds `linux/arm` de 32 bits;
-- para o servidor principal, gere `frontend/dist` antes do `go build`, para que o frontend entre embutido no binario.
-
-Nos exemplos abaixo, o build e do servidor principal. Se quiser a CLI, basta trocar `.\cmd\sparkedge-api` por `.\cmd\sparkedge-cli`.
-
-### Linux amd64
-
-```powershell
-$env:GOOS="linux"
-$env:GOARCH="amd64"
-go build -o .\dist\sparkedge-api-linux-amd64 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
-```
-
-### Linux arm64
-
-```powershell
-$env:GOOS="linux"
-$env:GOARCH="arm64"
-go build -o .\dist\sparkedge-api-linux-arm64 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
-```
+## Alvos suportados
 
 ### Windows amd64
 
 ```powershell
-$env:GOOS="windows"
-$env:GOARCH="amd64"
-go build -o .\dist\sparkedge-api-windows-amd64.exe .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
+powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -TargetOS windows -TargetArch amd64 -Version v0.1.0
+```
+
+```powershell
+./scripts/build-release.ps1 -TargetOS windows -TargetArch amd64 -Version dev
 ```
 
 ### Windows arm64
 
 ```powershell
-$env:GOOS="windows"
-$env:GOARCH="arm64"
-go build -o .\dist\sparkedge-api-windows-arm64.exe .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
+./scripts/build-release.ps1 -TargetOS windows -TargetArch arm64 -Version dev
 ```
 
-### macOS Intel
+### Linux amd64
 
 ```powershell
-$env:GOOS="darwin"
-$env:GOARCH="amd64"
-go build -o .\dist\sparkedge-api-darwin-amd64 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
+./scripts/build-release.ps1 -TargetOS linux -TargetArch amd64 -Version dev
 ```
 
-### macOS Apple Silicon
+### Linux arm64
 
 ```powershell
-$env:GOOS="darwin"
-$env:GOARCH="arm64"
-go build -o .\dist\sparkedge-api-darwin-arm64 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
+./scripts/build-release.ps1 -TargetOS linux -TargetArch arm64 -Version dev
+```
+
+### macOS amd64
+
+```powershell
+./scripts/build-release.ps1 -TargetOS darwin -TargetArch amd64 -Version dev
+```
+
+### macOS arm64
+
+```powershell
+./scripts/build-release.ps1 -TargetOS darwin -TargetArch arm64 -Version dev
 ```
 
 ## Raspberry Pi
 
-O Raspberry pode aparecer em mais de um formato. Os alvos mais comuns para o SparkEdge sao estes:
-
-### Raspberry Pi 4 ou 5 com sistema 64 bits
-
-Use `linux/arm64`:
+### Raspberry Pi 4 ou 5 64 bits
 
 ```powershell
-$env:GOOS="linux"
-$env:GOARCH="arm64"
-go build -o .\dist\sparkedge-api-raspberry-pi-arm64 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
+./scripts/build-release.ps1 -TargetOS linux -TargetArch arm64 -Version dev
 ```
 
-### Raspberry Pi 3, Pi 4 ou Zero 2 W com sistema 32 bits
-
-Use `linux/arm` com `GOARM=7`:
+### Raspberry Pi 3, 4 ou Zero 2 W 32 bits
 
 ```powershell
-$env:GOOS="linux"
-$env:GOARCH="arm"
-$env:GOARM="7"
-go build -o .\dist\sparkedge-api-raspberry-pi-armv7 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
-Remove-Item Env:GOARM
+./scripts/build-release.ps1 -TargetOS linux -TargetArch arm -GoArm 7 -Version dev
 ```
 
-### Raspberry Pi Zero ou Raspberry Pi 1
-
-Use `linux/arm` com `GOARM=6`:
+### Raspberry Pi Zero ou Pi 1
 
 ```powershell
-$env:GOOS="linux"
-$env:GOARCH="arm"
-$env:GOARM="6"
-go build -o .\dist\sparkedge-api-raspberry-pi-armv6 .\cmd\sparkedge-api
-Remove-Item Env:GOOS
-Remove-Item Env:GOARCH
-Remove-Item Env:GOARM
+./scripts/build-release.ps1 -TargetOS linux -TargetArch arm -GoArm 6 -Version dev
 ```
 
-### Como saber qual build usar no Raspberry
+## Validacao rapida
 
-No Raspberry de destino, estes comandos ajudam:
+Depois de gerar o pacote:
 
-```bash
-uname -m
-getconf LONG_BIT
-```
+1. extraia o `.zip`;
+2. rode o executavel dentro da pasta `sparkEdge`;
+3. abra `/api/health`;
+4. abra `/`;
+5. confirme se a WebUI carregou a partir de `webui/dist`.
 
-Leitura rapida:
+## GitHub Actions
 
-- `aarch64` normalmente indica `linux/arm64`;
-- `armv7l` normalmente indica `linux/arm` com `GOARM=7`;
-- `armv6l` normalmente indica `linux/arm` com `GOARM=6`.
+O workflow [`release.yml`](../.github/workflows/release.yml) gera automaticamente pacotes versionados para:
 
-## Empacotamento para deploy
+- Windows amd64 e arm64;
+- Linux amd64 e arm64;
+- Linux armv7 e armv6;
+- macOS amd64 e arm64.
 
-Para rodar em outro computador ou dispositivo, envie pelo menos:
+Ele pode rodar de duas formas:
 
-1. o binario `sparkedge-api`;
-2. os arquivos e diretorios de runtime que a aplicacao usar no ambiente;
-3. a configuracao de ambiente necessaria, como `JWT_SECRET`, `SPARKEDGE_HTTP_ADDR`, `SPARKEDGE_FRONTEND_DIST`, `SPARKEDGE_SAMPLES_DIR` e integracoes externas.
+1. manualmente via `workflow_dispatch`;
+2. automaticamente ao publicar tags como `v0.1.0`.
 
-Uma estrutura minima de deploy agora pode ficar assim:
-
-```text
-sparkedge/
-  sparkedge-api
-```
-
-Se quiser manter o frontend fora do binario, voce ainda pode distribuir assim:
-
-```text
-sparkedge/
-  sparkedge-api
-  frontend/
-    dist/
-      index.html
-      assets/
-```
-
-E apontar explicitamente:
-
-```bash
-export SPARKEDGE_FRONTEND_DIST=/opt/sparkedge/frontend/dist
-```
-
-## Validacao rapida depois do build
-
-Depois de gerar um binario de producao:
-
-1. rode o executavel;
-2. abra `/api/health`;
-3. abra a raiz `/`;
-4. confirme se o frontend carregou;
-5. confirme se login e navegacao inicial estao funcionando.
-
-## Observacoes
-
-- Em producao, o frontend pode ir embutido no binario, desde que `frontend/dist` exista no momento do `go build`.
-- Para desenvolvimento do frontend, use `npm.cmd run dev`; para distribuicao, use `npm.cmd run build`.
-- Se voce quiser automatizar isso depois, vale criar scripts como `build-local.ps1`, `build-linux-arm64.ps1` e `build-raspberry-armv7.ps1`.
+Em tags, os artefatos `.zip` sao publicados na release do GitHub.

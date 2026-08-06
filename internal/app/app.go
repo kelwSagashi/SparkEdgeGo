@@ -93,6 +93,8 @@ func New() *App {
 			ResourceOperations: store.ResourceOperations,
 			Fallback:           store.LocalFallback,
 			Destinations:       store.Destinations,
+			Devices:            store.Devices,
+			EdgeConfig:         store.Edge,
 		}),
 		ServerInfra: serverInfraService,
 	}

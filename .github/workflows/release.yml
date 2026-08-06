@@ -1,0 +1,113 @@
+name: Build SparkEdge Releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version label
+        required: false
+        default: dev
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: windows
+            target_arch: amd64
+            goarm: ""
+            label: windows-amd64
+          - target_os: windows
+            target_arch: arm64
+            goarm: ""
+            label: windows-arm64
+          - target_os: linux
+            target_arch: amd64
+            goarm: ""
+            label: linux-amd64
+          - target_os: linux
+            target_arch: arm64
+            goarm: ""
+            label: linux-arm64
+          - target_os: linux
+            target_arch: arm
+            goarm: "7"
+            label: linux-armv7
+          - target_os: linux
+            target_arch: arm
+            goarm: "6"
+            label: linux-armv6
+          - target_os: darwin
+            target_arch: amd64
+            goarm: ""
+            label: darwin-amd64
+          - target_os: darwin
+            target_arch: arm64
+            goarm: ""
+            label: darwin-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webui/package-lock.json
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install webui dependencies
+        working-directory: webui
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            version="${GITHUB_REF_NAME}"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="dev"
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build package
+        shell: pwsh
+        run: >
+          ./scripts/build-release.ps1
+          -TargetOS "${{ matrix.target_os }}"
+          -TargetArch "${{ matrix.target_arch }}"
+          -GoArm "${{ matrix.goarm }}"
+          -Version "${{ steps.version.outputs.value }}"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: sparkedge-${{ steps.version.outputs.value }}-${{ matrix.label }}
+          path: dist/packages/sparkedge-${{ steps.version.outputs.value }}-${{ matrix.label }}.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/packages
+          merge-multiple: true
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/packages/*.zip

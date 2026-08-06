@@ -24,6 +24,14 @@ export default function ScriptPlayground({
     handleSaveStderrSchema?: (data: any) => void;
     setInputs: React.Dispatch<React.SetStateAction<Record<string, any>>>
 }) {
+    const handleInputChange = (name: string, type: string, value: string, valueAsNumber: number) => {
+        setInputs(prev => ({
+            ...prev,
+            [name]: type === 'number'
+                ? (value === '' ? '' : valueAsNumber)
+                : value
+        }))
+    };
     
     return (
         <div className="flex flex-1 overflow-hidden">
@@ -47,8 +55,8 @@ export default function ScriptPlayground({
                                     <Input
                                         type={inp.type === 'number' ? 'number' : 'text'}
                                         placeholder={inp.type}
-                                        value={inputs[inp.name] || ''}
-                                        onChange={e => setInputs(prev => ({...prev, [inp.name]: e.target.value}))}
+                                        value={inputs[inp.name] ?? ''}
+                                        onChange={e => handleInputChange(inp.name, inp.type, e.target.value, e.target.valueAsNumber)}
                                         className="bg-white/[0.04] border-white/[0.1] text-white text-sm h-8"
                                     />
                                 )}

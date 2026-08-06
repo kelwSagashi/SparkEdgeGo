@@ -4,6 +4,12 @@
 /coverage.out
 .gocache/
 .gomodcache/
+*.exe
+sparkedge-api
+sparkedge-cli
+webui/dist/
+webui/node_modules/
+.codex-tmp/
 
 # Local data
 *.db
