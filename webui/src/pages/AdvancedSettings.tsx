@@ -1,9 +1,18 @@
-import { useState, useEffect } from 'react';
-import { cloudService, type EdgeConfig } from '@/rest-api-client/cloud.service';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { cloudService, type EdgeConfig } from '@/rest-api-client/cloud.service';
 import {
-  AlertTriangle, Settings2, Cloud, Database, Lock, Server,
-  Save, Loader2, RefreshCw, CheckCircle2, Info, ExternalLink
+  AlertTriangle,
+  CheckCircle2,
+  Cloud,
+  Database,
+  Info,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Save,
+  Server,
+  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -38,7 +47,6 @@ export default function AdvancedSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Local form state
   const [cloudUrl, setCloudUrl] = useState('');
   const [mqttUrl, setMqttUrl] = useState('');
   const [dbFile, setDbFile] = useState('');
@@ -52,22 +60,22 @@ export default function AdvancedSettingsPage() {
     setLoading(true);
     try {
       const res = await cloudService.getConfig();
-      const cfg = res.data;
+      const cfg = res.data.data;
       setConfig(cfg);
       setCloudUrl(cfg.cloud.url);
       setMqttUrl(cfg.cloud.mqtt_url);
       setDbFile(cfg.db.file);
-      setJwtSecret(''); // Never pre-fill the secret field
+      setJwtSecret('');
       setServerPort(normalizePortValue(cfg.server.port));
     } catch (err: any) {
-      toast.error('Não foi possível carregar as configurações: ' + (err?.message ?? 'Erro desconhecido'));
+      toast.error(`Não foi possível carregar as configurações: ${err?.message ?? 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadConfig();
+    void loadConfig();
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -103,13 +111,13 @@ export default function AdvancedSettingsPage() {
         return;
       }
 
-      await cloudService.updateConfig(updates);
-      toast.success('Configurações salvas! Reinicie o serviço para aplicar todas as mudanças.');
+      const res = await cloudService.updateConfig(updates);
+      toast.success(res.data.data.message || 'Configurações salvas. Reinicie o serviço para aplicar as mudanças.');
       setSaved(true);
       setJwtSecret('');
       await loadConfig();
     } catch (err: any) {
-      toast.error('Falha ao salvar: ' + (err?.message ?? 'Erro desconhecido'));
+      toast.error(`Falha ao salvar: ${err?.message ?? 'Erro desconhecido'}`);
     } finally {
       setSaving(false);
     }
@@ -128,7 +136,6 @@ export default function AdvancedSettingsPage() {
 
   return (
     <main className="grow px-8 py-6 w-full max-w-[700px] mx-auto pb-24 animate-in fade-in duration-300">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
@@ -141,29 +148,27 @@ export default function AdvancedSettingsPage() {
         </p>
       </div>
 
-      {/* ── WARNING BANNER ── */}
       <div className="flex items-start gap-3 bg-amber-500/[0.08] border border-amber-500/30 rounded-2xl px-5 py-4 mb-8 animate-in slide-in-from-top-2">
         <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-amber-300 mb-1">Atenção — Configurações de Infraestrutura</p>
+          <p className="text-sm font-semibold text-amber-300 mb-1">Atenção: Configurações de Infraestrutura</p>
           <p className="text-xs text-amber-400/80 leading-relaxed">
-            Alterar essas configurações pode <strong>interromper a conexão com o Spark Cloud</strong> e o funcionamento do SparkEdge.
-            Após salvar, é necessário <strong>reiniciar o serviço</strong> para aplicar as mudanças.
-            As configurações são salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">spark-edge.config.yml</code> no diretório de instalação.
+            Alterar essas configurações pode interromper a conexão com o Spark Cloud e o funcionamento do SparkEdge.
+            Após salvar, é necessário reiniciar o serviço para aplicar as mudanças.
+            As configurações são salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">spark-edge.config.yml</code>.
           </p>
         </div>
       </div>
 
-      {/* ── CONFIG FILE INFO ── */}
       <div className="flex items-center gap-2 bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 mb-6">
         <Info size={13} className="text-zinc-500 shrink-0" />
         <p className="text-xs text-zinc-500 font-mono flex-1 truncate">
-          Arquivo: <span className="text-zinc-400">spark-edge.config.yml</span>
+          Arquivo: <span className="text-zinc-400">{config?.config_file ?? 'spark-edge.config.yml'}</span>
           <span className="mx-2 text-zinc-700">·</span>
           Prioridade: <span className="text-zinc-400">yml → .env → padrões</span>
         </p>
         <button
-          onClick={loadConfig}
+          onClick={() => void loadConfig()}
           className="text-zinc-600 hover:text-zinc-300 transition-colors ml-2 shrink-0"
           title="Recarregar"
         >
@@ -172,8 +177,6 @@ export default function AdvancedSettingsPage() {
       </div>
 
       <form onSubmit={handleSave} className="space-y-5">
-
-        {/* ── CLOUD INTEGRATION ── */}
         <div className={sectionCls}>
           <SectionHeader
             icon={<Cloud size={16} className="text-cyan-400" />}
@@ -182,42 +185,31 @@ export default function AdvancedSettingsPage() {
           />
           <div className="space-y-4">
             <div>
-              <label className={labelCls}>
-                Spark Cloud URL
-              </label>
+              <label className={labelCls}>Spark Cloud URL</label>
               <input
                 type="url"
                 value={cloudUrl}
-                onChange={e => setCloudUrl(e.target.value)}
+                onChange={(e) => setCloudUrl(e.target.value)}
                 placeholder="https://spark-cloud.com"
                 className={inputCls}
                 required
               />
-              <p className="mt-1.5 text-[10px] text-zinc-600">
-                URL base da API REST do Spark Cloud. Usada para provisionamento (pairing/registro).
-              </p>
             </div>
 
             <div>
-              <label className={labelCls}>
-                MQTT Broker URL
-              </label>
+              <label className={labelCls}>MQTT Broker URL</label>
               <input
                 type="text"
                 value={mqttUrl}
-                onChange={e => setMqttUrl(e.target.value)}
+                onChange={(e) => setMqttUrl(e.target.value)}
                 placeholder="mqtt://localhost:1883"
                 className={inputCls}
                 required
               />
-              <p className="mt-1.5 text-[10px] text-zinc-600">
-                URL do broker MQTT retornada durante o registro local (simulador). Em produção, o Cloud retorna automaticamente.
-              </p>
             </div>
           </div>
         </div>
 
-        {/* ── DATABASE ── */}
         <div className={sectionCls}>
           <SectionHeader
             icon={<Database size={16} className="text-violet-400" />}
@@ -229,18 +221,14 @@ export default function AdvancedSettingsPage() {
             <input
               type="text"
               value={dbFile}
-              onChange={e => setDbFile(e.target.value)}
-              placeholder="packages/db/monitor.db"
+              onChange={(e) => setDbFile(e.target.value)}
+              placeholder="sparkedge.db"
               className={inputCls}
               required
             />
-            <p className="mt-1.5 text-[10px] text-zinc-600">
-              Relativo ao diretório de execução do SparkEdge, ou caminho absoluto.
-            </p>
           </div>
         </div>
 
-        {/* ── AUTHENTICATION ── */}
         <div className={sectionCls}>
           <SectionHeader
             icon={<Lock size={16} className="text-rose-400" />}
@@ -252,29 +240,25 @@ export default function AdvancedSettingsPage() {
               JWT Secret
               {config?.auth.is_default && (
                 <span className="ml-2 normal-case text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full tracking-normal border border-amber-500/20">
-                  ⚠ Usando valor padrão
+                  Usando valor padrão
                 </span>
               )}
             </label>
             <input
               type="password"
               value={jwtSecret}
-              onChange={e => setJwtSecret(e.target.value)}
+              onChange={(e) => setJwtSecret(e.target.value)}
               placeholder={config?.auth.jwt_secret ? `Atual: ${config.auth.jwt_secret}` : 'Nova chave secreta...'}
               className={inputCls}
               minLength={8}
               autoComplete="new-password"
             />
             <p className="mt-1.5 text-[10px] text-zinc-600">
-              Mínimo 8 caracteres. Deixe em branco para manter o valor atual.
-              {config?.auth.is_default && (
-                <strong className="text-amber-500 ml-1">Altere este valor em produção!</strong>
-              )}
+              Mínimo de 8 caracteres. Deixe em branco para manter o valor atual.
             </p>
           </div>
         </div>
 
-        {/* ── SERVER ── */}
         <div className={sectionCls}>
           <SectionHeader
             icon={<Server size={16} className="text-emerald-400" />}
@@ -286,20 +270,16 @@ export default function AdvancedSettingsPage() {
             <input
               type="number"
               value={serverPort}
-              onChange={e => setServerPort(e.target.value)}
+              onChange={(e) => setServerPort(e.target.value)}
               placeholder="3009"
               className={inputCls}
               min={1}
               max={65535}
               required
             />
-            <p className="mt-1.5 text-[10px] text-zinc-600">
-              Porta em que o backend do SparkEdge escuta. Requer reinício.
-            </p>
           </div>
         </div>
 
-        {/* ── SAVE BUTTON ── */}
         <div className="pt-2">
           {saved && (
             <div className="flex items-center gap-2 mb-4 text-emerald-400 text-sm animate-in fade-in">
@@ -316,11 +296,6 @@ export default function AdvancedSettingsPage() {
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
             {saving ? 'Salvando...' : 'Salvar Configurações'}
           </Button>
-
-          <p className="text-center text-[10px] text-zinc-600 mt-3 leading-relaxed">
-            As configurações são escritas em <code className="text-zinc-500">spark-edge.config.yml</code>.
-            Editar o arquivo diretamente também é suportado.
-          </p>
         </div>
       </form>
     </main>

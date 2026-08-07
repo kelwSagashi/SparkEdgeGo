@@ -4,20 +4,24 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"os"
+	"strconv"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/app"
+	"github.com/kelwSagashi/sparkedge-go/internal/config"
 )
 
 func main() {
 	ctx := context.Background()
-	application := app.New()
+	configManager := config.NewManager("")
+	_, runtimeCfg, err := configManager.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	application := app.New(configManager)
 	application.StartScheduler(ctx, 0)
 
-	addr := os.Getenv("SPARKEDGE_HTTP_ADDR")
-	if addr == "" {
-		addr = ":3009"
-	}
+	addr := ":" + strconv.Itoa(runtimeCfg.HTTPPort)
 
 	server := application.HTTPServer(addr)
 

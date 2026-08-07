@@ -23,8 +23,6 @@ export interface ConnectResult {
   mqtt: { connected: boolean };
 }
 
-// ─── CloudIntegration Config types ─────────────────────────────────────────
-
 export interface EdgeConfig {
   cloud: {
     url: string;
@@ -40,6 +38,7 @@ export interface EdgeConfig {
   server: {
     port: string;
   };
+  config_file?: string;
 }
 
 export interface EdgeConfigUpdate {
@@ -50,11 +49,19 @@ export interface EdgeConfigUpdate {
 }
 
 export const cloudService = {
-  getStatus: (): Promise<ReturningQueries<CloudStatus>> => axios_api_instance.get(`/cli/status`),
+  getStatus: () => axios_api_instance.get<ReturningQueries<CloudStatus>>(`/cli/status`),
 
-  getOnboarding: (): Promise<ReturningQueries<{ complete: boolean; data: any }>> => axios_api_instance.get(`/cli/onboarding`),
+  getOnboarding: () =>
+    axios_api_instance.get<ReturningQueries<{ complete: boolean; data: any }>>(`/cli/onboarding`),
 
-  saveOnboarding: (data: { name: string; description?: string; lat: string; lng: string; tags: string[] }): Promise<ReturningQueries<{ success: boolean }>> => axios_api_instance.post(`/cli/onboarding`, data),
+  saveOnboarding: (data: {
+    name: string;
+    description?: string;
+    lat: string;
+    lng: string;
+    tags: string[];
+  }) =>
+    axios_api_instance.post<ReturningQueries<{ success: boolean }>>(`/cli/onboarding`, data),
 
   connect: (payload: ConnectPayload): Promise<ConnectResult> =>
     axios_api_instance.post(`/cli/connect`, payload),
@@ -71,13 +78,9 @@ export const cloudService = {
   pair: (token: string, name?: string): Promise<ConnectResult> =>
     axios_api_instance.post(`/cli/pair`, { token, name }),
 
-  // ─── CloudIntegration Configuration ────────────────────────────────────────
+  getConfig: () =>
+    axios_api_instance.get<ReturningQueries<EdgeConfig>>(`/cli/config`),
 
-  /** Get current configuration (jwt_secret is partially masked) */
-  getConfig: (): Promise<ReturningQueries<EdgeConfig>> =>
-    axios_api_instance.get(`/cli/config`),
-
-  /** Persist config updates to spark-edge.config.yml */
-  updateConfig: (updates: EdgeConfigUpdate): Promise<ReturningQueries<{ success: boolean; message: string }>> =>
-    axios_api_instance.put(`/cli/config`, updates),
+  updateConfig: (updates: EdgeConfigUpdate) =>
+    axios_api_instance.put<ReturningQueries<{ success: boolean; message: string; config?: EdgeConfig }>>(`/cli/config`, updates),
 };

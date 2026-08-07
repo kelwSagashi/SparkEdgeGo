@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
@@ -37,6 +38,8 @@ type Dependencies struct {
 	Providers   *providers.Registry
 	Runtime     *runtime.Runner
 	ServerInfra *serverinfra.Service
+	Config      *config.Manager
+	RuntimeCfg  config.Runtime
 }
 
 type Server struct {

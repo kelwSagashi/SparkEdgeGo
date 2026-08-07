@@ -2,9 +2,9 @@ package app
 
 import (
 	"context"
-	"os"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
@@ -43,9 +43,16 @@ type App struct {
 	Providers   *providers.Registry
 	Runtime     *runtime.Runner
 	ServerInfra *serverinfra.Service
+	Config      *config.Manager
+	RuntimeCfg  config.Runtime
 }
 
-func New() *App {
+func New(cfg *config.Manager) *App {
+	_, runtimeCfg, err := cfg.Load()
+	if err != nil {
+		panic(err)
+	}
+
 	providerRegistry := providers.NewRegistry()
 	firebaseprovider.Register(providerRegistry)
 	googleprovider.Register(providerRegistry)
@@ -54,6 +61,7 @@ func New() *App {
 	supabaseprovider.Register(providerRegistry)
 	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
+	store.Path = runtimeCfg.DBFile
 	if err := store.Open(context.Background()); err != nil {
 		panic(err)
 	}
@@ -69,14 +77,12 @@ func New() *App {
 	}
 	mqttClient := mqtt.NewClient()
 	mqttClient.UseStores(store.MqttCommands, store.MqttQueue)
-	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(os.Getenv("SPARK_CLOUD_URL")), mqttClient)
-
-	jwtSecret := os.Getenv("JWT_SECRET")
+	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(runtimeCfg.CloudURL), mqttClient)
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
 
 	application := &App{
 		DB:         store,
-		Auth:       auth.NewService(store.Users, store.Projects, jwtSecret),
+		Auth:       auth.NewService(store.Users, store.Projects, runtimeCfg.JWTSecret),
 		Users:      users.NewService(store.Users),
 		Projects:   projects.NewService(store.Projects, store.ProjectMembers),
 		Scripts:    scripts.NewService(store.Scripts, sparkitExecutor),
@@ -97,6 +103,8 @@ func New() *App {
 			EdgeConfig:         store.Edge,
 		}),
 		ServerInfra: serverInfraService,
+		Config:      cfg,
+		RuntimeCfg:  runtimeCfg,
 	}
 	application.registerMqttCommandHandlers()
 	return application
@@ -118,5 +126,7 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		Providers:   a.Providers,
 		Runtime:     a.Runtime,
 		ServerInfra: a.ServerInfra,
+		Config:      a.Config,
+		RuntimeCfg:  a.RuntimeCfg,
 	})
 }

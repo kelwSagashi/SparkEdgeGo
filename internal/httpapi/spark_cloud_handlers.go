@@ -34,7 +34,7 @@ func (s *Server) handleSparkCloudEdgeRegister(r *http.Request) (any, error) {
 		"edge_id":   edgeID,
 		"edge_name": edgeName,
 		"mqtt": map[string]any{
-			"url":      sparkCloudEnvOr("MQTT_URL", "mqtt://localhost:1883"),
+			"url":      sparkCloudMQTTURL(s.deps.RuntimeCfg.MQTTURL),
 			"username": "spark-user-" + edgeID,
 			"password": "spark-pass-" + randomCloudID(4),
 		},
@@ -49,10 +49,12 @@ func randomCloudID(bytesLen int) string {
 	return hex.EncodeToString(data)
 }
 
-func sparkCloudEnvOr(key string, fallback string) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
+func sparkCloudMQTTURL(runtimeValue string) string {
+	if value := strings.TrimSpace(runtimeValue); value != "" {
+		return value
 	}
-	return value
+	if value := strings.TrimSpace(os.Getenv("MQTT_URL")); value != "" {
+		return value
+	}
+	return "mqtt://localhost:1883"
 }
