@@ -155,7 +155,7 @@ export default function AdvancedSettingsPage() {
           <p className="text-xs text-amber-400/80 leading-relaxed">
             Alterar essas configurações pode interromper a conexão com o Spark Cloud e o funcionamento do SparkEdge.
             Após salvar, é necessário reiniciar o serviço para aplicar as mudanças.
-            As configurações são salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">spark-edge.config.yml</code>.
+            As configurações são salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">config.yml</code>.
           </p>
         </div>
       </div>
@@ -163,7 +163,7 @@ export default function AdvancedSettingsPage() {
       <div className="flex items-center gap-2 bg-white/[0.02] border border-white/[0.06] rounded-xl px-4 py-3 mb-6">
         <Info size={13} className="text-zinc-500 shrink-0" />
         <p className="text-xs text-zinc-500 font-mono flex-1 truncate">
-          Arquivo: <span className="text-zinc-400">{config?.config_file ?? 'spark-edge.config.yml'}</span>
+          Arquivo: <span className="text-zinc-400">{config?.config_file ?? 'config.yml'}</span>
           <span className="mx-2 text-zinc-700">·</span>
           Prioridade: <span className="text-zinc-400">yml → .env → padrões</span>
         </p>

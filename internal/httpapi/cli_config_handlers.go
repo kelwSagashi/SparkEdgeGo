@@ -31,7 +31,7 @@ func (s *Server) handleCliConfigUpdate(r *http.Request) (any, error) {
 
 	return map[string]any{
 		"success": true,
-		"message": "Configuracao salva em spark-edge.config.yml. Reinicie o servico para aplicar todas as mudancas.",
+		"message": "Configuracao salva em config.yml. Reinicie o servico para aplicar todas as mudancas.",
 		"config":  effective,
 	}, nil
 }

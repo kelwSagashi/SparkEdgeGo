@@ -6,7 +6,7 @@
 #
 # -----------------------------------------------------------------------------
 # Priority chain:
-#   spark-edge.config.yml  >  environment variables (.env)  >  built-in defaults
+#   config.yml  >  environment variables (.env)  >  built-in defaults
 # -----------------------------------------------------------------------------
 
 cloud:

@@ -124,7 +124,7 @@ finally {
 
 Copy-Item -Recurse -Force $webuiDistDir (Join-Path $appDir "webui")
 Copy-Item -Force (Join-Path $repoRoot "README.md") (Join-Path $appDir "README.md")
-Copy-Item -Force (Join-Path $repoRoot "spark-edge.config.yml") (Join-Path $appDir "spark-edge.config.yml")
+Copy-Item -Force (Join-Path $repoRoot "config.yml") (Join-Path $appDir "config.yml")
 
 @"
 JWT_SECRET=change-me

@@ -18,7 +18,7 @@ const (
 	defaultDBFile    = "sparkedge.db"
 	defaultJWTSecret = "dev-secret"
 	defaultHTTPPort  = 3009
-	configFileName   = "spark-edge.config.yml"
+	configFileName   = "config.yml"
 )
 
 type File struct {
