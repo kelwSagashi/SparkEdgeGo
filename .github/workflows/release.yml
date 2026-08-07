@@ -10,6 +10,15 @@ on:
         description: Optional override version label
         required: false
         default: ""
+      bump:
+        description: Semver bump to apply when version is not overridden
+        required: false
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
   contents: write
@@ -30,12 +39,14 @@ jobs:
         with:
           script: |
             const inputVersion = `${{ github.event.inputs.version || '' }}`.trim();
+            const bumpType = `${{ github.event.inputs.bump || 'patch' }}`.trim() || 'patch';
+            const semver = /^v(\d+)\.(\d+)\.(\d+)$/;
+
             if (inputVersion) {
               core.setOutput('value', inputVersion.startsWith('v') ? inputVersion : `v${inputVersion}`);
               return;
             }
 
-            const semver = /^v(\d+)\.(\d+)\.(\d+)$/;
             const releases = await github.paginate(github.rest.repos.listReleases, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -56,8 +67,22 @@ jobs:
             }
 
             const [, major, minor, patch] = current.match(semver);
-            const nextPatch = Number.parseInt(patch, 10) + 1;
-            core.setOutput('value', `v${major}.${minor}.${nextPatch}`);
+            let nextMajor = Number.parseInt(major, 10);
+            let nextMinor = Number.parseInt(minor, 10);
+            let nextPatch = Number.parseInt(patch, 10);
+
+            if (bumpType === 'major') {
+              nextMajor += 1;
+              nextMinor = 0;
+              nextPatch = 0;
+            } else if (bumpType === 'minor') {
+              nextMinor += 1;
+              nextPatch = 0;
+            } else {
+              nextPatch += 1;
+            }
+
+            core.setOutput('value', `v${nextMajor}.${nextMinor}.${nextPatch}`);
 
   build:
     runs-on: ubuntu-latest
