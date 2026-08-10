@@ -31,6 +31,7 @@ import InstanceEditPage from './pages/InstanceEditPage';
 import InstanceLogsPage from './pages/InstanceLogsPage';
 import CloudSettingsPage from './pages/CloudSettings';
 import AdvancedSettingsPage from './pages/AdvancedSettings';
+import UpdateSettingsPage from './pages/UpdateSettings';
 
 function App() {
   const loadMe = useAuthStore((s) => s.loadMe);
@@ -109,6 +110,7 @@ function App() {
               <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
               <Route path="/settings/cloud" element={<ProtectedRoute><CloudSettingsPage /></ProtectedRoute>} />
               <Route path="/settings/advanced" element={<ProtectedRoute><AdvancedSettingsPage /></ProtectedRoute>} />
+              <Route path="/settings/update" element={<ProtectedRoute><UpdateSettingsPage /></ProtectedRoute>} />
 
               {/* Legacy redirect */}
               <Route path="/workflow" element={<Navigate to="/instances" replace />} />

@@ -31,3 +31,19 @@ auth:
 server:
   # HTTP port the SparkEdge backend will listen on.
   port: 3009
+
+update:
+  # Enables assisted update checks against GitHub Releases.
+  enabled: true
+
+  # Current provider for the assisted update flow.
+  provider: github
+
+  # GitHub repository used as the official release source.
+  repo: kelwSagashi/SparkEdgeGo
+
+  # Release channel used by the update flow.
+  channel: stable
+
+  # Whether prereleases should be considered during checks.
+  allow_prerelease: false

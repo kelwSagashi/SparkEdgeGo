@@ -20,6 +20,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 	"github.com/kelwSagashi/sparkedge-go/internal/tags"
+	"github.com/kelwSagashi/sparkedge-go/internal/updater"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
@@ -38,6 +39,7 @@ type Dependencies struct {
 	Providers   *providers.Registry
 	Runtime     *runtime.Runner
 	ServerInfra *serverinfra.Service
+	Updater     *updater.Service
 	Config      *config.Manager
 	RuntimeCfg  config.Runtime
 }
@@ -108,6 +110,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/cli/mqtt-config", Adapt(s.handleCliMQTTConfigGet))
 	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
 	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
+	mux.HandleFunc("GET /api/update/check", Adapt(s.handleUpdateCheck))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
 	mux.HandleFunc("POST /api/spark-cloud/edges/register", Adapt(s.handleSparkCloudEdgeRegister))
 

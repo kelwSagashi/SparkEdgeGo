@@ -26,6 +26,7 @@ type File struct {
 	DB     DBSection     `yaml:"db"`
 	Auth   AuthSection   `yaml:"auth"`
 	Server ServerSection `yaml:"server"`
+	Update UpdateSection `yaml:"update"`
 }
 
 type Effective struct {
@@ -33,6 +34,7 @@ type Effective struct {
 	DB         DBSection    `json:"db"`
 	Auth       AuthView     `json:"auth"`
 	Server     ServerView   `json:"server"`
+	Update     UpdateView   `json:"update"`
 	ConfigFile string       `json:"config_file,omitempty"`
 }
 
@@ -60,6 +62,22 @@ type ServerSection struct {
 
 type ServerView struct {
 	Port string `json:"port"`
+}
+
+type UpdateSection struct {
+	Enabled         *bool  `json:"enabled" yaml:"enabled"`
+	Provider        string `json:"provider" yaml:"provider"`
+	Repo            string `json:"repo" yaml:"repo"`
+	Channel         string `json:"channel" yaml:"channel"`
+	AllowPrerelease *bool  `json:"allow_prerelease" yaml:"allow_prerelease"`
+}
+
+type UpdateView struct {
+	Enabled         bool   `json:"enabled"`
+	Provider        string `json:"provider"`
+	Repo            string `json:"repo"`
+	Channel         string `json:"channel"`
+	AllowPrerelease bool   `json:"allow_prerelease"`
 }
 
 type Update struct {
@@ -93,6 +111,15 @@ type Runtime struct {
 	JWTSecret  string
 	HTTPPort   int
 	ConfigFile string
+	Update     UpdateRuntime
+}
+
+type UpdateRuntime struct {
+	Enabled         bool
+	Provider        string
+	Repo            string
+	Channel         string
+	AllowPrerelease bool
 }
 
 type Manager struct {
@@ -124,6 +151,13 @@ func (m *Manager) Load() (Effective, Runtime, error) {
 		JWTSecret:  defaultJWTSecret,
 		HTTPPort:   defaultHTTPPort,
 		ConfigFile: m.path,
+		Update: UpdateRuntime{
+			Enabled:         true,
+			Provider:        "github",
+			Repo:            "kelwSagashi/SparkEdgeGo",
+			Channel:         "stable",
+			AllowPrerelease: false,
+		},
 	}
 
 	applyEnv(&runtimeCfg)
@@ -143,6 +177,13 @@ func (m *Manager) Load() (Effective, Runtime, error) {
 		},
 		Server: ServerView{
 			Port: strconv.Itoa(runtimeCfg.HTTPPort),
+		},
+		Update: UpdateView{
+			Enabled:         runtimeCfg.Update.Enabled,
+			Provider:        runtimeCfg.Update.Provider,
+			Repo:            runtimeCfg.Update.Repo,
+			Channel:         runtimeCfg.Update.Channel,
+			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
 		},
 		ConfigFile: m.path,
 	}
@@ -207,6 +248,21 @@ func applyEnv(runtimeCfg *Runtime) {
 	if port := readPortFromEnv(); port > 0 {
 		runtimeCfg.HTTPPort = port
 	}
+	if value, ok := envBool("SPARKEDGE_UPDATE_ENABLED"); ok {
+		runtimeCfg.Update.Enabled = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_PROVIDER")); value != "" {
+		runtimeCfg.Update.Provider = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_REPO")); value != "" {
+		runtimeCfg.Update.Repo = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_CHANNEL")); value != "" {
+		runtimeCfg.Update.Channel = value
+	}
+	if value, ok := envBool("SPARKEDGE_UPDATE_ALLOW_PRERELEASE"); ok {
+		runtimeCfg.Update.AllowPrerelease = value
+	}
 }
 
 func applyFile(runtimeCfg *Runtime, fileCfg File) {
@@ -224,6 +280,21 @@ func applyFile(runtimeCfg *Runtime, fileCfg File) {
 	}
 	if fileCfg.Server.Port > 0 {
 		runtimeCfg.HTTPPort = fileCfg.Server.Port
+	}
+	if fileCfg.Update.Enabled != nil {
+		runtimeCfg.Update.Enabled = *fileCfg.Update.Enabled
+	}
+	if value := strings.TrimSpace(fileCfg.Update.Provider); value != "" {
+		runtimeCfg.Update.Provider = value
+	}
+	if value := strings.TrimSpace(fileCfg.Update.Repo); value != "" {
+		runtimeCfg.Update.Repo = value
+	}
+	if value := strings.TrimSpace(fileCfg.Update.Channel); value != "" {
+		runtimeCfg.Update.Channel = value
+	}
+	if fileCfg.Update.AllowPrerelease != nil {
+		runtimeCfg.Update.AllowPrerelease = *fileCfg.Update.AllowPrerelease
 	}
 }
 
@@ -312,4 +383,16 @@ func maskSecret(secret string) string {
 		return strings.Repeat("*", len(secret))
 	}
 	return secret[:4] + strings.Repeat("*", min(len(secret)-4, 20))
+}
+
+func envBool(key string) (bool, bool) {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv(key)))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
 }

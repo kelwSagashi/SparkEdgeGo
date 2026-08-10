@@ -25,6 +25,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 	"github.com/kelwSagashi/sparkedge-go/internal/tags"
+	"github.com/kelwSagashi/sparkedge-go/internal/updater"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
@@ -43,6 +44,7 @@ type App struct {
 	Providers   *providers.Registry
 	Runtime     *runtime.Runner
 	ServerInfra *serverinfra.Service
+	Updater     *updater.Service
 	Config      *config.Manager
 	RuntimeCfg  config.Runtime
 }
@@ -103,8 +105,15 @@ func New(cfg *config.Manager) *App {
 			EdgeConfig:         store.Edge,
 		}),
 		ServerInfra: serverInfraService,
-		Config:      cfg,
-		RuntimeCfg:  runtimeCfg,
+		Updater: updater.NewService(updater.Config{
+			Enabled:         runtimeCfg.Update.Enabled,
+			Provider:        runtimeCfg.Update.Provider,
+			Repo:            runtimeCfg.Update.Repo,
+			Channel:         runtimeCfg.Update.Channel,
+			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
+		}, &updater.GitHubClient{}),
+		Config:     cfg,
+		RuntimeCfg: runtimeCfg,
 	}
 	application.registerMqttCommandHandlers()
 	return application
@@ -126,6 +135,7 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		Providers:   a.Providers,
 		Runtime:     a.Runtime,
 		ServerInfra: a.ServerInfra,
+		Updater:     a.Updater,
 		Config:      a.Config,
 		RuntimeCfg:  a.RuntimeCfg,
 	})

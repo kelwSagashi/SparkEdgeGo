@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth-store';
 import { Button } from '@/components/ui/button';
-import { User, Mail, Lock, Save, Key, Fingerprint, Globe, RefreshCcw, ShieldCheck, ShieldAlert, AlertTriangle, Settings2, ChevronRight } from 'lucide-react';
+import { User, Mail, Lock, Save, Key, Fingerprint, Globe, RefreshCcw, ShieldCheck, ShieldAlert, AlertTriangle, Settings2, ChevronRight, Rocket } from 'lucide-react';
 import { systemService } from '@/rest-api-client/system.service';
 import type { SystemIdentity, MqttConfig } from '@/rest-api-client/system.service';
 import { toast } from 'sonner';
@@ -113,6 +113,31 @@ export default function SettingsPage() {
 
         {/* Advanced Settings card */}
         <div className="space-y-6 mt-6">
+          <button
+            onClick={() => navigate('/settings/update')}
+            className="w-full bg-sky-500/[0.05] border border-sky-500/20 hover:border-sky-500/40 hover:bg-sky-500/[0.08] rounded-xl p-5 text-left transition-all group"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-500/10 flex items-center justify-center shrink-0">
+                  <Rocket size={16} className="text-sky-300" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-white">Atualizacao Assistida</p>
+                    <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-sky-300 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded-full">
+                      Seguro
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Verifique releases compativeis no GitHub antes de baixar ou aplicar qualquer nova versao.
+                  </p>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-zinc-600 group-hover:text-sky-300 transition-colors shrink-0 ml-2" />
+            </div>
+          </button>
+
           <button
             onClick={() => navigate('/settings/advanced')}
             className="w-full bg-amber-500/[0.05] border border-amber-500/20 hover:border-amber-500/40 hover:bg-amber-500/[0.08] rounded-xl p-5 text-left transition-all group"
