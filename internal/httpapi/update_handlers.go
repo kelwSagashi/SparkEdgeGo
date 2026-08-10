@@ -75,3 +75,42 @@ func (s *Server) handleUpdateApply(r *http.Request) (any, error) {
 		"error": nil,
 	}, nil
 }
+
+func (s *Server) handleUpdateRollback(r *http.Request) (any, error) {
+	if s.deps.Updater == nil {
+		return nil, NewHTTPError(http.StatusServiceUnavailable, "update service unavailable")
+	}
+
+	result, err := s.deps.Updater.RollbackLatest(r.Context())
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"data":  result,
+		"error": nil,
+	}, nil
+}
+
+func (s *Server) handleUpdateRestart(r *http.Request) (any, error) {
+	if s.deps.Updater == nil {
+		return nil, NewHTTPError(http.StatusServiceUnavailable, "update service unavailable")
+	}
+
+	var req struct {
+		Execute bool `json:"execute"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	result, err := s.deps.Updater.Restart(r.Context(), req.Execute)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"data":  result,
+		"error": nil,
+	}, nil
+}

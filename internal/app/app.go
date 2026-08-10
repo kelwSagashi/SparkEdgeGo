@@ -113,6 +113,8 @@ func New(cfg *config.Manager) *App {
 			Repo:            runtimeCfg.Update.Repo,
 			Channel:         runtimeCfg.Update.Channel,
 			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
+			ServiceName:     runtimeCfg.Update.ServiceName,
+			RestartCommand:  runtimeCfg.Update.RestartCommand,
 		}, &updater.GitHubClient{Token: strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_GITHUB_TOKEN"))}),
 		Config:     cfg,
 		RuntimeCfg: runtimeCfg,

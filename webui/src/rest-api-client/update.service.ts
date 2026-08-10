@@ -43,6 +43,7 @@ export interface UpdateApplyResult {
   staging_path: string;
   backup_path: string;
   script_path?: string;
+  rollback_path?: string;
   applied: boolean;
   prepared_only: boolean;
   restart_required: boolean;
@@ -52,12 +53,35 @@ export interface UpdateApplyResult {
   next_steps: string[];
 }
 
+export interface UpdateRollbackResult {
+  version: string;
+  target: string;
+  backup_path: string;
+  script_path?: string;
+  applied: boolean;
+  prepared_only: boolean;
+  restart_required: boolean;
+  message: string;
+  restored_files: string[];
+  updated_at: string;
+}
+
+export interface UpdateRestartResult {
+  executed: boolean;
+  manual_required: boolean;
+  command?: string;
+  message: string;
+  updated_at: string;
+}
+
 export interface UpdateState {
   last_downloaded_package?: string;
   last_prepared_version?: string;
   last_prepared_target?: string;
   last_apply_result?: UpdateApplyResult | null;
   last_download_result?: UpdateDownloadResult | null;
+  last_rollback_result?: UpdateRollbackResult | null;
+  last_restart_result?: UpdateRestartResult | null;
   updated_at?: string;
 }
 
@@ -71,5 +95,11 @@ export const updateService = {
   apply: (downloadedPath: string) =>
     axios_api_instance.post<ReturningQueries<UpdateApplyResult>>(`/update/apply`, {
       downloaded_path: downloadedPath,
+    }),
+  rollback: () =>
+    axios_api_instance.post<ReturningQueries<UpdateRollbackResult>>(`/update/rollback`),
+  restart: (execute: boolean) =>
+    axios_api_instance.post<ReturningQueries<UpdateRestartResult>>(`/update/restart`, {
+      execute,
     }),
 };

@@ -47,3 +47,9 @@ update:
 
   # Whether prereleases should be considered during checks.
   allow_prerelease: false
+
+  # Optional service name used to suggest restart commands.
+  service_name: ""
+
+  # Optional custom restart command for assisted restart.
+  restart_command: ""

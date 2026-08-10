@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateState } from '@/rest-api-client/update.service';
-import { AlertTriangle, CheckCircle2, Clock3, Download, Loader2, RefreshCw, Rocket, ShieldCheck, Wrench } from 'lucide-react';
+import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateRestartResult, type UpdateRollbackResult, type UpdateState } from '@/rest-api-client/update.service';
+import { AlertTriangle, CheckCircle2, Clock3, Download, Loader2, RefreshCw, Rocket, ShieldCheck, RotateCcw, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 function formatBytes(size?: number) {
@@ -21,10 +21,14 @@ export default function UpdateSettingsPage() {
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [rollingBack, setRollingBack] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
   const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
   const [applyResult, setApplyResult] = useState<UpdateApplyResult | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [rollbackResult, setRollbackResult] = useState<UpdateRollbackResult | null>(null);
+  const [restartResult, setRestartResult] = useState<UpdateRestartResult | null>(null);
 
   const loadStatus = async () => {
     const response = await updateService.status();
@@ -34,6 +38,12 @@ export default function UpdateSettingsPage() {
     }
     if (response.data.data.last_apply_result) {
       setApplyResult(response.data.data.last_apply_result);
+    }
+    if (response.data.data.last_rollback_result) {
+      setRollbackResult(response.data.data.last_rollback_result);
+    }
+    if (response.data.data.last_restart_result) {
+      setRestartResult(response.data.data.last_restart_result);
     }
   };
 
@@ -88,6 +98,34 @@ export default function UpdateSettingsPage() {
     }
   };
 
+  const handleRollback = async () => {
+    setRollingBack(true);
+    try {
+      const response = await updateService.rollback();
+      setRollbackResult(response.data.data);
+      toast.success('Rollback assistido processado.');
+      await loadStatus();
+    } catch (error: any) {
+      toast.error(`Falha ao preparar rollback: ${error?.message ?? 'Erro desconhecido'}`);
+    } finally {
+      setRollingBack(false);
+    }
+  };
+
+  const handleRestart = async (execute: boolean) => {
+    setRestarting(true);
+    try {
+      const response = await updateService.restart(execute);
+      setRestartResult(response.data.data);
+      toast.success(execute ? 'Reinicio disparado.' : 'Plano de reinicio gerado.');
+      await loadStatus();
+    } catch (error: any) {
+      toast.error(`Falha ao processar reinicio: ${error?.message ?? 'Erro desconhecido'}`);
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   return (
     <main className="grow px-8 py-6 w-full max-w-[860px] mx-auto pb-20">
       <div className="mb-8">
@@ -104,13 +142,13 @@ export default function UpdateSettingsPage() {
 
       <div className="mb-6 flex items-start gap-3 bg-sky-500/[0.07] border border-sky-500/20 rounded-2xl px-5 py-4">
         <ShieldCheck size={18} className="text-sky-300 shrink-0 mt-0.5" />
-        <div>
-          <p className="text-sm font-semibold text-sky-200">Modo assistido</p>
-          <p className="text-xs text-sky-100/70 leading-relaxed">
-            Nesta fase, o SparkEdge apenas consulta releases compativeis. Nenhum binario e substituido automaticamente.
-          </p>
+          <div>
+            <p className="text-sm font-semibold text-sky-200">Modo assistido</p>
+            <p className="text-xs text-sky-100/70 leading-relaxed">
+              O fluxo cobre consulta, preparo, rollback e reinicio assistido com estado persistido para acompanhar cada etapa.
+            </p>
+          </div>
         </div>
-      </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <section className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-6">
@@ -246,6 +284,60 @@ export default function UpdateSettingsPage() {
                       ))}
                     </div>
                   ) : null}
+                </div>
+              )}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <Button
+                  type="button"
+                  onClick={() => void handleRollback()}
+                  disabled={rollingBack || !applyResult}
+                  variant="outline"
+                  className="gap-2 border-white/10 text-white hover:bg-white/5"
+                >
+                  {rollingBack ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                  {rollingBack ? 'Processando rollback...' : 'Rollback assistido'}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleRestart(false)}
+                  disabled={restarting}
+                  variant="outline"
+                  className="gap-2 border-white/10 text-white hover:bg-white/5"
+                >
+                  {restarting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                  Plano de reinicio
+                </Button>
+              </div>
+
+              <Button
+                type="button"
+                onClick={() => void handleRestart(true)}
+                disabled={restarting}
+                className="w-full gap-2 bg-emerald-400 text-zinc-950 hover:bg-emerald-300 font-semibold"
+              >
+                {restarting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+                {restarting ? 'Disparando reinicio...' : 'Executar reinicio assistido'}
+              </Button>
+
+              {rollbackResult && (
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/[0.07] p-4 space-y-2">
+                  <p className="text-sm font-semibold text-rose-300">Rollback</p>
+                  <p className="text-xs text-rose-100/80">{rollbackResult.message}</p>
+                  <p className="text-xs text-rose-100/80 break-all">Backup: {rollbackResult.backup_path}</p>
+                  {rollbackResult.script_path && (
+                    <p className="text-xs text-rose-100/80 break-all">Script: {rollbackResult.script_path}</p>
+                  )}
+                </div>
+              )}
+
+              {restartResult && (
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.07] p-4 space-y-2">
+                  <p className="text-sm font-semibold text-cyan-300">Reinicio</p>
+                  <p className="text-xs text-cyan-100/80">{restartResult.message}</p>
+                  {restartResult.command && (
+                    <p className="text-xs text-cyan-100/80 break-all">Comando: {restartResult.command}</p>
+                  )}
                 </div>
               )}
 

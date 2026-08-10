@@ -28,6 +28,8 @@ type Config struct {
 	Repo            string
 	Channel         string
 	AllowPrerelease bool
+	ServiceName     string
+	RestartCommand  string
 }
 
 type Service struct {

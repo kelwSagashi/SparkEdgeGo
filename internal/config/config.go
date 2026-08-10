@@ -70,6 +70,8 @@ type UpdateSection struct {
 	Repo            string `json:"repo" yaml:"repo"`
 	Channel         string `json:"channel" yaml:"channel"`
 	AllowPrerelease *bool  `json:"allow_prerelease" yaml:"allow_prerelease"`
+	ServiceName     string `json:"service_name" yaml:"service_name"`
+	RestartCommand  string `json:"restart_command" yaml:"restart_command"`
 }
 
 type UpdateView struct {
@@ -78,6 +80,8 @@ type UpdateView struct {
 	Repo            string `json:"repo"`
 	Channel         string `json:"channel"`
 	AllowPrerelease bool   `json:"allow_prerelease"`
+	ServiceName     string `json:"service_name"`
+	RestartCommand  string `json:"restart_command"`
 }
 
 type Update struct {
@@ -120,6 +124,8 @@ type UpdateRuntime struct {
 	Repo            string
 	Channel         string
 	AllowPrerelease bool
+	ServiceName     string
+	RestartCommand  string
 }
 
 type Manager struct {
@@ -184,6 +190,8 @@ func (m *Manager) Load() (Effective, Runtime, error) {
 			Repo:            runtimeCfg.Update.Repo,
 			Channel:         runtimeCfg.Update.Channel,
 			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
+			ServiceName:     runtimeCfg.Update.ServiceName,
+			RestartCommand:  runtimeCfg.Update.RestartCommand,
 		},
 		ConfigFile: m.path,
 	}
@@ -263,6 +271,12 @@ func applyEnv(runtimeCfg *Runtime) {
 	if value, ok := envBool("SPARKEDGE_UPDATE_ALLOW_PRERELEASE"); ok {
 		runtimeCfg.Update.AllowPrerelease = value
 	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_SERVICE_NAME")); value != "" {
+		runtimeCfg.Update.ServiceName = value
+	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_RESTART_COMMAND")); value != "" {
+		runtimeCfg.Update.RestartCommand = value
+	}
 }
 
 func applyFile(runtimeCfg *Runtime, fileCfg File) {
@@ -295,6 +309,12 @@ func applyFile(runtimeCfg *Runtime, fileCfg File) {
 	}
 	if fileCfg.Update.AllowPrerelease != nil {
 		runtimeCfg.Update.AllowPrerelease = *fileCfg.Update.AllowPrerelease
+	}
+	if value := strings.TrimSpace(fileCfg.Update.ServiceName); value != "" {
+		runtimeCfg.Update.ServiceName = value
+	}
+	if value := strings.TrimSpace(fileCfg.Update.RestartCommand); value != "" {
+		runtimeCfg.Update.RestartCommand = value
 	}
 }
 

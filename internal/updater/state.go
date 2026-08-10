@@ -16,6 +16,8 @@ type UpdateState struct {
 	LastPreparedTarget    string          `json:"last_prepared_target,omitempty"`
 	LastApplyResult       *ApplyResult    `json:"last_apply_result,omitempty"`
 	LastDownloadResult    *DownloadResult `json:"last_download_result,omitempty"`
+	LastRollbackResult    *RollbackResult `json:"last_rollback_result,omitempty"`
+	LastRestartResult     *RestartResult  `json:"last_restart_result,omitempty"`
 	UpdatedAt             time.Time       `json:"updated_at,omitempty"`
 }
 

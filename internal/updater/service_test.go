@@ -148,6 +148,23 @@ func TestDownloadLatestFailsWhenChecksumDoesNotMatch(t *testing.T) {
 	}
 }
 
+func TestRestartPlanUsesServiceNameWhenConfigured(t *testing.T) {
+	service := NewService(Config{
+		ServiceName: "sparkedge",
+	}, fakeReleaseClient{})
+
+	result, err := service.Restart(context.Background(), false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.ManualRequired {
+		t.Fatalf("expected manual plan result: %#v", result)
+	}
+	if !strings.Contains(result.Command, "sparkedge") {
+		t.Fatalf("unexpected restart command: %q", result.Command)
+	}
+}
+
 type fakeReleaseClient struct {
 	releases  []Release
 	downloads map[string]string
