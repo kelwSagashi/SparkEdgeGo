@@ -193,4 +193,4 @@ Ele pode rodar de duas formas:
 1. manualmente via `workflow_dispatch`;
 2. automaticamente ao publicar tags como `v0.1.0`.
 
-Em tags, os artefatos `.zip` sao publicados na release do GitHub.
+Em tags, os artefatos `.zip`, o `manifest.json` e o `checksums.txt` sao publicados na release do GitHub.

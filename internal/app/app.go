@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"os"
+	"strings"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
@@ -111,7 +113,7 @@ func New(cfg *config.Manager) *App {
 			Repo:            runtimeCfg.Update.Repo,
 			Channel:         runtimeCfg.Update.Channel,
 			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
-		}, &updater.GitHubClient{}),
+		}, &updater.GitHubClient{Token: strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_GITHUB_TOKEN"))}),
 		Config:     cfg,
 		RuntimeCfg: runtimeCfg,
 	}

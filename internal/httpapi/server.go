@@ -111,6 +111,9 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
 	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
 	mux.HandleFunc("GET /api/update/check", Adapt(s.handleUpdateCheck))
+	mux.HandleFunc("GET /api/update/status", Adapt(s.handleUpdateStatus))
+	mux.HandleFunc("POST /api/update/download", Adapt(s.handleUpdateDownload))
+	mux.HandleFunc("POST /api/update/apply", Adapt(s.handleUpdateApply))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
 	mux.HandleFunc("POST /api/spark-cloud/edges/register", Adapt(s.handleSparkCloudEdgeRegister))
 

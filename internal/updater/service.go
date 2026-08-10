@@ -2,15 +2,21 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/appfs"
 	"github.com/kelwSagashi/sparkedge-go/internal/appmeta"
 )
 
@@ -31,6 +37,7 @@ type Service struct {
 
 type ReleaseClient interface {
 	ListReleases(ctx context.Context, repo string) ([]Release, error)
+	OpenAsset(ctx context.Context, downloadURL string) (io.ReadCloser, error)
 }
 
 type Release struct {
@@ -64,6 +71,8 @@ type CheckResult struct {
 	ReleaseURL       string    `json:"release_url,omitempty"`
 	PublishedAt      string    `json:"published_at,omitempty"`
 	CompatibleAsset  *AssetRef `json:"compatible_asset,omitempty"`
+	IntegrityReady   bool      `json:"integrity_ready"`
+	ExpectedSHA256   string    `json:"expected_sha256,omitempty"`
 	CompatibilityMsg string    `json:"compatibility_message,omitempty"`
 }
 
@@ -71,6 +80,30 @@ type AssetRef struct {
 	Name        string `json:"name"`
 	DownloadURL string `json:"download_url"`
 	Size        int64  `json:"size"`
+}
+
+type Manifest struct {
+	Version     string            `json:"version"`
+	GeneratedAt string            `json:"generated_at,omitempty"`
+	Packages    []ManifestPackage `json:"packages"`
+}
+
+type ManifestPackage struct {
+	Target   string `json:"target"`
+	FileName string `json:"file_name"`
+	SHA256   string `json:"sha256"`
+	Size     int64  `json:"size"`
+}
+
+type DownloadResult struct {
+	Version          string `json:"version"`
+	Target           string `json:"target"`
+	AssetName        string `json:"asset_name"`
+	ReleaseURL       string `json:"release_url"`
+	DownloadedPath   string `json:"downloaded_path"`
+	Size             int64  `json:"size"`
+	SHA256           string `json:"sha256"`
+	ChecksumVerified bool   `json:"checksum_verified"`
 }
 
 func NewService(config Config, client ReleaseClient) *Service {
@@ -103,32 +136,113 @@ func (s *Service) Check(ctx context.Context) (CheckResult, error) {
 		return result, err
 	}
 
-	release, asset, ok := selectLatestCompatibleRelease(releases, versionInfo.Target, s.config.AllowPrerelease)
+	resolved, ok, err := s.resolveLatestCompatible(ctx, releases, versionInfo.Target)
+	if err != nil {
+		return result, err
+	}
 	if !ok {
 		result.CompatibilityMsg = "Nenhuma release compativel foi encontrada para esta plataforma."
 		return result, nil
 	}
 
-	result.LatestVersion = release.Version
-	result.ReleaseName = firstNonBlank(release.Name, release.Version)
-	result.ReleaseNotes = release.Body
-	result.ReleaseURL = release.HTMLURL
-	if !release.PublishedAt.IsZero() {
-		result.PublishedAt = release.PublishedAt.UTC().Format(time.RFC3339)
+	result.LatestVersion = resolved.Release.Version
+	result.ReleaseName = firstNonBlank(resolved.Release.Name, resolved.Release.Version)
+	result.ReleaseNotes = resolved.Release.Body
+	result.ReleaseURL = resolved.Release.HTMLURL
+	if !resolved.Release.PublishedAt.IsZero() {
+		result.PublishedAt = resolved.Release.PublishedAt.UTC().Format(time.RFC3339)
 	}
 	result.CompatibleAsset = &AssetRef{
-		Name:        asset.Name,
-		DownloadURL: asset.DownloadURL,
-		Size:        asset.Size,
+		Name:        resolved.Asset.Name,
+		DownloadURL: resolved.Asset.DownloadURL,
+		Size:        resolved.Asset.Size,
+	}
+	if resolved.Package != nil && strings.TrimSpace(resolved.Package.SHA256) != "" {
+		result.IntegrityReady = true
+		result.ExpectedSHA256 = resolved.Package.SHA256
 	}
 
-	cmp, comparable := compareVersions(versionInfo.Version, release.Version)
+	cmp, comparable := compareVersions(versionInfo.Version, resolved.Release.Version)
 	result.CanCompare = comparable
 	result.UpdateAvailable = comparable && cmp < 0
 	if !comparable {
 		result.CompatibilityMsg = "A versao local nao esta em formato semver; comparacao automatica indisponivel."
 	}
 
+	return result, nil
+}
+
+func (s *Service) DownloadLatest(ctx context.Context) (DownloadResult, error) {
+	versionInfo := appmeta.LoadVersionInfo()
+	releases, err := s.client.ListReleases(ctx, s.config.Repo)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+
+	resolved, ok, err := s.resolveLatestCompatible(ctx, releases, versionInfo.Target)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	if !ok {
+		return DownloadResult{}, errors.New("nenhuma release compativel foi encontrada para esta plataforma")
+	}
+	if resolved.Package == nil || strings.TrimSpace(resolved.Package.SHA256) == "" {
+		return DownloadResult{}, errors.New("release manifest or checksum unavailable for the compatible package")
+	}
+
+	stream, err := s.client.OpenAsset(ctx, resolved.Asset.DownloadURL)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+	defer stream.Close()
+
+	downloadDir := appfs.ResolveFromRoot("updates", "downloads", resolved.Release.Version)
+	if err := os.MkdirAll(downloadDir, 0o755); err != nil {
+		return DownloadResult{}, err
+	}
+
+	fileName := filepath.Base(resolved.Asset.Name)
+	outputPath := filepath.Join(downloadDir, fileName)
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return DownloadResult{}, err
+	}
+
+	hasher := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(file, hasher), stream)
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(outputPath)
+		return DownloadResult{}, copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(outputPath)
+		return DownloadResult{}, closeErr
+	}
+
+	sum := hex.EncodeToString(hasher.Sum(nil))
+	if !strings.EqualFold(sum, resolved.Package.SHA256) {
+		_ = os.Remove(outputPath)
+		return DownloadResult{}, fmt.Errorf("checksum mismatch for %s", resolved.Asset.Name)
+	}
+
+	result := DownloadResult{
+		Version:          resolved.Release.Version,
+		Target:           versionInfo.Target,
+		AssetName:        resolved.Asset.Name,
+		ReleaseURL:       resolved.Release.HTMLURL,
+		DownloadedPath:   outputPath,
+		Size:             written,
+		SHA256:           sum,
+		ChecksumVerified: true,
+	}
+	_ = s.saveState(UpdateState{
+		LastDownloadedPackage: outputPath,
+		LastPreparedVersion:   resolved.Release.Version,
+		LastPreparedTarget:    versionInfo.Target,
+		LastDownloadResult:    &result,
+		UpdatedAt:             time.Now().UTC(),
+	})
 	return result, nil
 }
 
@@ -213,10 +327,44 @@ func (c *GitHubClient) ListReleases(ctx context.Context, repo string) ([]Release
 	return releases, nil
 }
 
-func selectLatestCompatibleRelease(releases []Release, target string, allowPrerelease bool) (Release, Asset, bool) {
+func (c *GitHubClient) OpenAsset(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/octet-stream")
+	req.Header.Set("User-Agent", "sparkedge-go-updater")
+	if token := strings.TrimSpace(c.Token); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	client := c.HTTPClient
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		return nil, fmt.Errorf("asset download failed with status %d", resp.StatusCode)
+	}
+	return resp.Body, nil
+}
+
+type resolvedRelease struct {
+	Release  Release
+	Asset    Asset
+	Manifest *Manifest
+	Package  *ManifestPackage
+}
+
+func (s *Service) resolveLatestCompatible(ctx context.Context, releases []Release, target string) (resolvedRelease, bool, error) {
 	filtered := make([]Release, 0, len(releases))
 	for _, release := range releases {
-		if !allowPrerelease && release.Prerelease {
+		if !s.config.AllowPrerelease && release.Prerelease {
 			continue
 		}
 		if !semverPattern.MatchString(strings.TrimSpace(release.Version)) {
@@ -231,14 +379,74 @@ func selectLatestCompatibleRelease(releases []Release, target string, allowPrere
 	})
 
 	for _, release := range filtered {
+		manifest, err := s.loadManifest(ctx, release)
+		if err != nil {
+			return resolvedRelease{}, false, err
+		}
+		if manifest != nil {
+			if pkg, asset, ok := matchManifestPackage(release, *manifest, target); ok {
+				return resolvedRelease{
+					Release:  release,
+					Asset:    asset,
+					Manifest: manifest,
+					Package:  &pkg,
+				}, true, nil
+			}
+		}
 		for _, asset := range release.Assets {
 			if matchesTargetAsset(asset.Name, release.Version, target) {
-				return release, asset, true
+				return resolvedRelease{
+					Release: release,
+					Asset:   asset,
+				}, true, nil
 			}
 		}
 	}
 
-	return Release{}, Asset{}, false
+	return resolvedRelease{}, false, nil
+}
+
+func (s *Service) loadManifest(ctx context.Context, release Release) (*Manifest, error) {
+	asset, ok := findManifestAsset(release.Assets)
+	if !ok {
+		return nil, nil
+	}
+
+	stream, err := s.client.OpenAsset(ctx, asset.DownloadURL)
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	var manifest Manifest
+	if err := decodeJSON(stream, &manifest); err != nil {
+		return nil, err
+	}
+
+	return &manifest, nil
+}
+
+func findManifestAsset(assets []Asset) (Asset, bool) {
+	for _, asset := range assets {
+		if strings.EqualFold(strings.TrimSpace(asset.Name), "manifest.json") {
+			return asset, true
+		}
+	}
+	return Asset{}, false
+}
+
+func matchManifestPackage(release Release, manifest Manifest, target string) (ManifestPackage, Asset, bool) {
+	for _, pkg := range manifest.Packages {
+		if !strings.EqualFold(strings.TrimSpace(pkg.Target), strings.TrimSpace(target)) {
+			continue
+		}
+		for _, asset := range release.Assets {
+			if strings.EqualFold(strings.TrimSpace(asset.Name), strings.TrimSpace(pkg.FileName)) {
+				return pkg, asset, true
+			}
+		}
+	}
+	return ManifestPackage{}, Asset{}, false
 }
 
 func matchesTargetAsset(assetName string, version string, target string) bool {

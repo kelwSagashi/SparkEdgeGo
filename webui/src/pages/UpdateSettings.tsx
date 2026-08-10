@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { updateService, type UpdateCheckResult } from '@/rest-api-client/update.service';
-import { AlertTriangle, CheckCircle2, Clock3, Download, Loader2, RefreshCw, Rocket, ShieldCheck } from 'lucide-react';
+import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateState } from '@/rest-api-client/update.service';
+import { AlertTriangle, CheckCircle2, Clock3, Download, Loader2, RefreshCw, Rocket, ShieldCheck, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
 function formatBytes(size?: number) {
@@ -19,13 +19,32 @@ function formatBytes(size?: number) {
 export default function UpdateSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
+  const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
+  const [applyResult, setApplyResult] = useState<UpdateApplyResult | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+
+  const loadStatus = async () => {
+    const response = await updateService.status();
+    setUpdateState(response.data.data);
+    if (response.data.data.last_download_result) {
+      setDownloadResult(response.data.data.last_download_result);
+    }
+    if (response.data.data.last_apply_result) {
+      setApplyResult(response.data.data.last_apply_result);
+    }
+  };
 
   const loadCheck = async () => {
     setChecking(true);
     try {
-      const response = await updateService.check();
-      setResult(response.data.data);
+      const [checkResponse] = await Promise.all([
+        updateService.check(),
+        loadStatus(),
+      ]);
+      setResult(checkResponse.data.data);
     } catch (error: any) {
       toast.error(`Falha ao verificar atualizacao: ${error?.message ?? 'Erro desconhecido'}`);
     } finally {
@@ -37,6 +56,37 @@ export default function UpdateSettingsPage() {
   useEffect(() => {
     void loadCheck();
   }, []);
+
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const response = await updateService.download();
+      setDownloadResult(response.data.data);
+      toast.success('Pacote de atualizacao baixado com sucesso.');
+      await loadCheck();
+    } catch (error: any) {
+      toast.error(`Falha ao baixar pacote: ${error?.message ?? 'Erro desconhecido'}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!downloadResult?.downloaded_path) {
+      toast.error('Baixe um pacote compativel antes de aplicar a atualizacao.');
+      return;
+    }
+    setApplying(true);
+    try {
+      const response = await updateService.apply(downloadResult.downloaded_path);
+      setApplyResult(response.data.data);
+      toast.success('Atualizacao assistida preparada com sucesso.');
+    } catch (error: any) {
+      toast.error(`Falha ao preparar aplicacao: ${error?.message ?? 'Erro desconhecido'}`);
+    } finally {
+      setApplying(false);
+    }
+  };
 
   return (
     <main className="grow px-8 py-6 w-full max-w-[860px] mx-auto pb-20">
@@ -141,7 +191,77 @@ export default function UpdateSettingsPage() {
                 <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Asset compativel</p>
                 <p className="text-sm font-medium text-zinc-200 break-all">{result?.compatible_asset?.name ?? '-'}</p>
                 <p className="text-xs text-zinc-500">Tamanho: {formatBytes(result?.compatible_asset?.size)}</p>
+                <p className="text-xs text-zinc-500">
+                  Integridade: {result?.integrity_ready ? 'manifesto e checksum disponiveis' : 'manifesto/checksum ainda indisponiveis'}
+                </p>
               </div>
+
+              <Button
+                type="button"
+                onClick={() => void handleDownload()}
+                disabled={downloading || !result?.update_available || !result?.integrity_ready}
+                className="w-full gap-2 bg-sky-400 text-zinc-950 hover:bg-sky-300 font-semibold"
+              >
+                {downloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {downloading ? 'Baixando pacote...' : 'Baixar pacote compativel'}
+              </Button>
+
+              {downloadResult && (
+                <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] p-4 space-y-2">
+                  <p className="text-sm font-semibold text-emerald-300">Pacote pronto para uso assistido</p>
+                  <p className="text-xs text-emerald-100/80 break-all">Arquivo: {downloadResult.downloaded_path}</p>
+                  <p className="text-xs text-emerald-100/80">SHA256 verificado: {downloadResult.sha256}</p>
+                </div>
+              )}
+
+              <Button
+                type="button"
+                onClick={() => void handleApply()}
+                disabled={applying || !downloadResult?.downloaded_path}
+                variant="outline"
+                className="w-full gap-2 border-white/10 text-white hover:bg-white/5"
+              >
+                {applying ? <Loader2 size={16} className="animate-spin" /> : <Wrench size={16} />}
+                {applying ? 'Preparando aplicacao...' : 'Preparar aplicacao assistida'}
+              </Button>
+
+              {applyResult && (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] p-4 space-y-2">
+                  <p className="text-sm font-semibold text-amber-300">Aplicacao preparada</p>
+                  <p className="text-xs text-amber-100/80">{applyResult.message}</p>
+                  <p className="text-xs text-amber-100/80 break-all">Backup: {applyResult.backup_path}</p>
+                  <p className="text-xs text-amber-100/80 break-all">Stage: {applyResult.staging_path}</p>
+                  {applyResult.script_path && (
+                    <p className="text-xs text-amber-100/80 break-all">Script: {applyResult.script_path}</p>
+                  )}
+                  {applyResult.rollback_path && (
+                    <p className="text-xs text-amber-100/80 break-all">Rollback: {applyResult.rollback_path}</p>
+                  )}
+                  {applyResult.next_steps?.length ? (
+                    <div className="pt-2 space-y-1">
+                      {applyResult.next_steps.map((step, index) => (
+                        <p key={`${index}-${step}`} className="text-xs text-amber-100/80">
+                          {index + 1}. {step}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {updateState?.updated_at && (
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4 space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Estado persistido</p>
+                  <p className="text-xs text-zinc-400">
+                    Ultima atualizacao do estado: {new Date(updateState.updated_at).toLocaleString('pt-BR')}
+                  </p>
+                  {updateState.last_prepared_version && (
+                    <p className="text-xs text-zinc-400">
+                      Ultima versao preparada: {updateState.last_prepared_version} ({updateState.last_prepared_target})
+                    </p>
+                  )}
+                </div>
+              )}
 
               {result?.release_url && (
                 <a
