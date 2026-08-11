@@ -27,6 +27,7 @@ type Store struct {
 	Instances          *InstancesRepository
 	Destinations       *InstanceDestinationsRepository
 	DataMappings       *DataMappingsRepository
+	CircuitBreakers    *CircuitBreakerStatesRepository
 	Executions         *InstanceExecutionsRepository
 	MqttCommands       *MqttCommandsRepository
 	MqttQueue          *MqttQueueRepository
@@ -75,6 +76,7 @@ func (s *Store) Open(ctx context.Context) error {
 	s.Instances = NewInstancesRepository(db)
 	s.Destinations = NewInstanceDestinationsRepository(db)
 	s.DataMappings = NewDataMappingsRepository(db)
+	s.CircuitBreakers = NewCircuitBreakerStatesRepository(db)
 	s.Executions = NewInstanceExecutionsRepository(db)
 	s.MqttCommands = NewMqttCommandsRepository(db)
 	s.MqttQueue = NewMqttQueueRepository(db)
@@ -95,5 +97,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &downloadedScriptHistoryModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{}, &localFallbackStorageModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &downloadedScriptHistoryModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &circuitBreakerStateModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{}, &localFallbackStorageModel{})
 }

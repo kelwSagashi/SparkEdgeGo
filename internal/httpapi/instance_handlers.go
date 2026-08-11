@@ -260,6 +260,9 @@ func publicInstance(instance domain.Instance) map[string]any {
 		"script_parameters":               instance.ScriptParameters,
 		"trigger_type":                    instance.TriggerType,
 		"trigger_config":                  instance.TriggerConfig,
+		"depends_on":                      instance.DependsOn,
+		"execution_mode":                  instance.ExecutionMode,
+		"orchestration_config":            instance.OrchestrationConfig,
 		"fallback_enabled":                instance.FallbackEnabled,
 		"fallback_strategy":               instance.FallbackStrategy,
 		"fallback_retry_interval_seconds": instance.FallbackRetryIntervalSeconds,
@@ -275,11 +278,15 @@ func publicDestinationsWithMappings(items []domain.InstanceDestinationWithMappin
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
 		entry := map[string]any{
-			"destination": publicInstanceDestination(item.Destination),
-			"mapping":     nil,
+			"destination":   publicInstanceDestination(item.Destination),
+			"mapping":       nil,
+			"breaker_state": nil,
 		}
 		if item.Mapping != nil {
 			entry["mapping"] = publicDataMapping(*item.Mapping)
+		}
+		if item.BreakerState != nil {
+			entry["breaker_state"] = publicCircuitBreakerState(*item.BreakerState)
 		}
 		result = append(result, entry)
 	}
@@ -294,8 +301,13 @@ func publicInstanceDestination(destination domain.InstanceDestination) map[strin
 		"enabled":               destination.Enabled,
 		"priority":              destination.Priority,
 		"retry_policy": map[string]any{
-			"max_retries":    destination.RetryPolicy.MaxRetries,
-			"retry_interval": destination.RetryPolicy.RetryInterval,
+			"max_retries":                      destination.RetryPolicy.MaxRetries,
+			"retry_interval":                   destination.RetryPolicy.RetryInterval,
+			"timeout_seconds":                  destination.RetryPolicy.TimeoutSeconds,
+			"continue_on_error":                destination.RetryPolicy.ContinueOnError,
+			"isolation_mode":                   destination.RetryPolicy.IsolationMode,
+			"circuit_breaker_threshold":        destination.RetryPolicy.CircuitBreakerThreshold,
+			"circuit_breaker_cooldown_seconds": destination.RetryPolicy.CircuitBreakerCooldownSeconds,
 		},
 		"created_at": destination.CreatedAt,
 	}
@@ -310,6 +322,19 @@ func publicDataMapping(mapping domain.DataMapping) map[string]any {
 		"custom_fields":           mapping.CustomFields,
 		"transform_script":        mapping.TransformScript,
 		"created_at":              mapping.CreatedAt,
+	}
+}
+
+func publicCircuitBreakerState(state domain.CircuitBreakerState) map[string]any {
+	var openedUntil any
+	if state.OpenedUntil != nil {
+		openedUntil = state.OpenedUntil.UTC()
+	}
+	return map[string]any{
+		"destination_id":       state.DestinationID,
+		"consecutive_failures": state.ConsecutiveFailures,
+		"opened_until":         openedUntil,
+		"updated_at":           state.UpdatedAt,
 	}
 }
 

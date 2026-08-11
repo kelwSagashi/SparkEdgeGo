@@ -46,7 +46,18 @@ const defaultValues: InstanceFormValues = {
     interval_seconds: 300,
     webhook_path: undefined,
     webhook_secret: undefined,
+    event_name: undefined,
+    mqtt_topic: undefined,
+    state_field: undefined,
+    state_equals: undefined,
     save_execution_on_server: true,
+  },
+  dependsOn: [],
+  executionMode: "sequential",
+  orchestrationConfig: {
+    workflow_enabled: false,
+    allow_partial_success: true,
+    debounce_seconds: undefined,
   },
   destinations: [],
   fallbackConfig: {
@@ -92,6 +103,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
   const [devices, setDevices] = useState<DeviceReturningValues[]>([]);
   const [scripts, setScripts] = useState<DownloadedScriptReturningValues[]>([]);
   const [servers, setServers] = useState<ServerWithResources[]>([]);
+  const [instances, setInstances] = useState<any[]>([]);
   const [allOperations, setAllOperations] = useState<ResourceOperationReturningValues[]>([]);
   const [operationsCache, setOperationsCache] = useState<
     Record<string, ResourceOperationReturningValues[]>
@@ -120,23 +132,28 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
       try {
         setLoading(true);
 
-        const [projectsResponse, devicesResponse, scriptsResponse, serversResponse] =
+        const [projectsResponse, devicesResponse, scriptsResponse, serversResponse, instancesResponse] =
           await Promise.all([
             api.listAllProjects(),
             api.listAllDevices(),
             api.listAllScripts(),
             api.listAllServers(),
+            api.listAllInstances(),
           ]);
 
         const projectsData = projectsResponse.data?.data || [];
         const devicesData = devicesResponse.data?.data || [];
         const scriptsData = scriptsResponse.data?.data || [];
         const serversData = (serversResponse.data?.data || []) as ServerWithResources[];
+        const instancesData = (instancesResponse.data?.data || []).filter(
+          (item: any) => item.id !== instanceId,
+        );
 
         setProjects(projectsData);
         setDevices(devicesData);
         setScripts(scriptsData);
         setServers(serversData);
+        setInstances(instancesData);
 
         let initialOperationsCache: Record<string, ResourceOperationReturningValues[]> = {};
         let initialOperations: ResourceOperationReturningValues[] = [];
@@ -201,6 +218,9 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
           scriptInputs,
           triggerType: instance.trigger_type || "interval",
           triggerConfig: instance.trigger_config || defaultValues.triggerConfig,
+          dependsOn: instance.depends_on || [],
+          executionMode: instance.execution_mode || "sequential",
+          orchestrationConfig: instance.orchestration_config || defaultValues.orchestrationConfig,
           active: instance.active ?? true,
           destinations: (destinations || []).map((item: any) => {
             const mapping =
@@ -214,6 +234,13 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               retryPolicy: {
                 maxRetries: item.destination?.retry_policy?.max_retries,
                 retryInterval: item.destination?.retry_policy?.retry_interval,
+                timeoutSeconds: item.destination?.retry_policy?.timeout_seconds,
+                continueOnError: item.destination?.retry_policy?.continue_on_error ?? false,
+                isolationMode: item.destination?.retry_policy?.isolation_mode ?? "isolate",
+                circuitBreakerThreshold:
+                  item.destination?.retry_policy?.circuit_breaker_threshold,
+                circuitBreakerCooldownSeconds:
+                  item.destination?.retry_policy?.circuit_breaker_cooldown_seconds,
               },
               dataMapping: {
                 instanceDestinationId: item.destination?.id || "",
@@ -295,6 +322,9 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
         script_inputs: resolvedScriptInputs,
         trigger_type: data.triggerType,
         trigger_config: data.triggerConfig,
+        depends_on: data.dependsOn,
+        execution_mode: data.executionMode,
+        orchestration_config: data.orchestrationConfig,
         include_device_data: data.includeDeviceData,
         fallback_config: data.fallbackConfig,
         error_config: {
@@ -311,6 +341,13 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
             ? {
                 max_retries: destination.retryPolicy.maxRetries,
                 retry_interval: destination.retryPolicy.retryInterval,
+                timeout_seconds: destination.retryPolicy.timeoutSeconds,
+                continue_on_error: destination.retryPolicy.continueOnError,
+                isolation_mode: destination.retryPolicy.isolationMode,
+                circuit_breaker_threshold:
+                  destination.retryPolicy.circuitBreakerThreshold,
+                circuit_breaker_cooldown_seconds:
+                  destination.retryPolicy.circuitBreakerCooldownSeconds,
               }
             : {},
           data_mapping: destination.dataMapping
@@ -446,7 +483,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
             </TabsContent>
 
             <TabsContent value="trigger">
-              <InstanceTriggerForm />
+              <InstanceTriggerForm instances={instances} />
             </TabsContent>
 
             <TabsContent value="destinations">

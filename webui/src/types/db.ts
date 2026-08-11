@@ -207,6 +207,9 @@ export type InstanceReturningValues = {
   script_parameters?: Record<string, unknown> | Array<Record<string, unknown>>;
   trigger_type?: string | null;
   trigger_config?: Record<string, unknown> | null;
+  depends_on?: string[] | null;
+  execution_mode?: "sequential" | "parallel" | string | null;
+  orchestration_config?: Record<string, unknown> | null;
   fallback_enabled?: boolean | null;
   fallback_strategy?: string | null;
   fallback_retry_interval_seconds?: number | null;
@@ -268,6 +271,12 @@ export type InstanceDestinationReturningValues = {
   mapping?: DataMappingReturningValues | null;
   data_mapping?: DataMappingReturningValues | null;
   dataMapping?: DataMappingReturningValues | null;
+  breaker_state?: {
+    destination_id: string;
+    consecutive_failures?: number | null;
+    opened_until?: string | null;
+    updated_at?: string;
+  } | null;
   [key: string]: unknown;
 };
 

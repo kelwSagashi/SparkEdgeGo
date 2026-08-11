@@ -1,9 +1,9 @@
-import { useFormContext, Controller } from "react-hook-form";
+import { Controller, useFormContext } from "react-hook-form";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -12,71 +12,115 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-// instance-form-styles removed — use design tokens directly
+import { Textarea } from "@/components/ui/textarea";
 import type { InstanceFormValues } from "./instance-form.schemas";
 
-export function InstanceTriggerForm() {
+type TriggerFormProps = {
+  instances?: Array<{ id: string; name?: string | null }>;
+};
+
+export function InstanceTriggerForm({ instances = [] }: TriggerFormProps) {
   const {
     control,
     register,
     watch,
+    setValue,
     formState: { errors },
   } = useFormContext<InstanceFormValues>();
 
   const triggerType = watch("triggerType");
+  const executionMode = watch("executionMode");
+  const dependsOn = watch("dependsOn") || [];
 
   return (
     <ScrollArea className="h-full">
       <div className="pr-4 space-y-6">
-        {/* Tipo de Trigger */}
-        <div className="space-y-2">
-          <Label htmlFor="triggerType" className="text-primary font-medium">Tipo de Trigger *</Label>
-          <Controller
-            name="triggerType"
-            control={control}
-            render={({ field }) => (
-              <Select value={field.value} onValueChange={field.onChange}>
-                <SelectTrigger id="triggerType" className="text-primary">
-                  <SelectValue placeholder="Selecione o tipo de trigger" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup className="text-primary">
-                    <SelectItem value="interval">Intervalo Agendado</SelectItem>
-                    <SelectItem value="webhook">Webhook (Remoto)</SelectItem>
-                    <SelectItem value="interval_and_webhook">
-                      Ambos (Intervalo + Webhook)
-                    </SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            )}
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="triggerType" className="text-primary font-medium">
+              Tipo de Trigger
+            </Label>
+            <Controller
+              name="triggerType"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="triggerType" className="text-primary">
+                    <SelectValue placeholder="Selecione o trigger" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup className="text-primary">
+                      <SelectItem value="interval">Intervalo Agendado</SelectItem>
+                      <SelectItem value="webhook">Webhook</SelectItem>
+                      <SelectItem value="interval_and_webhook">
+                        Intervalo + Webhook
+                      </SelectItem>
+                      <SelectItem value="event">Evento Interno</SelectItem>
+                      <SelectItem value="mqtt">Mensagem MQTT</SelectItem>
+                      <SelectItem value="state_change">Mudanca de Estado</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="executionMode" className="text-primary font-medium">
+              Modo de Execucao
+            </Label>
+            <Controller
+              name="executionMode"
+              control={control}
+              render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger id="executionMode" className="text-primary">
+                    <SelectValue placeholder="Selecione o modo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup className="text-primary">
+                      <SelectItem value="sequential">Sequencial</SelectItem>
+                      <SelectItem value="parallel">Paralelo</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          </div>
         </div>
 
-        {/* Descrição do tipo selecionado */}
-        <Card className="p-4 bg-accent border-border">
+        <Card className="p-4 bg-accent border-border space-y-2">
           <p className="text-sm text-secondary">
             {triggerType === "interval" &&
-              "A instância será executada automaticamente em intervalos regulares."}
+              "Executa automaticamente em intervalos regulares."}
             {triggerType === "webhook" &&
-              "A instância será executada quando um webhook remoto for enviado para a URL gerada."}
+              "Executa quando receber um POST no endpoint configurado."}
             {triggerType === "interval_and_webhook" &&
-              "A instância será executada tanto em intervalos regulares quanto quando um webhook remoto for enviado."}
+              "Executa por agenda e tambem por chamada remota."}
+            {triggerType === "event" &&
+              "Executa quando um evento interno com o nome configurado for disparado."}
+            {triggerType === "mqtt" &&
+              "Executa quando houver mensagem no topico MQTT configurado."}
+            {triggerType === "state_change" &&
+              "Executa quando um campo monitorado mudar para o valor desejado."}
+          </p>
+          <p className="text-xs text-secondary/80">
+            Modo atual:{" "}
+            <strong className="text-primary">
+              {executionMode === "parallel" ? "Paralelo" : "Sequencial"}
+            </strong>
           </p>
         </Card>
 
-        {/* Configuração de Intervalo */}
-        {(triggerType === "interval" ||
-          triggerType === "interval_and_webhook") && (
+        {(triggerType === "interval" || triggerType === "interval_and_webhook") && (
           <div className="space-y-2">
             <Label htmlFor="interval_seconds" className="text-primary font-medium">
-              Intervalo de Execução (segundos) *
+              Intervalo (segundos)
             </Label>
             <Input
               id="interval_seconds"
               type="number"
               min="10"
-              placeholder="Ex: 300 (5 minutos)"
               {...register("triggerConfig.interval_seconds", {
                 valueAsNumber: true,
               })}
@@ -87,80 +131,208 @@ export function InstanceTriggerForm() {
                 {errors.triggerConfig.interval_seconds.message}
               </p>
             )}
-            <p className="text-sm text-secondary">
-              Mínimo de 60 segundos (1 minuto). Recomendado: 300 segundos (5
-              minutos).
-            </p>
           </div>
         )}
 
-        {/* Configuração de Webhook */}
-        {(triggerType === "webhook" ||
-          triggerType === "interval_and_webhook") && (
-          <div className="space-y-4">
+        {(triggerType === "webhook" || triggerType === "interval_and_webhook") && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="webhook_path" className="text-primary font-medium">Caminho do Webhook *</Label>
+              <Label htmlFor="webhook_path" className="text-primary font-medium">
+                Caminho do Webhook
+              </Label>
               <Input
                 id="webhook_path"
-                placeholder="Ex: /webhook/energy-monitor"
+                placeholder="/webhook/minha-instancia"
                 {...register("triggerConfig.webhook_path")}
                 className="text-primary"
               />
-              {errors.triggerConfig?.webhook_path && (
-                <p className="text-sm text-destructive">
-                  {errors.triggerConfig.webhook_path.message}
-                </p>
-              )}
-              <p className="text-sm text-secondary">
-                O caminho será exposto em http://seu-servidor{"{"}webhook_path
-                {"}"}.
-              </p>
             </div>
-
             <div className="space-y-2">
               <Label htmlFor="webhook_secret" className="text-primary font-medium">
-                Secret do Webhook (Opcional)
+                Segredo do Webhook
               </Label>
               <Input
                 id="webhook_secret"
                 type="password"
-                placeholder="Opcional: segredo para o webhook"
+                placeholder="Opcional"
                 {...register("triggerConfig.webhook_secret")}
                 className="text-primary"
               />
-              <p className="text-sm text-secondary">
-                Use um secret para validar requisições provenientes da sua
-                fonte.
-              </p>
             </div>
-
-            <Card className="p-4 bg-muted/40 border-border">
-              <p className="text-sm font-medium text-foreground mb-2">
-                Informações do Webhook
-              </p>
-              <div className="space-y-1 text-sm text-secondary">
-                <p>
-                  URL:{" "}
-                  <code className="text-foreground bg-muted/50 px-1 rounded">
-                    http://seu-servidor/webhook
-                    {watch("triggerConfig.webhook_path")}
-                  </code>
-                </p>
-                <p>
-                  Método: <code className="text-foreground">POST</code>
-                </p>
-                <p>
-                  Content-Type:{" "}
-                  <code className="text-foreground">application/json</code>
-                </p>
-              </div>
-            </Card>
           </div>
         )}
 
-        {/* Configurações Adicionais */}
+        {triggerType === "event" && (
+          <div className="space-y-2">
+            <Label htmlFor="event_name" className="text-primary font-medium">
+              Nome do Evento
+            </Label>
+            <Input
+              id="event_name"
+              placeholder="sensor.updated"
+              {...register("triggerConfig.event_name")}
+              className="text-primary"
+            />
+          </div>
+        )}
+
+        {triggerType === "mqtt" && (
+          <div className="space-y-2">
+            <Label htmlFor="mqtt_topic" className="text-primary font-medium">
+              Topico MQTT
+            </Label>
+            <Input
+              id="mqtt_topic"
+              placeholder="sparkedge/devices/+/events"
+              {...register("triggerConfig.mqtt_topic")}
+              className="text-primary"
+            />
+          </div>
+        )}
+
+        {triggerType === "state_change" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="state_field" className="text-primary font-medium">
+                Campo Monitorado
+              </Label>
+              <Input
+                id="state_field"
+                placeholder="$.device.status"
+                {...register("triggerConfig.state_field")}
+                className="text-primary"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="state_equals" className="text-primary font-medium">
+                Valor Esperado
+              </Label>
+              <Input
+                id="state_equals"
+                placeholder="online"
+                {...register("triggerConfig.state_equals")}
+                className="text-primary"
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 pt-2 border-t border-border">
+          <Label className="text-base text-primary font-semibold">
+            Dependencias e Workflow
+          </Label>
+          <div className="space-y-2">
+            <Label htmlFor="dependsOnCsv" className="text-primary font-medium">
+              Dependencias entre Instancias
+            </Label>
+            <Textarea
+              id="dependsOnCsv"
+              value={dependsOn.join(", ")}
+              onChange={(event) => {
+                const next = event.target.value
+                  .split(",")
+                  .map((item) => item.trim())
+                  .filter(Boolean);
+                setValue("dependsOn", next, { shouldDirty: true, shouldValidate: true });
+              }}
+              placeholder="id-instancia-a, id-instancia-b"
+              className="text-primary min-h-20"
+            />
+            <p className="text-xs text-secondary">
+              Use IDs de instancias para definir precedencia de execucao. As
+              dependencias ficam registradas na configuracao da instancia.
+            </p>
+          </div>
+
+          {instances.length > 0 && (
+            <Card className="p-3 bg-muted/30 border-border">
+              <p className="text-xs font-semibold text-primary mb-2">
+                Instancias disponiveis para dependencia
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {instances.slice(0, 12).map((instance) => (
+                  <button
+                    key={instance.id}
+                    type="button"
+                    className="px-2 py-1 rounded border border-border text-xs text-secondary hover:text-primary hover:border-primary/30"
+                    onClick={() => {
+                      if (dependsOn.includes(instance.id)) {
+                        setValue(
+                          "dependsOn",
+                          dependsOn.filter((item) => item !== instance.id),
+                          { shouldDirty: true, shouldValidate: true },
+                        );
+                        return;
+                      }
+                      setValue("dependsOn", [...dependsOn, instance.id], {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      });
+                    }}
+                  >
+                    {instance.name || instance.id}
+                  </button>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex items-center space-x-2">
+              <Controller
+                name="orchestrationConfig.workflow_enabled"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="workflow_enabled"
+                    checked={!!field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                )}
+              />
+              <Label htmlFor="workflow_enabled" className="text-primary">
+                Ativar workflow visual
+              </Label>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Controller
+                name="orchestrationConfig.allow_partial_success"
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id="allow_partial_success"
+                    checked={field.value !== false}
+                    onCheckedChange={field.onChange}
+                  />
+                )}
+              />
+              <Label htmlFor="allow_partial_success" className="text-primary">
+                Permitir sucesso parcial
+              </Label>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="debounce_seconds" className="text-primary font-medium">
+                Debounce (segundos)
+              </Label>
+              <Input
+                id="debounce_seconds"
+                type="number"
+                min="0"
+                {...register("orchestrationConfig.debounce_seconds", {
+                  valueAsNumber: true,
+                })}
+                className="text-primary"
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="space-y-4 pt-4 border-t border-border">
-          <Label className="text-base text-primary font-semibold">Configurações Adicionais</Label>
+          <Label className="text-base text-primary font-semibold">
+            Configuracoes Adicionais
+          </Label>
           <div className="flex items-center space-x-2">
             <Controller
               name="triggerConfig.save_execution_on_server"
@@ -174,30 +346,16 @@ export function InstanceTriggerForm() {
               )}
             />
             <div className="grid gap-1.5 leading-none">
-              <Label
-                htmlFor="save_execution_on_server"
-                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 text-primary"
-              >
-                Salvar Execução no Servidor
+              <Label htmlFor="save_execution_on_server" className="text-primary">
+                Salvar execucao no historico
               </Label>
               <p className="text-xs text-secondary">
-                Se ativado, cada execução será registrada no histórico do
-                servidor para auditoria e logs.
+                Mantem auditoria e facilita diagnostico por etapa.
               </p>
             </div>
           </div>
         </div>
-
-        {/* Informações gerais */}
-        <Card className="p-4 bg-muted border-muted-foreground/20 text-secondary">
-          <p className="text-sm text-secondary">
-            💡 <strong>Dica:</strong> Configure as credenciais e permissões de
-            rede adequadamente para que a execução remota funcione corretamente
-            em sua infraestrutura.
-          </p>
-        </Card>
       </div>
     </ScrollArea>
   );
 }
-

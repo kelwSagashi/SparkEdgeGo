@@ -312,6 +312,19 @@ export class API {
     );
   }
 
+  async dispatchEvent(event_name: string, payload: Record<string, unknown>) {
+    return axios_api_instance.post<ReturningQueries<any>>("/events/dispatch", {
+      event_name,
+      payload,
+    });
+  }
+
+  async dispatchStateChange(payload: Record<string, unknown>) {
+    return axios_api_instance.post<ReturningQueries<any>>("/state/dispatch", {
+      payload,
+    });
+  }
+
   // ─── Scripts ──────────────────────────────────────────────────────────
 
   async listAllScripts() {

@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import { ArrowRightLeft, Info } from "lucide-react";
 import { JsonViewMain } from "../json-view/json-view";
 import type {
@@ -14,6 +15,7 @@ import type {
 } from "@/types/db";
 import type { InstanceFormValues } from "./instance-form.schemas";
 import { buildInstanceRuntimePreview } from "@/lib/instance-mapping";
+import { flattenPreviewPaths, resolveTemplatePreview } from "@/lib/template-preview";
 
 interface InstanceMappingFormProps {
   allOperations: ResourceOperationReturningValues[];
@@ -127,13 +129,20 @@ export function InstanceMappingForm({
   }, [allOperations, destinations, setValue]);
 
   const combinedPayload: Record<string, unknown> = {};
+  const resolvedPreview: Record<string, unknown> = {};
   destinations.forEach((destination, index) => {
     const operation = allOperations.find(
       (item) => String(item.id) === String(destination.resourceOperationId),
     );
     const key = `${index + 1}. ${operation?.name || "Destino"}`;
     combinedPayload[key] = destination.dataMapping?.payloadTemplate || {};
+    resolvedPreview[key] = resolveTemplatePreview(
+      destination.dataMapping?.payloadTemplate || {},
+      sourceData as Record<string, unknown>,
+    );
   });
+
+  const variableCatalog = flattenPreviewPaths(sourceData);
 
   const getDestinationIndex = (path: string) => {
     const match = path.match(/^(\d+)\./);
@@ -357,6 +366,62 @@ export function InstanceMappingForm({
                       className: "bg-transparent border-none text-xs text-primary",
                     }}
                   />
+                </div>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr] gap-4">
+              <Card className="p-4 bg-foreground border-border space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold tracking-wider uppercase text-primary">
+                      Preview Resolvido
+                    </p>
+                    <p className="text-[11px] text-secondary">
+                      Visualizacao local do payload final apos resolver templates.
+                    </p>
+                  </div>
+                </div>
+                <div className="max-h-[360px] overflow-auto">
+                  <JsonViewMain
+                    data={resolvedPreview}
+                    draggableValue={false}
+                    pProps={{
+                      className: "bg-transparent border-none text-xs text-primary",
+                    }}
+                  />
+                </div>
+              </Card>
+
+              <Card className="p-4 bg-foreground border-border space-y-3">
+                <div>
+                  <p className="text-xs font-semibold tracking-wider uppercase text-primary">
+                    Variaveis Disponiveis
+                  </p>
+                  <p className="text-[11px] text-secondary">
+                    Clique para copiar um template util para o editor de payload.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-[360px] overflow-auto">
+                  {variableCatalog.map((item) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => navigator.clipboard?.writeText(item.path)}
+                      className="text-left"
+                    >
+                      <Badge
+                        variant="outline"
+                        className="border-border text-secondary hover:text-primary hover:border-primary/40"
+                      >
+                        {item.label}
+                      </Badge>
+                    </button>
+                  ))}
+                </div>
+                <div className="text-[11px] text-secondary space-y-1">
+                  <p>Funcoes suportadas no preview:</p>
+                  <p>`concat`, `upper`, `lower`, `trim`, `default`, `if`, `add`</p>
                 </div>
               </Card>
             </div>

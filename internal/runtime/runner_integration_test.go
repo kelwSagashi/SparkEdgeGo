@@ -207,6 +207,100 @@ func TestRunnerFallbackAndFlushRetry(t *testing.T) {
 	}
 }
 
+func TestRunnerCircuitBreakerBlocksDestinationAfterThreshold(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "temporary failure", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	registry := providers.NewRegistry()
+	httpprovider.Register(registry)
+
+	runner := NewRunner(Dependencies{
+		Sparkit:            &fakeSparkitExecutor{},
+		Providers:          registry,
+		ResourceOperations: fakeResourceOperationsRepo{targets: map[string]sqlite.OperationTarget{"operation-1": httpTarget(server.URL, "/breaker")}},
+		CircuitBreakers:    newFakeCircuitBreakerStore(),
+	})
+
+	request := TriggerRequest{
+		ExecutionID: "exec-breaker",
+		Instance: domain.Instance{
+			ID:              "instance-1",
+			Name:            "Breaker Edge",
+			FallbackEnabled: false,
+		},
+		Script: domain.DownloadedScript{
+			LocalPath: ".",
+			MainFile:  "main.py",
+		},
+		Destinations: []domain.InstanceDestinationWithMapping{
+			{
+				Destination: domain.InstanceDestination{
+					ID:                  "destination-1",
+					ResourceOperationID: "operation-1",
+					Enabled:             true,
+					RetryPolicy: domain.RetryPolicy{
+						MaxRetries:                    1,
+						RetryInterval:                 1,
+						TimeoutSeconds:                2,
+						CircuitBreakerThreshold:       1,
+						CircuitBreakerCooldownSeconds: 60,
+					},
+				},
+				Mapping: &domain.DataMapping{
+					Mapping: map[string]any{"temperature": "$.temperature"},
+				},
+			},
+		},
+	}
+
+	firstResult, err := runner.Trigger(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstResult.Status != domain.ExecutionFailed {
+		t.Fatalf("expected first execution to fail, got %#v", firstResult)
+	}
+
+	secondResult, err := runner.Trigger(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondResult.Status != domain.ExecutionFailed {
+		t.Fatalf("expected second execution to fail due to breaker, got %#v", secondResult)
+	}
+	if secondResult.Error != "destination-1: circuit breaker open for destination" {
+		t.Fatalf("expected breaker message, got %#v", secondResult.Error)
+	}
+}
+
+type fakeCircuitBreakerStore struct {
+	items map[string]domain.CircuitBreakerState
+}
+
+func newFakeCircuitBreakerStore() *fakeCircuitBreakerStore {
+	return &fakeCircuitBreakerStore{items: map[string]domain.CircuitBreakerState{}}
+}
+
+func (f *fakeCircuitBreakerStore) GetByDestination(_ context.Context, destinationID string) (domain.CircuitBreakerState, error) {
+	item, ok := f.items[destinationID]
+	if !ok {
+		return domain.CircuitBreakerState{}, sqlite.ErrNotFound
+	}
+	return item, nil
+}
+
+func (f *fakeCircuitBreakerStore) Upsert(_ context.Context, state domain.CircuitBreakerState) (domain.CircuitBreakerState, error) {
+	f.items[state.DestinationID] = state
+	return state, nil
+}
+
+func (f *fakeCircuitBreakerStore) Delete(_ context.Context, destinationID string) error {
+	delete(f.items, destinationID)
+	return nil
+}
+
 type fakeResourceOperationsRepo struct {
 	targets map[string]sqlite.OperationTarget
 }

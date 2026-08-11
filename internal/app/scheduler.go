@@ -42,6 +42,9 @@ func (a *App) pollScheduledInstances(ctx context.Context, processing *atomic.Boo
 		log.Printf("[InstanceScheduler] list active failed: %v", err)
 		return
 	}
+	if err := a.SyncMQTTTriggerSubscriptions(ctx); err != nil {
+		log.Printf("[InstanceScheduler] mqtt trigger sync failed: %v", err)
+	}
 	now := time.Now().UTC()
 	for _, instance := range instances {
 		if ctx.Err() != nil {

@@ -25,23 +25,25 @@ import (
 )
 
 type Dependencies struct {
-	DB          *sqlite.Store
-	Auth        *auth.Service
-	Users       *users.Service
-	Projects    *projects.Service
-	Scripts     *scripts.Service
-	Devices     *devices.Service
-	Edge        *edge.Service
-	Tags        *tags.Service
-	Instances   *instances.Service
-	Executions  *executions.Service
-	MQTT        *mqtt.Client
-	Providers   *providers.Registry
-	Runtime     *runtime.Runner
-	ServerInfra *serverinfra.Service
-	Updater     *updater.Service
-	Config      *config.Manager
-	RuntimeCfg  config.Runtime
+	DB                  *sqlite.Store
+	Auth                *auth.Service
+	Users               *users.Service
+	Projects            *projects.Service
+	Scripts             *scripts.Service
+	Devices             *devices.Service
+	Edge                *edge.Service
+	Tags                *tags.Service
+	Instances           *instances.Service
+	Executions          *executions.Service
+	MQTT                *mqtt.Client
+	Providers           *providers.Registry
+	Runtime             *runtime.Runner
+	DispatchEvent       func(context.Context, string, map[string]any) (any, error)
+	DispatchStateChange func(context.Context, map[string]any) (any, error)
+	ServerInfra         *serverinfra.Service
+	Updater             *updater.Service
+	Config              *config.Manager
+	RuntimeCfg          config.Runtime
 }
 
 type Server struct {
@@ -118,6 +120,8 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/update/restart", Adapt(s.handleUpdateRestart))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
 	mux.HandleFunc("POST /api/spark-cloud/edges/register", Adapt(s.handleSparkCloudEdgeRegister))
+	mux.HandleFunc("POST /api/events/dispatch", Adapt(s.handleEventDispatch))
+	mux.HandleFunc("POST /api/state/dispatch", Adapt(s.handleStateDispatch))
 
 	mux.HandleFunc("GET /api/users", Adapt(s.handleUsersList))
 	mux.HandleFunc("POST /api/users", Adapt(s.handleUserCreate))

@@ -79,3 +79,23 @@ func TestTemplateResolverRecursivelyResolvesObjectsAndArrays(t *testing.T) {
 		t.Fatalf("unexpected array value: %#v", got)
 	}
 }
+
+func TestTemplateResolverSupportsFunctionsAndConditionals(t *testing.T) {
+	resolver := TemplateResolver{}
+	context := map[string]any{
+		"device": map[string]any{"name": "edge-alpha"},
+		"script": map[string]any{"temperature": float64(42)},
+	}
+
+	if got := resolver.Resolve("{{concat('device-', upper(device.name))}}", context); got != "device-EDGE-ALPHA" {
+		t.Fatalf("unexpected concat/upper result: %#v", got)
+	}
+
+	if got := resolver.Resolve("{{if(script.temperature > 40, 'hot', 'ok')}}", context); got != "hot" {
+		t.Fatalf("unexpected conditional result: %#v", got)
+	}
+
+	if got := resolver.Resolve("{{add(script.temperature, 8)}}", context); got != float64(50) {
+		t.Fatalf("unexpected add result: %#v", got)
+	}
+}

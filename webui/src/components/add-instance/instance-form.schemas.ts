@@ -33,17 +33,42 @@ export const TriggerConfigSchema = z.object({
   interval_seconds: z.number().optional().nullable(),
   webhook_path: z.string().optional().nullable(),
   webhook_secret: z.string().optional().nullable(),
+  event_name: z.string().optional().nullable(),
+  mqtt_topic: z.string().optional().nullable(),
+  state_field: z.string().optional().nullable(),
+  state_equals: z.string().optional().nullable(),
   save_execution_on_server: z.boolean(),
 });
 
+export const OrchestrationConfigSchema = z.object({
+  workflow_enabled: z.boolean().optional(),
+  allow_partial_success: z.boolean().optional(),
+  debounce_seconds: z.number().optional().nullable(),
+});
+
 export const InstanceTriggerSchema = z.object({
-  triggerType: z.enum(["interval", "webhook", "interval_and_webhook"]),
+  triggerType: z.enum([
+    "interval",
+    "webhook",
+    "interval_and_webhook",
+    "event",
+    "mqtt",
+    "state_change",
+  ]),
   triggerConfig: TriggerConfigSchema,
+  dependsOn: z.array(z.string()).optional(),
+  executionMode: z.enum(["sequential", "parallel"]),
+  orchestrationConfig: OrchestrationConfigSchema,
 });
 
 export const RetryPolicySchema = z.object({
   maxRetries: z.number().optional().nullable(),
   retryInterval: z.number().optional().nullable(),
+  timeoutSeconds: z.number().optional().nullable(),
+  continueOnError: z.boolean().optional(),
+  isolationMode: z.enum(["isolate", "continue"]).optional(),
+  circuitBreakerThreshold: z.number().optional().nullable(),
+  circuitBreakerCooldownSeconds: z.number().optional().nullable(),
 });
 
 export const DataMappingSchema = z.object({

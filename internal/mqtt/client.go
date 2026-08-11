@@ -42,6 +42,7 @@ type Command struct {
 }
 
 type CommandHandler func(context.Context, map[string]any) (map[string]any, error)
+type TopicHandler func(context.Context, string, []byte)
 
 type CommandStore interface {
 	FindByCommandID(context.Context, string) (domain.MqttCommand, error)
@@ -63,6 +64,8 @@ type Client struct {
 	queue         QueueStore
 	mu            sync.Mutex
 	handlers      map[string]CommandHandler
+	topicHandlers map[string]TopicHandler
+	subscribed    map[string]struct{}
 	processed     map[string]struct{}
 	heartbeatStop chan struct{}
 }
@@ -73,9 +76,11 @@ func NewClient() *Client {
 
 func NewClientWithBroker(broker Broker) *Client {
 	client := &Client{
-		broker:    broker,
-		handlers:  map[string]CommandHandler{},
-		processed: map[string]struct{}{},
+		broker:        broker,
+		handlers:      map[string]CommandHandler{},
+		topicHandlers: map[string]TopicHandler{},
+		subscribed:    map[string]struct{}{},
+		processed:     map[string]struct{}{},
 	}
 	client.RegisterHandler("ping", func(context.Context, map[string]any) (map[string]any, error) {
 		return map[string]any{"pong": true, "timestamp": time.Now().UTC().Format(time.RFC3339)}, nil
@@ -130,6 +135,30 @@ func (c *Client) RegisterHandler(commandType string, handler CommandHandler) {
 
 func (c *Client) SubscribeCommands(ctx context.Context) error {
 	return c.broker.Subscribe(ctx, CommandTopic(c.config.EdgeID), 1)
+}
+
+func (c *Client) SyncTopicHandlers(ctx context.Context, handlers map[string]TopicHandler) error {
+	c.mu.Lock()
+	current := make(map[string]TopicHandler, len(handlers))
+	for topic, handler := range handlers {
+		current[topic] = handler
+	}
+	c.topicHandlers = current
+	toSubscribe := make([]string, 0, len(handlers))
+	for topic := range handlers {
+		if _, ok := c.subscribed[topic]; !ok {
+			toSubscribe = append(toSubscribe, topic)
+			c.subscribed[topic] = struct{}{}
+		}
+	}
+	c.mu.Unlock()
+
+	for _, topic := range toSubscribe {
+		if err := c.broker.Subscribe(ctx, topic, 1); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *Client) PublishStatus(ctx context.Context, status string) error {
@@ -223,6 +252,17 @@ func (c *Client) StopHeartbeat() {
 
 func (c *Client) handleMessage(topic string, payload []byte) {
 	if topic != CommandTopic(c.config.EdgeID) {
+		c.mu.Lock()
+		handlers := make(map[string]TopicHandler, len(c.topicHandlers))
+		for pattern, handler := range c.topicHandlers {
+			handlers[pattern] = handler
+		}
+		c.mu.Unlock()
+		for pattern, handler := range handlers {
+			if mqttTopicMatches(pattern, topic) && handler != nil {
+				handler(context.Background(), topic, payload)
+			}
+		}
 		return
 	}
 	_ = c.HandleCommand(context.Background(), payload)
@@ -398,4 +438,27 @@ func waitToken(ctx context.Context, token paho.Token) error {
 	case <-done:
 		return token.Error()
 	}
+}
+
+func mqttTopicMatches(pattern string, topic string) bool {
+	patternParts := strings.Split(pattern, "/")
+	topicParts := strings.Split(topic, "/")
+
+	for index := 0; index < len(patternParts); index++ {
+		if index >= len(topicParts) {
+			return patternParts[index] == "#"
+		}
+		switch patternParts[index] {
+		case "#":
+			return true
+		case "+":
+			continue
+		default:
+			if patternParts[index] != topicParts[index] {
+				return false
+			}
+		}
+	}
+
+	return len(patternParts) == len(topicParts)
 }

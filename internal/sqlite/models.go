@@ -232,6 +232,9 @@ type instanceModel struct {
 	ScriptParameters             mapJSON         `gorm:"type:text"`
 	TriggerType                  string          `gorm:"not null;default:interval;type:text"`
 	TriggerConfig                mapJSON         `gorm:"type:text"`
+	DependsOn                    stringSliceJSON `gorm:"type:text"`
+	ExecutionMode                string          `gorm:"not null;default:sequential;type:text"`
+	OrchestrationConfig          mapJSON         `gorm:"type:text"`
 	FallbackEnabled              bool            `gorm:"not null;default:true"`
 	FallbackStrategy             string          `gorm:"type:text;default:background_job"`
 	FallbackRetryIntervalSeconds int             `gorm:"default:300"`
@@ -272,6 +275,17 @@ type dataMappingModel struct {
 
 func (dataMappingModel) TableName() string {
 	return "data_mappings"
+}
+
+type circuitBreakerStateModel struct {
+	DestinationID       string `gorm:"primaryKey;type:text"`
+	ConsecutiveFailures int    `gorm:"not null;default:0"`
+	OpenedUntil         *time.Time
+	UpdatedAt           time.Time
+}
+
+func (circuitBreakerStateModel) TableName() string {
+	return "circuit_breaker_states"
 }
 
 type instanceExecutionModel struct {

@@ -3,8 +3,13 @@ package domain
 import "time"
 
 type RetryPolicy struct {
-	MaxRetries    int `json:"max_retries"`
-	RetryInterval int `json:"retry_interval"`
+	MaxRetries                    int    `json:"max_retries"`
+	RetryInterval                 int    `json:"retry_interval"`
+	TimeoutSeconds                int    `json:"timeout_seconds"`
+	ContinueOnError               bool   `json:"continue_on_error"`
+	IsolationMode                 string `json:"isolation_mode"`
+	CircuitBreakerThreshold       int    `json:"circuit_breaker_threshold"`
+	CircuitBreakerCooldownSeconds int    `json:"circuit_breaker_cooldown_seconds"`
 }
 
 type MappingCustomField struct {
@@ -22,6 +27,13 @@ type InstanceDestination struct {
 	CreatedAt           time.Time
 }
 
+type CircuitBreakerState struct {
+	DestinationID       string
+	ConsecutiveFailures int
+	OpenedUntil         *time.Time
+	UpdatedAt           time.Time
+}
+
 type DataMapping struct {
 	ID                    string
 	InstanceDestinationID string
@@ -33,6 +45,7 @@ type DataMapping struct {
 }
 
 type InstanceDestinationWithMapping struct {
-	Destination InstanceDestination
-	Mapping     *DataMapping
+	Destination  InstanceDestination
+	Mapping      *DataMapping
+	BreakerState *CircuitBreakerState
 }

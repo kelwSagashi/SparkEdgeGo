@@ -262,6 +262,7 @@ type fakeBroker struct {
 	config          Config
 	connected       bool
 	subscribedTopic string
+	subscribed      []string
 	published       []Message
 	handler         func(string, []byte)
 	publishErr      error
@@ -294,7 +295,36 @@ func (b *fakeBroker) Subscribe(ctx context.Context, topic string, qos byte) erro
 		return err
 	}
 	b.subscribedTopic = topic
+	b.subscribed = append(b.subscribed, topic)
 	return nil
+}
+
+func TestSyncTopicHandlersSubscribesAndRoutesWildcardTopics(t *testing.T) {
+	broker := &fakeBroker{}
+	client := NewClientWithBroker(broker)
+	if err := client.Connect(context.Background(), Config{EdgeID: "edge-1", BrokerURL: "mqtt://localhost:1883"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedTopic string
+	var receivedPayload string
+	if err := client.SyncTopicHandlers(context.Background(), map[string]TopicHandler{
+		"spark/custom/+/events": func(_ context.Context, topic string, payload []byte) {
+			receivedTopic = topic
+			receivedPayload = string(payload)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(broker.subscribed) < 2 {
+		t.Fatalf("expected command and custom topic subscriptions, got %#v", broker.subscribed)
+	}
+
+	broker.handler("spark/custom/device-1/events", []byte(`{"ok":true}`))
+	if receivedTopic != "spark/custom/device-1/events" || receivedPayload != `{"ok":true}` {
+		t.Fatalf("unexpected routed message topic=%q payload=%q", receivedTopic, receivedPayload)
+	}
 }
 
 func (b *fakeBroker) IsConnected() bool {

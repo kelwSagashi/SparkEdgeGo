@@ -26,6 +26,9 @@ type UpsertInstanceParams struct {
 	ScriptParameters             map[string]any
 	TriggerType                  domain.TriggerType
 	TriggerConfig                map[string]any
+	DependsOn                    []string
+	ExecutionMode                domain.ExecutionMode
+	OrchestrationConfig          map[string]any
 	FallbackEnabled              bool
 	FallbackStrategy             domain.FallbackStrategy
 	FallbackRetryIntervalSeconds int
@@ -47,6 +50,9 @@ type UpdateInstanceParams struct {
 	ScriptParameters             *map[string]any
 	TriggerType                  *domain.TriggerType
 	TriggerConfig                *map[string]any
+	DependsOn                    *[]string
+	ExecutionMode                *domain.ExecutionMode
+	OrchestrationConfig          *map[string]any
 	FallbackEnabled              *bool
 	FallbackStrategy             *domain.FallbackStrategy
 	FallbackRetryIntervalSeconds *int
@@ -180,6 +186,15 @@ func applyInstanceParams(model *instanceModel, params UpsertInstanceParams) {
 	if params.TriggerConfig == nil {
 		params.TriggerConfig = map[string]any{"interval_seconds": float64(60)}
 	}
+	if params.DependsOn == nil {
+		params.DependsOn = []string{}
+	}
+	if params.ExecutionMode == "" {
+		params.ExecutionMode = domain.ExecutionModeSequential
+	}
+	if params.OrchestrationConfig == nil {
+		params.OrchestrationConfig = map[string]any{}
+	}
 	if params.ScriptParameters == nil {
 		params.ScriptParameters = map[string]any{}
 	}
@@ -208,6 +223,9 @@ func applyInstanceParams(model *instanceModel, params UpsertInstanceParams) {
 	model.ScriptParameters = mapJSON(params.ScriptParameters)
 	model.TriggerType = string(params.TriggerType)
 	model.TriggerConfig = mapJSON(params.TriggerConfig)
+	model.DependsOn = stringSliceJSON(params.DependsOn)
+	model.ExecutionMode = string(params.ExecutionMode)
+	model.OrchestrationConfig = mapJSON(params.OrchestrationConfig)
 	model.FallbackEnabled = params.FallbackEnabled
 	model.FallbackStrategy = string(params.FallbackStrategy)
 	model.FallbackRetryIntervalSeconds = params.FallbackRetryIntervalSeconds
@@ -253,6 +271,15 @@ func applyInstanceUpdate(model *instanceModel, params UpdateInstanceParams) {
 	if params.TriggerConfig != nil {
 		model.TriggerConfig = mapJSON(*params.TriggerConfig)
 	}
+	if params.DependsOn != nil {
+		model.DependsOn = stringSliceJSON(*params.DependsOn)
+	}
+	if params.ExecutionMode != nil {
+		model.ExecutionMode = string(*params.ExecutionMode)
+	}
+	if params.OrchestrationConfig != nil {
+		model.OrchestrationConfig = mapJSON(*params.OrchestrationConfig)
+	}
 	if params.FallbackEnabled != nil {
 		model.FallbackEnabled = *params.FallbackEnabled
 	}
@@ -293,6 +320,9 @@ func instanceFromModel(model instanceModel) domain.Instance {
 		ScriptParameters:             map[string]any(model.ScriptParameters),
 		TriggerType:                  domain.TriggerType(model.TriggerType),
 		TriggerConfig:                map[string]any(model.TriggerConfig),
+		DependsOn:                    []string(model.DependsOn),
+		ExecutionMode:                domain.ExecutionMode(model.ExecutionMode),
+		OrchestrationConfig:          map[string]any(model.OrchestrationConfig),
 		FallbackEnabled:              model.FallbackEnabled,
 		FallbackStrategy:             domain.FallbackStrategy(model.FallbackStrategy),
 		FallbackRetryIntervalSeconds: model.FallbackRetryIntervalSeconds,
