@@ -62,6 +62,7 @@ type CheckResult struct {
 	Enabled          bool      `json:"enabled"`
 	Provider         string    `json:"provider"`
 	Repository       string    `json:"repository"`
+	Channel          string    `json:"channel"`
 	CurrentVersion   string    `json:"current_version"`
 	CurrentTarget    string    `json:"current_target"`
 	CanCompare       bool      `json:"can_compare"`
@@ -121,6 +122,7 @@ func (s *Service) Check(ctx context.Context) (CheckResult, error) {
 		Enabled:        s.config.Enabled,
 		Provider:       firstNonBlank(s.config.Provider, "github"),
 		Repository:     s.config.Repo,
+		Channel:        normalizeChannel(s.config.Channel),
 		CurrentVersion: versionInfo.Version,
 		CurrentTarget:  versionInfo.Target,
 		CheckedAt:      time.Now().UTC(),
@@ -238,12 +240,20 @@ func (s *Service) DownloadLatest(ctx context.Context) (DownloadResult, error) {
 		SHA256:           sum,
 		ChecksumVerified: true,
 	}
-	_ = s.saveState(UpdateState{
+	previous, _ := s.LoadState()
+	_ = s.saveStateWithHistory(previous, UpdateState{
 		LastDownloadedPackage: outputPath,
 		LastPreparedVersion:   resolved.Release.Version,
 		LastPreparedTarget:    versionInfo.Target,
 		LastDownloadResult:    &result,
-		UpdatedAt:             time.Now().UTC(),
+	}, HistoryEntry{
+		Type:      "download",
+		Status:    "completed",
+		Version:   resolved.Release.Version,
+		Target:    versionInfo.Target,
+		Message:   "Pacote de atualizacao baixado e validado com checksum.",
+		Artifact:  outputPath,
+		CreatedAt: time.Now().UTC(),
 	})
 	return result, nil
 }
@@ -365,8 +375,10 @@ type resolvedRelease struct {
 
 func (s *Service) resolveLatestCompatible(ctx context.Context, releases []Release, target string) (resolvedRelease, bool, error) {
 	filtered := make([]Release, 0, len(releases))
+	channel := normalizeChannel(s.config.Channel)
+	allowPrerelease := s.config.AllowPrerelease || channel == "beta"
 	for _, release := range releases {
-		if !s.config.AllowPrerelease && release.Prerelease {
+		if !allowPrerelease && release.Prerelease {
 			continue
 		}
 		if !semverPattern.MatchString(strings.TrimSpace(release.Version)) {
@@ -474,6 +486,15 @@ func compareVersions(current string, latest string) (int, bool) {
 		}
 	}
 	return 0, true
+}
+
+func normalizeChannel(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "beta":
+		return "beta"
+	default:
+		return "stable"
+	}
 }
 
 func parseSemver(value string) ([3]int, bool) {

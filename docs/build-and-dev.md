@@ -107,6 +107,33 @@ dist/
           version.txt
 ```
 
+## Validacao automatizada de release
+
+Antes de publicar uma release, voce pode rodar um fluxo tecnico automatizado:
+
+```powershell
+./scripts/validate-release.ps1 -Version v0.1.0
+```
+
+Esse fluxo:
+
+- roda `go test ./...`
+- roda `npm run build` em `webui`
+- gera os pacotes principais de release
+- gera `manifest.json` e `checksums.txt`
+
+Para incluir tambem os alvos `armv7` e `armv6`:
+
+```powershell
+./scripts/validate-release.ps1 -Version v0.1.0 -IncludeArm32
+```
+
+Para usar somente como validacao tecnica sem empacotar:
+
+```powershell
+./scripts/validate-release.ps1 -Version v0.1.0 -SkipPackaging
+```
+
 ## Alvos suportados
 
 ### Windows amd64

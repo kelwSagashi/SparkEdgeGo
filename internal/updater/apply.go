@@ -77,6 +77,7 @@ func (s *Service) ApplyDownloaded(_ context.Context, downloadedPath string) (App
 	}
 
 	preserved := []string{"config.yml", "sparkedge.db"}
+	previous, _ := s.LoadState()
 	result := ApplyResult{
 		Version:         descriptor.Version,
 		Target:          descriptor.Target,
@@ -102,12 +103,19 @@ func (s *Service) ApplyDownloaded(_ context.Context, downloadedPath string) (App
 			"Inicie novamente o SparkEdge apos a troca.",
 			"Se algo falhar, execute o script de rollback.",
 		}
-		_ = s.saveState(UpdateState{
+		_ = s.saveStateWithHistory(previous, UpdateState{
 			LastDownloadedPackage: downloadedPath,
 			LastPreparedVersion:   descriptor.Version,
 			LastPreparedTarget:    descriptor.Target,
 			LastApplyResult:       &result,
-			UpdatedAt:             time.Now().UTC(),
+		}, HistoryEntry{
+			Type:      "apply",
+			Status:    "prepared",
+			Version:   descriptor.Version,
+			Target:    descriptor.Target,
+			Message:   result.Message,
+			Artifact:  downloadedPath,
+			CreatedAt: time.Now().UTC(),
 		})
 		return result, nil
 	}
@@ -129,12 +137,19 @@ func (s *Service) ApplyDownloaded(_ context.Context, downloadedPath string) (App
 		"Valide a WebUI e as rotas principais apos o restart.",
 		"Se houver problema, use o script de rollback gerado.",
 	}
-	_ = s.saveState(UpdateState{
+	_ = s.saveStateWithHistory(previous, UpdateState{
 		LastDownloadedPackage: downloadedPath,
 		LastPreparedVersion:   descriptor.Version,
 		LastPreparedTarget:    descriptor.Target,
 		LastApplyResult:       &result,
-		UpdatedAt:             time.Now().UTC(),
+	}, HistoryEntry{
+		Type:      "apply",
+		Status:    "applied",
+		Version:   descriptor.Version,
+		Target:    descriptor.Target,
+		Message:   result.Message,
+		Artifact:  downloadedPath,
+		CreatedAt: time.Now().UTC(),
 	})
 	return result, nil
 }

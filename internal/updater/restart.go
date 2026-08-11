@@ -32,7 +32,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 	if command == "" {
 		result.ManualRequired = true
 		result.Message = "Nenhum comando de reinicio foi configurado. Reinicie o SparkEdge manualmente."
-		_ = s.saveState(UpdateState{
+		_ = s.saveStateWithHistory(state, UpdateState{
 			LastDownloadedPackage: state.LastDownloadedPackage,
 			LastPreparedVersion:   state.LastPreparedVersion,
 			LastPreparedTarget:    state.LastPreparedTarget,
@@ -40,7 +40,14 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 			LastDownloadResult:    state.LastDownloadResult,
 			LastRollbackResult:    state.LastRollbackResult,
 			LastRestartResult:     &result,
-			UpdatedAt:             result.UpdatedAt,
+		}, HistoryEntry{
+			Type:      "restart",
+			Status:    "manual_required",
+			Version:   state.LastPreparedVersion,
+			Target:    state.LastPreparedTarget,
+			Message:   result.Message,
+			Artifact:  command,
+			CreatedAt: result.UpdatedAt,
 		})
 		return result, nil
 	}
@@ -48,7 +55,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 	if !execute {
 		result.ManualRequired = true
 		result.Message = "Plano de reinicio gerado. Execute o comando retornado quando quiser concluir o update."
-		_ = s.saveState(UpdateState{
+		_ = s.saveStateWithHistory(state, UpdateState{
 			LastDownloadedPackage: state.LastDownloadedPackage,
 			LastPreparedVersion:   state.LastPreparedVersion,
 			LastPreparedTarget:    state.LastPreparedTarget,
@@ -56,7 +63,14 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 			LastDownloadResult:    state.LastDownloadResult,
 			LastRollbackResult:    state.LastRollbackResult,
 			LastRestartResult:     &result,
-			UpdatedAt:             result.UpdatedAt,
+		}, HistoryEntry{
+			Type:      "restart",
+			Status:    "planned",
+			Version:   state.LastPreparedVersion,
+			Target:    state.LastPreparedTarget,
+			Message:   result.Message,
+			Artifact:  command,
+			CreatedAt: result.UpdatedAt,
 		})
 		return result, nil
 	}
@@ -66,7 +80,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 	}
 	result.Executed = true
 	result.Message = "Comando de reinicio disparado com sucesso."
-	_ = s.saveState(UpdateState{
+	_ = s.saveStateWithHistory(state, UpdateState{
 		LastDownloadedPackage: state.LastDownloadedPackage,
 		LastPreparedVersion:   state.LastPreparedVersion,
 		LastPreparedTarget:    state.LastPreparedTarget,
@@ -74,7 +88,14 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 		LastDownloadResult:    state.LastDownloadResult,
 		LastRollbackResult:    state.LastRollbackResult,
 		LastRestartResult:     &result,
-		UpdatedAt:             result.UpdatedAt,
+	}, HistoryEntry{
+		Type:      "restart",
+		Status:    "executed",
+		Version:   state.LastPreparedVersion,
+		Target:    state.LastPreparedTarget,
+		Message:   result.Message,
+		Artifact:  command,
+		CreatedAt: result.UpdatedAt,
 	})
 	return result, nil
 }

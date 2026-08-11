@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/appfs"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 )
@@ -547,11 +548,7 @@ func createParams(req CreateRequest) sqlite.CreateScriptParams {
 
 func resolveHomePath(pathValue string) string {
 	if strings.HasPrefix(pathValue, ".spark_edge") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return pathValue
-		}
-		return filepath.Join(home, pathValue)
+		return appfs.ResolveFromRoot(pathValue)
 	}
 	if strings.HasPrefix(pathValue, "~/") || pathValue == "~" {
 		home, err := os.UserHomeDir()
@@ -567,11 +564,8 @@ func resolveHomePath(pathValue string) string {
 }
 
 func toRelativePath(pathValue string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return pathValue
-	}
-	rel, err := filepath.Rel(home, pathValue)
+	appRoot := appfs.AppRoot()
+	rel, err := filepath.Rel(appRoot, pathValue)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return pathValue
 	}
@@ -579,11 +573,7 @@ func toRelativePath(pathValue string) string {
 }
 
 func scriptsStorageDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".spark_edge", "scripts"), nil
+	return appfs.ResolveFromRoot(".spark_edge", "scripts"), nil
 }
 
 func samplesRoot() (string, error) {
@@ -874,11 +864,7 @@ func stringSlicesEqual(left []string, right []string) bool {
 }
 
 func historyStorageDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".spark_edge", "script_history"), nil
+	return appfs.ResolveFromRoot(".spark_edge", "script_history"), nil
 }
 
 func createBundleArchive(scriptID string, historyID string, scriptFolder string) (string, error) {

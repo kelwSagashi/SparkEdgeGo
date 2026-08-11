@@ -14,29 +14,35 @@ type InstanceExecutionsRepository struct {
 }
 
 type CreateInstanceExecutionParams struct {
-	ID              string
-	InstanceID      string
-	Status          domain.ExecutionStatus
-	TriggerType     domain.TriggerType
-	StartedAt       *time.Time
-	FinishedAt      *time.Time
-	DurationMS      *int
-	Logs            []domain.ExecutionLog
-	Output          string
-	ErrorMessage    string
-	DestinationSent bool
-	FallbackUsed    bool
+	ID                 string
+	InstanceID         string
+	Status             domain.ExecutionStatus
+	TriggerType        domain.TriggerType
+	StartedAt          *time.Time
+	FinishedAt         *time.Time
+	DurationMS         *int
+	Logs               []domain.ExecutionLog
+	Output             string
+	ErrorMessage       string
+	DestinationSent    bool
+	FallbackUsed       bool
+	InputPayload       map[string]any
+	OutputPayload      map[string]any
+	DestinationDetails []domain.ExecutionDestinationDetail
 }
 
 type UpdateInstanceExecutionStatusParams struct {
-	Status          domain.ExecutionStatus
-	FinishedAt      *time.Time
-	DurationMS      *int
-	ErrorMessage    *string
-	Output          *string
-	DestinationSent *bool
-	FallbackUsed    *bool
-	Logs            *[]domain.ExecutionLog
+	Status             domain.ExecutionStatus
+	FinishedAt         *time.Time
+	DurationMS         *int
+	ErrorMessage       *string
+	Output             *string
+	DestinationSent    *bool
+	FallbackUsed       *bool
+	InputPayload       *map[string]any
+	OutputPayload      *map[string]any
+	Logs               *[]domain.ExecutionLog
+	DestinationDetails *[]domain.ExecutionDestinationDetail
 }
 
 func NewInstanceExecutionsRepository(db *gorm.DB) *InstanceExecutionsRepository {
@@ -117,8 +123,17 @@ func (r *InstanceExecutionsRepository) UpdateStatus(ctx context.Context, id stri
 	if params.FallbackUsed != nil {
 		model.FallbackUsed = *params.FallbackUsed
 	}
+	if params.InputPayload != nil {
+		model.InputPayload = mapJSON(*params.InputPayload)
+	}
+	if params.OutputPayload != nil {
+		model.OutputPayload = mapJSON(*params.OutputPayload)
+	}
 	if params.Logs != nil {
 		model.Logs = executionLogsJSON(*params.Logs)
+	}
+	if params.DestinationDetails != nil {
+		model.DestinationDetails = executionDestinationDetailsJSON(*params.DestinationDetails)
 	}
 
 	if err := r.db.WithContext(ctx).Save(&model).Error; err != nil {
@@ -139,19 +154,31 @@ func instanceExecutionModelFromCreate(params CreateInstanceExecutionParams) inst
 	if params.Logs == nil {
 		params.Logs = []domain.ExecutionLog{}
 	}
+	if params.DestinationDetails == nil {
+		params.DestinationDetails = []domain.ExecutionDestinationDetail{}
+	}
+	if params.InputPayload == nil {
+		params.InputPayload = map[string]any{}
+	}
+	if params.OutputPayload == nil {
+		params.OutputPayload = map[string]any{}
+	}
 	return instanceExecutionModel{
-		ID:              params.ID,
-		InstanceID:      params.InstanceID,
-		Status:          string(status),
-		TriggerType:     string(triggerType),
-		StartedAt:       params.StartedAt,
-		FinishedAt:      params.FinishedAt,
-		DurationMS:      params.DurationMS,
-		Logs:            executionLogsJSON(params.Logs),
-		Output:          params.Output,
-		ErrorMessage:    params.ErrorMessage,
-		DestinationSent: params.DestinationSent,
-		FallbackUsed:    params.FallbackUsed,
+		ID:                 params.ID,
+		InstanceID:         params.InstanceID,
+		Status:             string(status),
+		TriggerType:        string(triggerType),
+		StartedAt:          params.StartedAt,
+		FinishedAt:         params.FinishedAt,
+		DurationMS:         params.DurationMS,
+		Logs:               executionLogsJSON(params.Logs),
+		Output:             params.Output,
+		ErrorMessage:       params.ErrorMessage,
+		DestinationSent:    params.DestinationSent,
+		FallbackUsed:       params.FallbackUsed,
+		InputPayload:       mapJSON(params.InputPayload),
+		OutputPayload:      mapJSON(params.OutputPayload),
+		DestinationDetails: executionDestinationDetailsJSON(params.DestinationDetails),
 	}
 }
 
@@ -165,18 +192,21 @@ func instanceExecutionsFromModels(models []instanceExecutionModel) []domain.Inst
 
 func instanceExecutionFromModel(model instanceExecutionModel) domain.InstanceExecution {
 	return domain.InstanceExecution{
-		ID:              model.ID,
-		InstanceID:      model.InstanceID,
-		Status:          domain.ExecutionStatus(model.Status),
-		TriggerType:     domain.TriggerType(model.TriggerType),
-		StartedAt:       model.StartedAt,
-		FinishedAt:      model.FinishedAt,
-		DurationMS:      model.DurationMS,
-		Logs:            []domain.ExecutionLog(model.Logs),
-		Output:          model.Output,
-		ErrorMessage:    model.ErrorMessage,
-		DestinationSent: model.DestinationSent,
-		FallbackUsed:    model.FallbackUsed,
-		CreatedAt:       model.CreatedAt,
+		ID:                 model.ID,
+		InstanceID:         model.InstanceID,
+		Status:             domain.ExecutionStatus(model.Status),
+		TriggerType:        domain.TriggerType(model.TriggerType),
+		StartedAt:          model.StartedAt,
+		FinishedAt:         model.FinishedAt,
+		DurationMS:         model.DurationMS,
+		Logs:               []domain.ExecutionLog(model.Logs),
+		Output:             model.Output,
+		ErrorMessage:       model.ErrorMessage,
+		DestinationSent:    model.DestinationSent,
+		FallbackUsed:       model.FallbackUsed,
+		InputPayload:       map[string]any(model.InputPayload),
+		OutputPayload:      map[string]any(model.OutputPayload),
+		DestinationDetails: []domain.ExecutionDestinationDetail(model.DestinationDetails),
+		CreatedAt:          model.CreatedAt,
 	}
 }

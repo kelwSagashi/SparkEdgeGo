@@ -5,6 +5,7 @@ export interface UpdateCheckResult {
   enabled: boolean;
   provider: string;
   repository: string;
+  channel: string;
   current_version: string;
   current_target: string;
   can_compare: boolean;
@@ -75,6 +76,7 @@ export interface UpdateRestartResult {
 }
 
 export interface UpdateState {
+  history?: UpdateHistoryEntry[];
   last_downloaded_package?: string;
   last_prepared_version?: string;
   last_prepared_target?: string;
@@ -83,6 +85,16 @@ export interface UpdateState {
   last_rollback_result?: UpdateRollbackResult | null;
   last_restart_result?: UpdateRestartResult | null;
   updated_at?: string;
+}
+
+export interface UpdateHistoryEntry {
+  type: string;
+  status: string;
+  version?: string;
+  target?: string;
+  message?: string;
+  artifact?: string;
+  created_at: string;
 }
 
 export const updateService = {

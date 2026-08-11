@@ -65,24 +65,32 @@ type TriggerRequest struct {
 }
 
 type TriggerResult struct {
-	ExecutionID     string
-	Status          domain.ExecutionStatus
-	Output          map[string]any
-	MappedPayloads  []MappedPayload
-	RawOutput       string
-	Error           string
-	Logs            []domain.ExecutionLog
-	DurationMS      int
-	DestinationSent bool
-	FallbackUsed    bool
-	StartedAt       time.Time
-	FinishedAt      time.Time
+	ExecutionID        string
+	Status             domain.ExecutionStatus
+	InputPayload       map[string]any
+	Output             map[string]any
+	MappedPayloads     []MappedPayload
+	DestinationDetails []domain.ExecutionDestinationDetail
+	RawOutput          string
+	Error              string
+	Logs               []domain.ExecutionLog
+	DurationMS         int
+	DestinationSent    bool
+	FallbackUsed       bool
+	StartedAt          time.Time
+	FinishedAt         time.Time
 }
 
 type MappedPayload struct {
 	DestinationID       string         `json:"destination_id"`
 	ResourceOperationID string         `json:"resource_operation_id"`
 	Payload             map[string]any `json:"payload"`
+}
+
+type destinationMetadata struct {
+	serverName    string
+	resourceName  string
+	operationName string
 }
 
 func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult, error) {
@@ -109,6 +117,7 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 		input[key] = value
 	}
 	input = r.resolveScriptInput(ctx, req, input)
+	result.InputPayload = input
 
 	logs = append(logs, newLog("info", "Running Python script with Sparkit", time.Now().UTC()))
 	scriptResult, err := r.deps.Sparkit.RunFile(ctx, resolvePath(req.Script.LocalPath), req.Script.MainFile, resolvePath(req.Script.VenvPath), input)
@@ -130,6 +139,7 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 	result.Logs = append(result.Logs, newLog("info", "Script finished successfully", time.Now().UTC()))
 	delivery, deliveryErr := r.dispatchDestinations(ctx, req, result.Output)
 	result.MappedPayloads = delivery.payloads
+	result.DestinationDetails = delivery.details
 	result.DestinationSent = delivery.sent
 	result.FallbackUsed = delivery.fallback
 	result.Logs = append(result.Logs, delivery.logs...)
@@ -146,6 +156,7 @@ type deliveryResult struct {
 	sent     bool
 	fallback bool
 	payloads []MappedPayload
+	details  []domain.ExecutionDestinationDetail
 	logs     []domain.ExecutionLog
 }
 
@@ -160,12 +171,24 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 		}, nil
 	}
 
-	result := deliveryResult{payloads: []MappedPayload{}}
+	result := deliveryResult{payloads: []MappedPayload{}, details: []domain.ExecutionDestinationDetail{}}
 	var failures []string
 	for _, item := range req.Destinations {
 		destination := item.Destination
+		now := time.Now().UTC()
+		metadata := r.resolveDestinationMetadata(ctx, destination)
 		if !destination.Enabled {
-			result.logs = append(result.logs, newLog("info", "Destination "+destination.ID+" disabled, skipping", time.Now().UTC()))
+			result.logs = append(result.logs, newLog("info", "Destination "+destination.ID+" disabled, skipping", now))
+			result.details = append(result.details, domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "skipped",
+				Payload:             map[string]any{},
+				Timestamp:           now,
+			})
 			continue
 		}
 		payload := r.applyMapping(ctx, item.Mapping, output, req)
@@ -177,13 +200,47 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 
 		if err := r.sendToDestination(ctx, destination, payload); err != nil {
 			if r.enqueueFallback(ctx, req, destination.ID, payload, err.Error(), &result) {
+				result.details = append(result.details, domain.ExecutionDestinationDetail{
+					DestinationID:       destination.ID,
+					ResourceOperationID: destination.ResourceOperationID,
+					ServerName:          metadata.serverName,
+					ResourceName:        metadata.resourceName,
+					OperationName:       metadata.operationName,
+					Status:              "fallback",
+					Payload:             payload,
+					Error:               err.Error(),
+					UsedFallback:        true,
+					Timestamp:           time.Now().UTC(),
+				})
 				continue
 			}
+			result.details = append(result.details, domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "failed",
+				Payload:             payload,
+				Error:               err.Error(),
+				Timestamp:           time.Now().UTC(),
+			})
 			failures = append(failures, destination.ID+": "+err.Error())
 			continue
 		}
 		result.sent = true
-		result.logs = append(result.logs, newLog("info", "Successfully dispatched to destination "+destination.ID, time.Now().UTC()))
+		successAt := time.Now().UTC()
+		result.logs = append(result.logs, newLog("info", "Successfully dispatched to destination "+destination.ID, successAt))
+		result.details = append(result.details, domain.ExecutionDestinationDetail{
+			DestinationID:       destination.ID,
+			ResourceOperationID: destination.ResourceOperationID,
+			ServerName:          metadata.serverName,
+			ResourceName:        metadata.resourceName,
+			OperationName:       metadata.operationName,
+			Status:              "success",
+			Payload:             payload,
+			Timestamp:           successAt,
+		})
 	}
 	if len(failures) > 0 && !result.sent {
 		return result, errors.New(strings.Join(failures, "; "))
@@ -309,6 +366,21 @@ func (r *Runner) sendToDestination(ctx context.Context, destination domain.Insta
 		return errors.New("provider " + providerKey + " not registered")
 	}
 	return adapter.Send(ctx, payload)
+}
+
+func (r *Runner) resolveDestinationMetadata(ctx context.Context, destination domain.InstanceDestination) destinationMetadata {
+	if r == nil || r.deps.ResourceOperations == nil {
+		return destinationMetadata{}
+	}
+	target, err := r.deps.ResourceOperations.ResolveTarget(ctx, destination.ResourceOperationID)
+	if err != nil {
+		return destinationMetadata{}
+	}
+	return destinationMetadata{
+		serverName:    target.Server.Name,
+		resourceName:  target.Resource.Name,
+		operationName: target.Operation.Name,
+	}
 }
 
 func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destinationID string, payload map[string]any, reason string, result *deliveryResult) bool {

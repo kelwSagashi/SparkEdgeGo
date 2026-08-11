@@ -18,8 +18,21 @@ type UpdateState struct {
 	LastDownloadResult    *DownloadResult `json:"last_download_result,omitempty"`
 	LastRollbackResult    *RollbackResult `json:"last_rollback_result,omitempty"`
 	LastRestartResult     *RestartResult  `json:"last_restart_result,omitempty"`
+	History               []HistoryEntry  `json:"history,omitempty"`
 	UpdatedAt             time.Time       `json:"updated_at,omitempty"`
 }
+
+type HistoryEntry struct {
+	Type      string    `json:"type"`
+	Status    string    `json:"status"`
+	Version   string    `json:"version,omitempty"`
+	Target    string    `json:"target,omitempty"`
+	Message   string    `json:"message,omitempty"`
+	Artifact  string    `json:"artifact,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+const maxHistoryEntries = 20
 
 func (s *Service) LoadState() (UpdateState, error) {
 	path := updateStatePath()
@@ -47,6 +60,19 @@ func (s *Service) saveState(state UpdateState) error {
 		return err
 	}
 	return os.WriteFile(path, payload, 0o644)
+}
+
+func (s *Service) saveStateWithHistory(previous UpdateState, next UpdateState, entry HistoryEntry) error {
+	entry.CreatedAt = entry.CreatedAt.UTC()
+	if len(previous.History) > 0 {
+		next.History = append([]HistoryEntry{}, previous.History...)
+	}
+	next.History = append(next.History, entry)
+	if len(next.History) > maxHistoryEntries {
+		next.History = append([]HistoryEntry{}, next.History[len(next.History)-maxHistoryEntries:]...)
+	}
+	next.UpdatedAt = entry.CreatedAt
+	return s.saveState(next)
 }
 
 func updateStatePath() string {

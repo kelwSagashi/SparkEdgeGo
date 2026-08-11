@@ -112,6 +112,32 @@ func (v *executionLogsJSON) Scan(value any) error {
 	return json.Unmarshal(data, v)
 }
 
+type executionDestinationDetailsJSON []domain.ExecutionDestinationDetail
+
+func (v executionDestinationDetailsJSON) Value() (driver.Value, error) {
+	if v == nil {
+		return "[]", nil
+	}
+	data, err := json.Marshal([]domain.ExecutionDestinationDetail(v))
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
+}
+
+func (v *executionDestinationDetailsJSON) Scan(value any) error {
+	if value == nil {
+		*v = executionDestinationDetailsJSON{}
+		return nil
+	}
+
+	data, err := scanJSONBytes(value)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, v)
+}
+
 type authTypeFieldsJSON []domain.AuthTypeField
 
 func (v authTypeFieldsJSON) Value() (driver.Value, error) {

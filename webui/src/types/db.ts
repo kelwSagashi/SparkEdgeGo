@@ -234,6 +234,20 @@ export type InstanceExecutionReturningValues = {
   error_message?: string | null;
   destination_sent?: boolean | null;
   fallback_used?: boolean | null;
+  input_payload?: Record<string, unknown> | null;
+  output_payload?: Record<string, unknown> | null;
+  destination_details?: Array<{
+    destination_id: string;
+    resource_operation_id: string;
+    server_name?: string;
+    resource_name?: string;
+    operation_name?: string;
+    status: "success" | "failed" | "fallback" | "skipped" | string;
+    payload?: Record<string, unknown>;
+    error?: string | null;
+    used_fallback?: boolean;
+    timestamp?: string;
+  }>;
   duration_ms?: number | null;
   logs?: Array<Record<string, unknown>>;
   started_at?: string | null;

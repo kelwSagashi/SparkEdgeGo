@@ -50,7 +50,7 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 		result.PreparedOnly = true
 		result.ScriptPath = last.RollbackPath
 		result.Message = "Rollback preparado. Pare o SparkEdge e execute o script de rollback para restaurar a versao anterior."
-		_ = s.saveState(UpdateState{
+		_ = s.saveStateWithHistory(state, UpdateState{
 			LastDownloadedPackage: state.LastDownloadedPackage,
 			LastPreparedVersion:   state.LastPreparedVersion,
 			LastPreparedTarget:    state.LastPreparedTarget,
@@ -58,7 +58,14 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 			LastDownloadResult:    state.LastDownloadResult,
 			LastRollbackResult:    &result,
 			LastRestartResult:     state.LastRestartResult,
-			UpdatedAt:             result.UpdatedAt,
+		}, HistoryEntry{
+			Type:      "rollback",
+			Status:    "prepared",
+			Version:   result.Version,
+			Target:    result.Target,
+			Message:   result.Message,
+			Artifact:  result.BackupPath,
+			CreatedAt: result.UpdatedAt,
 		})
 		return result, nil
 	}
@@ -71,7 +78,7 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 	result.RestoredFiles = restoredFiles
 	result.ScriptPath = filepath.Join(last.BackupPath, "rollback-update.sh")
 	result.Message = "Arquivos restaurados a partir do backup. Reinicie o SparkEdge para voltar para a versao anterior."
-	_ = s.saveState(UpdateState{
+	_ = s.saveStateWithHistory(state, UpdateState{
 		LastDownloadedPackage: state.LastDownloadedPackage,
 		LastPreparedVersion:   state.LastPreparedVersion,
 		LastPreparedTarget:    state.LastPreparedTarget,
@@ -79,7 +86,14 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 		LastDownloadResult:    state.LastDownloadResult,
 		LastRollbackResult:    &result,
 		LastRestartResult:     state.LastRestartResult,
-		UpdatedAt:             result.UpdatedAt,
+	}, HistoryEntry{
+		Type:      "rollback",
+		Status:    "applied",
+		Version:   result.Version,
+		Target:    result.Target,
+		Message:   result.Message,
+		Artifact:  result.BackupPath,
+		CreatedAt: result.UpdatedAt,
 	})
 	return result, nil
 }

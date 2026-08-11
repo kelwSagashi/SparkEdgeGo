@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateRestartResult, type UpdateRollbackResult, type UpdateState } from '@/rest-api-client/update.service';
+import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateHistoryEntry, type UpdateRestartResult, type UpdateRollbackResult, type UpdateState } from '@/rest-api-client/update.service';
 import { AlertTriangle, CheckCircle2, Clock3, Download, Loader2, RefreshCw, Rocket, ShieldCheck, RotateCcw, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,6 +14,34 @@ function formatBytes(size?: number) {
     unitIndex += 1;
   }
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function historyTone(status?: string) {
+  switch (status) {
+    case 'completed':
+    case 'applied':
+    case 'executed':
+      return 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-200';
+    case 'prepared':
+    case 'planned':
+    case 'manual_required':
+      return 'border-amber-500/20 bg-amber-500/[0.06] text-amber-200';
+    default:
+      return 'border-white/[0.06] bg-black/20 text-zinc-300';
+  }
+}
+
+function historyLabel(entry: UpdateHistoryEntry) {
+  const kind = entry.type === 'download'
+    ? 'Download'
+    : entry.type === 'apply'
+      ? 'Apply'
+      : entry.type === 'rollback'
+        ? 'Rollback'
+        : entry.type === 'restart'
+          ? 'Restart'
+          : entry.type;
+  return `${kind} | ${entry.status}`;
 }
 
 export default function UpdateSettingsPage() {
@@ -180,6 +208,10 @@ export default function UpdateSettingsPage() {
               <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
                 <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-1">Target</p>
                 <p className="text-sm font-medium text-zinc-200">{result?.current_target ?? '-'}</p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500 mb-1">Canal</p>
+                <p className="text-sm font-medium capitalize text-zinc-200">{result?.channel ?? 'stable'}</p>
               </div>
               <div className="flex items-center gap-2 text-xs text-zinc-500">
                 <Clock3 size={13} />
@@ -354,6 +386,35 @@ export default function UpdateSettingsPage() {
                   )}
                 </div>
               )}
+
+              {updateState?.history?.length ? (
+                <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4 space-y-3">
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">Historico</p>
+                  <div className="space-y-2">
+                    {[...updateState.history].reverse().map((entry, index) => (
+                      <div key={`${entry.created_at}-${index}`} className={`rounded-xl border p-3 ${historyTone(entry.status)}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold">{historyLabel(entry)}</p>
+                            <p className="text-xs opacity-80">
+                              {entry.version || '-'} {entry.target ? `| ${entry.target}` : ''}
+                            </p>
+                          </div>
+                          <p className="text-[11px] opacity-70">
+                            {new Date(entry.created_at).toLocaleString('pt-BR')}
+                          </p>
+                        </div>
+                        {entry.message && (
+                          <p className="mt-2 text-xs opacity-90">{entry.message}</p>
+                        )}
+                        {entry.artifact && (
+                          <p className="mt-1 break-all text-[11px] opacity-75">{entry.artifact}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {result?.release_url && (
                 <a

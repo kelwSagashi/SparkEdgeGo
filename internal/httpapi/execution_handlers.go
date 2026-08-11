@@ -54,19 +54,22 @@ func publicExecutions(items []domain.InstanceExecution) []map[string]any {
 
 func publicExecution(execution domain.InstanceExecution) map[string]any {
 	return map[string]any{
-		"id":               execution.ID,
-		"instance_id":      execution.InstanceID,
-		"status":           execution.Status,
-		"trigger_type":     execution.TriggerType,
-		"started_at":       execution.StartedAt,
-		"finished_at":      execution.FinishedAt,
-		"duration_ms":      execution.DurationMS,
-		"logs":             execution.Logs,
-		"output":           execution.Output,
-		"error_message":    execution.ErrorMessage,
-		"destination_sent": execution.DestinationSent,
-		"fallback_used":    execution.FallbackUsed,
-		"created_at":       execution.CreatedAt,
+		"id":                  execution.ID,
+		"instance_id":         execution.InstanceID,
+		"status":              execution.Status,
+		"trigger_type":        execution.TriggerType,
+		"started_at":          execution.StartedAt,
+		"finished_at":         execution.FinishedAt,
+		"duration_ms":         execution.DurationMS,
+		"logs":                execution.Logs,
+		"output":              execution.Output,
+		"error_message":       execution.ErrorMessage,
+		"destination_sent":    execution.DestinationSent,
+		"fallback_used":       execution.FallbackUsed,
+		"input_payload":       execution.InputPayload,
+		"output_payload":      execution.OutputPayload,
+		"destination_details": execution.DestinationDetails,
+		"created_at":          execution.CreatedAt,
 	}
 }
 

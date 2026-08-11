@@ -137,19 +137,25 @@ func (a *App) finishExecution(ctx context.Context, executionID string, instanceI
 	errorMessage := result.Error
 	destinationSent := result.DestinationSent
 	fallbackUsed := result.FallbackUsed
+	inputPayload := result.InputPayload
+	outputPayload := result.Output
 	logs := result.Logs
+	destinationDetails := result.DestinationDetails
 	if len(logs) == 0 {
 		logs = []domain.ExecutionLog{{Level: "info", Message: "Execution finished", Timestamp: finishedAt}}
 	}
 	updated, err := a.Executions.UpdateStatus(ctx, executionID, sqlite.UpdateInstanceExecutionStatusParams{
-		Status:          result.Status,
-		FinishedAt:      &finishedAt,
-		DurationMS:      &duration,
-		ErrorMessage:    &errorMessage,
-		Output:          &output,
-		DestinationSent: &destinationSent,
-		FallbackUsed:    &fallbackUsed,
-		Logs:            &logs,
+		Status:             result.Status,
+		FinishedAt:         &finishedAt,
+		DurationMS:         &duration,
+		ErrorMessage:       &errorMessage,
+		Output:             &output,
+		DestinationSent:    &destinationSent,
+		FallbackUsed:       &fallbackUsed,
+		InputPayload:       &inputPayload,
+		OutputPayload:      &outputPayload,
+		Logs:               &logs,
+		DestinationDetails: &destinationDetails,
 	})
 	if result.Status == domain.ExecutionSuccess {
 		_, _ = a.Instances.UpdateStatus(ctx, instanceID, domain.InstanceStatusIdle)

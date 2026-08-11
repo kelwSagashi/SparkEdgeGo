@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/app"
+	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 )
 
@@ -46,7 +47,8 @@ func runStart(ctx context.Context, args []string) {
 	addr := flags.String("addr", ":3009", "HTTP listen address")
 	_ = flags.Parse(args)
 
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	application.StartScheduler(ctx, 0)
 	if err := application.HTTPServer(*addr).ListenAndServe(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -55,7 +57,8 @@ func runStart(ctx context.Context, args []string) {
 }
 
 func runStatus(ctx context.Context) {
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	status, err := application.Edge.Status(ctx)
 	mustPrint(status, err)
 }
@@ -69,7 +72,8 @@ func runOnboarding(ctx context.Context, args []string) {
 	tagsCSV := flags.String("tags", "", "comma-separated edge tags")
 	_ = flags.Parse(args)
 
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	result, err := application.Edge.SaveOnboarding(ctx, edge.OnboardingRequest{
 		Name:        *name,
 		Description: *description,
@@ -86,7 +90,8 @@ func runPair(ctx context.Context, args []string) {
 	name := flags.String("name", "", "optional edge name")
 	_ = flags.Parse(args)
 
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	result, err := application.Edge.Pair(ctx, edge.PairRequest{Token: *token, Name: *name})
 	mustPrint(result, err)
 }
@@ -97,23 +102,27 @@ func runConnect(ctx context.Context, args []string) {
 	password := flags.String("password", "", "Spark Cloud account password")
 	_ = flags.Parse(args)
 
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	result, err := application.Edge.Connect(ctx, edge.ConnectRequest{Email: *email, Password: *password})
 	mustPrint(result, err)
 }
 
 func runDisconnect(ctx context.Context) {
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	mustPrint(map[string]any{"success": true}, application.Edge.Disconnect(ctx))
 }
 
 func runReconnect(ctx context.Context) {
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	mustPrint(map[string]any{"success": true}, application.Edge.Reconnect(ctx))
 }
 
 func runRemove(ctx context.Context) {
-	application := app.New()
+	configManager := config.NewManager("")
+	application := app.New(configManager)
 	mustPrint(map[string]any{"success": true}, application.Edge.Remove(ctx))
 }
 
