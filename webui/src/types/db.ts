@@ -173,6 +173,21 @@ export type DownloadedScriptReturningValues = {
   [key: string]: unknown;
 };
 
+export type DownloadedScriptHistoryEntry = {
+  id: string;
+  script_id: string;
+  action: "installed" | "bundle_updated" | "metadata_updated" | string;
+  name: string;
+  description?: string | null;
+  author?: string | null;
+  version?: string | null;
+  main_file?: string | null;
+  requirements_file?: string | null;
+  tags?: string[];
+  schema_config?: { inputs?: SchemaConfigIO[]; outputs?: SchemaConfigIO[] } | null;
+  created_at?: string;
+};
+
 export type DownloadedScriptUpsertValues = Partial<DownloadedScriptReturningValues>;
 
 export type InstanceReturningValues = {

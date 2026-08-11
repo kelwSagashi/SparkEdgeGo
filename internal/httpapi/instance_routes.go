@@ -128,10 +128,16 @@ func (s *Server) routeScripts(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && len(segments) == 3 && segments[0] == "samples" && segments[2] == "schema":
 		r = withPathValue(r, "name", segments[1])
 		Adapt(s.handleScriptSampleSchema)(w, r)
-	case r.Method == http.MethodGet && len(segments) == 3 && segments[1] == "contents":
+	case r.Method == http.MethodGet && len(segments) >= 3 && segments[1] == "contents":
 		r = withPathValue(r, "id", segments[0])
-		r = withPathValue(r, "filename", segments[2])
+		r = withPathValue(r, "filename", strings.Join(segments[2:], "/"))
 		Adapt(s.handleScriptFileContent)(w, r)
+	case r.Method == http.MethodGet && len(segments) == 2 && segments[1] == "history":
+		r = withPathValue(r, "id", segments[0])
+		Adapt(s.handleScriptHistoryList)(w, r)
+	case r.Method == http.MethodPost && len(segments) == 3 && segments[1] == "upload" && segments[2] == "finalize":
+		r = withPathValue(r, "id", segments[0])
+		Adapt(s.handleScriptUploadReplace)(w, r)
 	case r.Method == http.MethodGet && len(segments) == 1:
 		r = withPathValue(r, "id", segments[0])
 		Adapt(s.handleScriptGet)(w, r)

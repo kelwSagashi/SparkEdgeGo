@@ -30,6 +30,8 @@ type Repository interface {
 	ListAll(ctx context.Context) ([]domain.DownloadedScript, error)
 	Update(ctx context.Context, id string, params sqlite.UpdateScriptParams) (domain.DownloadedScript, error)
 	Delete(ctx context.Context, id string) error
+	CreateHistoryEntry(ctx context.Context, params sqlite.CreateScriptHistoryParams) (domain.ScriptHistoryEntry, error)
+	ListHistoryByScriptID(ctx context.Context, scriptID string) ([]domain.ScriptHistoryEntry, error)
 }
 
 type Service struct {
@@ -109,6 +111,12 @@ type PlaygroundRequest struct {
 	Inputs     map[string]any `json:"inputs"`
 }
 
+const (
+	ScriptHistoryActionInstalled       = "installed"
+	ScriptHistoryActionBundleUpdated   = "bundle_updated"
+	ScriptHistoryActionMetadataUpdated = "metadata_updated"
+)
+
 func NewService(scripts Repository, python ...PythonRuntime) *Service {
 	service := &Service{scripts: scripts}
 	if len(python) > 0 {
@@ -132,7 +140,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (domain.Downloa
 	if err := validateCreate(req); err != nil {
 		return domain.DownloadedScript{}, err
 	}
-	return s.scripts.Create(ctx, createParams(req))
+	script, err := s.scripts.Create(ctx, createParams(req))
+	if err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	if err := s.recordHistory(ctx, script, ScriptHistoryActionInstalled); err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	return script, nil
 }
 
 func (s *Service) Upsert(ctx context.Context, req CreateRequest) (domain.DownloadedScript, error) {
@@ -146,7 +161,7 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (dom
 	if strings.TrimSpace(id) == "" {
 		return domain.DownloadedScript{}, ErrInvalidScript
 	}
-	return s.scripts.Update(ctx, id, sqlite.UpdateScriptParams{
+	script, err := s.scripts.Update(ctx, id, sqlite.UpdateScriptParams{
 		Name:             req.Name,
 		Description:      req.Description,
 		Author:           req.Author,
@@ -163,6 +178,13 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (dom
 		Tags:             req.Tags,
 		SchemaConfig:     req.SchemaConfig,
 	})
+	if err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	if err := s.recordHistory(ctx, script, ScriptHistoryActionMetadataUpdated); err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	return script, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
@@ -191,7 +213,10 @@ func (s *Service) FileContent(ctx context.Context, id string, filename string) (
 		return "", err
 	}
 
-	fullPath := filepath.Join(resolveHomePath(script.LocalPath), filepath.FromSlash(filename))
+	fullPath, err := resolveScriptFilePath(resolveHomePath(script.LocalPath), filename)
+	if err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(fullPath)
 	if os.IsNotExist(err) {
 		return "", ErrScriptFileNotFound
@@ -235,42 +260,7 @@ func (s *Service) FinalizeUpload(ctx context.Context, req FinalizeRequest) (Fina
 	}
 
 	finalID := newScriptID()
-	storageDir, err := scriptsStorageDir()
-	if err != nil {
-		return FinalizeResult{}, err
-	}
-	finalFolder := filepath.Join(storageDir, finalID)
-	venvPath := filepath.Join(finalFolder, "venv")
-
-	if err := os.MkdirAll(storageDir, 0o755); err != nil {
-		return FinalizeResult{}, err
-	}
-	if err := os.RemoveAll(finalFolder); err != nil {
-		return FinalizeResult{}, err
-	}
-	if err := os.Rename(req.TempFolder, finalFolder); err != nil {
-		return FinalizeResult{}, err
-	}
-
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.RemoveAll(finalFolder)
-		}
-	}()
-
-	if err := s.python.CreateVenv(ctx, venvPath); err != nil {
-		return FinalizeResult{}, err
-	}
-
-	requirementsPath := findRequirementsFile(finalFolder)
-	if requirementsPath != "" {
-		if err := s.python.InstallRequirements(ctx, venvPath, requirementsPath); err != nil {
-			return FinalizeResult{}, err
-		}
-	}
-
-	schema, err := s.python.SchemaFile(ctx, finalFolder, req.MainFile, venvPath)
+	finalFolder, venvPath, _, schema, err := s.prepareScriptFolder(ctx, req.TempFolder, finalID, req.MainFile)
 	if err != nil {
 		return FinalizeResult{}, err
 	}
@@ -293,8 +283,124 @@ func (s *Service) FinalizeUpload(ctx context.Context, req FinalizeRequest) (Fina
 		return FinalizeResult{}, err
 	}
 
-	cleanup = false
 	return FinalizeResult{Script: script, Schema: schema}, nil
+}
+
+func (s *Service) ReplaceUpload(ctx context.Context, scriptID string, req FinalizeRequest) (FinalizeResult, error) {
+	if s.python == nil {
+		return FinalizeResult{}, errors.New("sparkit runtime unavailable")
+	}
+	if strings.TrimSpace(scriptID) == "" || strings.TrimSpace(req.TempFolder) == "" || strings.TrimSpace(req.MainFile) == "" {
+		return FinalizeResult{}, ErrInvalidScript
+	}
+
+	existing, err := s.FindByID(ctx, scriptID)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+
+	if req.Name == "" {
+		req.Name = existing.Name
+	}
+	if req.Description == "" {
+		req.Description = existing.Description
+	}
+	if len(req.Tags) == 0 {
+		req.Tags = existing.Tags
+	}
+	if req.Author == "" {
+		req.Author = existing.Author
+	}
+	if req.Version == "" {
+		req.Version = existing.Version
+	}
+
+	replacementID := scriptID + "_replacement"
+	replacementFolder, _, requirementsPath, schema, err := s.prepareScriptFolder(ctx, req.TempFolder, replacementID, req.MainFile)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	defer os.RemoveAll(replacementFolder)
+
+	finalFolder := resolveHomePath(existing.LocalPath)
+	backupFolder := finalFolder + "_backup"
+	_ = os.RemoveAll(backupFolder)
+
+	if _, err := os.Stat(finalFolder); err == nil {
+		if err := os.Rename(finalFolder, backupFolder); err != nil {
+			return FinalizeResult{}, err
+		}
+	}
+
+	restoreBackup := true
+	defer func() {
+		if restoreBackup {
+			_ = os.RemoveAll(finalFolder)
+			if _, err := os.Stat(backupFolder); err == nil {
+				_ = os.Rename(backupFolder, finalFolder)
+			}
+		}
+	}()
+
+	if err := os.Rename(replacementFolder, finalFolder); err != nil {
+		return FinalizeResult{}, err
+	}
+
+	finalVenv := filepath.Join(finalFolder, "venv")
+	requirementsRelative := ""
+	if requirementsPath != "" {
+		if rel, err := filepath.Rel(replacementFolder, requirementsPath); err == nil {
+			requirementsRelative = rel
+		}
+	}
+	if requirementsRelative != "" {
+		requirementsRelative = filepath.ToSlash(requirementsRelative)
+	}
+	mainFile := filepath.ToSlash(req.MainFile)
+	localPath := toRelativePath(finalFolder)
+	venvPath := toRelativePath(finalVenv)
+	requirementsFile := requirementsRelative
+	requirementsFilePtr := &requirementsFile
+	venvReady := true
+
+	name := req.Name
+	description := req.Description
+	author := req.Author
+	version := req.Version
+	tags := req.Tags
+	mainFilePtr := &mainFile
+	localPathPtr := &localPath
+	venvPathPtr := &venvPath
+
+	script, err := s.scripts.Update(ctx, scriptID, sqlite.UpdateScriptParams{
+		Name:             &name,
+		Description:      &description,
+		Author:           &author,
+		Version:          &version,
+		LocalPath:        localPathPtr,
+		MainFile:         mainFilePtr,
+		VenvPath:         venvPathPtr,
+		RequirementsFile: requirementsFilePtr,
+		VenvReady:        &venvReady,
+		Tags:             &tags,
+		SchemaConfig:     &schema,
+	})
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	if err := s.recordHistory(ctx, script, ScriptHistoryActionBundleUpdated); err != nil {
+		return FinalizeResult{}, err
+	}
+	_ = os.RemoveAll(backupFolder)
+	restoreBackup = false
+	return FinalizeResult{Script: script, Schema: schema}, nil
+}
+
+func (s *Service) History(ctx context.Context, scriptID string) ([]domain.ScriptHistoryEntry, error) {
+	if strings.TrimSpace(scriptID) == "" {
+		return nil, ErrInvalidScript
+	}
+	return s.scripts.ListHistoryByScriptID(ctx, scriptID)
 }
 
 func (s *Service) RunPlayground(ctx context.Context, req PlaygroundRequest) (domain.ScriptResult, error) {
@@ -523,6 +629,38 @@ func extractZipToTemp(zipFilePath string, tempFolder string) (InspectResult, err
 	return result, nil
 }
 
+func resolveScriptFilePath(root string, filename string) (string, error) {
+	directPath := filepath.Join(root, filepath.FromSlash(filename))
+	if _, err := os.Stat(directPath); err == nil {
+		return directPath, nil
+	}
+
+	if strings.ContainsAny(filename, `/\`) {
+		return "", ErrScriptFileNotFound
+	}
+
+	var resolved string
+	_ = filepath.WalkDir(root, func(pathValue string, entry os.DirEntry, err error) error {
+		if err != nil || resolved != "" {
+			return nil
+		}
+		if entry.IsDir() {
+			if strings.EqualFold(entry.Name(), "venv") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.EqualFold(entry.Name(), filename) {
+			resolved = pathValue
+		}
+		return nil
+	})
+	if resolved == "" {
+		return "", ErrScriptFileNotFound
+	}
+	return resolved, nil
+}
+
 func extractZipFile(file *zip.File, targetPath string) error {
 	source, err := file.Open()
 	if err != nil {
@@ -557,12 +695,73 @@ func findRequirementsFile(root string) string {
 	return result
 }
 
+func (s *Service) prepareScriptFolder(ctx context.Context, tempFolder string, folderID string, mainFile string) (string, string, string, map[string]any, error) {
+	storageDir, err := scriptsStorageDir()
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	finalFolder := filepath.Join(storageDir, folderID)
+	venvPath := filepath.Join(finalFolder, "venv")
+
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		return "", "", "", nil, err
+	}
+	if err := os.RemoveAll(finalFolder); err != nil {
+		return "", "", "", nil, err
+	}
+	if err := os.Rename(tempFolder, finalFolder); err != nil {
+		return "", "", "", nil, err
+	}
+
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.RemoveAll(finalFolder)
+		}
+	}()
+
+	if err := s.python.CreateVenv(ctx, venvPath); err != nil {
+		return "", "", "", nil, err
+	}
+
+	requirementsPath := findRequirementsFile(finalFolder)
+	if requirementsPath != "" {
+		if err := s.python.InstallRequirements(ctx, venvPath, requirementsPath); err != nil {
+			return "", "", "", nil, err
+		}
+	}
+
+	schema, err := s.python.SchemaFile(ctx, finalFolder, mainFile, venvPath)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+
+	cleanup = false
+	return finalFolder, venvPath, requirementsPath, schema, nil
+}
+
 func newScriptID() string {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		return fmt.Sprintf("script-%d", timeNowUnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(raw[:])
+}
+
+func (s *Service) recordHistory(ctx context.Context, script domain.DownloadedScript, action string) error {
+	_, err := s.scripts.CreateHistoryEntry(ctx, sqlite.CreateScriptHistoryParams{
+		ScriptID:         script.ID,
+		Action:           action,
+		Name:             script.Name,
+		Description:      script.Description,
+		Author:           script.Author,
+		Version:          script.Version,
+		MainFile:         script.MainFile,
+		RequirementsFile: script.RequirementsFile,
+		Tags:             script.Tags,
+		SchemaConfig:     script.SchemaConfig,
+	})
+	return err
 }
 
 func timeNowUnixNano() int64 {

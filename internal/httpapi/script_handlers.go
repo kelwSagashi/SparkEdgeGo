@@ -29,6 +29,14 @@ func (s *Server) handleScriptGet(r *http.Request) (any, error) {
 	return map[string]any{"data": publicScript(script), "error": nil}, nil
 }
 
+func (s *Server) handleScriptHistoryList(r *http.Request) (any, error) {
+	items, err := s.deps.Scripts.History(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{"data": publicScriptHistory(items), "error": nil}, nil
+}
+
 func (s *Server) handleScriptFileContent(r *http.Request) (any, error) {
 	content, err := s.deps.Scripts.FileContent(r.Context(), r.PathValue("id"), r.PathValue("filename"))
 	if err != nil {
@@ -128,6 +136,24 @@ func (s *Server) handleScriptUploadFinalize(r *http.Request) (any, error) {
 	}, nil
 }
 
+func (s *Server) handleScriptUploadReplace(r *http.Request) (any, error) {
+	var req scripts.FinalizeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	result, err := s.deps.Scripts.ReplaceUpload(r.Context(), r.PathValue("id"), req)
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{
+		"data": map[string]any{
+			"script": publicScript(result.Script),
+			"schema": result.Schema,
+		},
+	}, nil
+}
+
 func (s *Server) handleScriptSamplesList(r *http.Request) (any, error) {
 	samples, err := s.deps.Scripts.ListSamples()
 	if err != nil {
@@ -201,6 +227,27 @@ func publicScript(script domain.DownloadedScript) map[string]any {
 		"created_at":        script.CreatedAt,
 		"updated_at":        script.UpdatedAt,
 	}
+}
+
+func publicScriptHistory(items []domain.ScriptHistoryEntry) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		result = append(result, map[string]any{
+			"id":                item.ID,
+			"script_id":         item.ScriptID,
+			"action":            item.Action,
+			"name":              item.Name,
+			"description":       item.Description,
+			"author":            item.Author,
+			"version":           item.Version,
+			"main_file":         item.MainFile,
+			"requirements_file": item.RequirementsFile,
+			"tags":              item.Tags,
+			"schema_config":     item.SchemaConfig,
+			"created_at":        item.CreatedAt,
+		})
+	}
+	return result
 }
 
 func publicScriptExecutionResult(result domain.ScriptResult) map[string]any {

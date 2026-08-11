@@ -44,6 +44,14 @@ func TestScriptsServiceLifecycle(t *testing.T) {
 		t.Fatalf("expected python language, got %s", script.Language)
 	}
 
+	history, err := service.History(ctx, script.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || history[0].Action != ScriptHistoryActionInstalled {
+		t.Fatalf("expected initial install history, got %#v", history)
+	}
+
 	found, err := service.FindByID(ctx, script.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -59,6 +67,14 @@ func TestScriptsServiceLifecycle(t *testing.T) {
 	}
 	if updated.Version != version {
 		t.Fatalf("expected version %q, got %q", version, updated.Version)
+	}
+
+	history, err = service.History(ctx, script.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 || history[0].Action != ScriptHistoryActionMetadataUpdated {
+		t.Fatalf("expected metadata update history, got %#v", history)
 	}
 
 	items, err := service.ListAll(ctx)
@@ -134,6 +150,163 @@ func TestFileContentReadsScriptFile(t *testing.T) {
 	}
 	if content != "print('hello')" {
 		t.Fatalf("unexpected file content %q", content)
+	}
+}
+
+func TestFileContentFindsReadmeInsideNestedFolder(t *testing.T) {
+	ctx := context.Background()
+	store := sqlite.NewStore()
+	store.Path = filepath.Join(t.TempDir(), "sparkedge-test.db")
+	if err := store.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	scriptDir := t.TempDir()
+	nestedDir := filepath.Join(scriptDir, "bundle")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "README.md"), []byte("# Nested Readme"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "main.py"), []byte("print('nested')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(store.Scripts)
+	script, err := service.Create(ctx, CreateRequest{
+		Name:      "Nested",
+		Author:    "SparkEdge",
+		LocalPath: scriptDir,
+		MainFile:  "bundle/main.py",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := service.FileContent(ctx, script.ID, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "# Nested Readme" {
+		t.Fatalf("unexpected nested README content %q", content)
+	}
+
+	mainCode, err := service.FileContent(ctx, script.ID, "bundle/main.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mainCode != "print('nested')" {
+		t.Fatalf("unexpected nested main content %q", mainCode)
+	}
+}
+
+func TestReplaceUploadPreservesScriptIDAndRefreshesBundle(t *testing.T) {
+	ctx := context.Background()
+	store := sqlite.NewStore()
+	store.Path = filepath.Join(t.TempDir(), "sparkedge-test.db")
+	if err := store.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	homeDir := t.TempDir()
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("HOME", homeDir)
+
+	runtime := &fakePythonRuntime{
+		schema: map[string]any{
+			"inputs":  []any{map[string]any{"name": "asset_id", "type": "string"}},
+			"outputs": []any{map[string]any{"name": "temperature", "type": "number"}},
+		},
+	}
+	service := NewService(store.Scripts, runtime)
+
+	originalFolder := filepath.Join(homeDir, ".spark_edge", "scripts", "existing-script")
+	if err := os.MkdirAll(originalFolder, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(originalFolder, "main.py"), []byte("print('old')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	script, err := service.Create(ctx, CreateRequest{
+		ID:           "existing-script",
+		Name:         "Original Script",
+		Author:       "SparkEdge",
+		Description:  "before",
+		Version:      "1.0.0",
+		LocalPath:    toRelativePath(originalFolder),
+		MainFile:     "main.py",
+		VenvPath:     toRelativePath(filepath.Join(originalFolder, "venv")),
+		VenvReady:    true,
+		SchemaConfig: map[string]any{"inputs": []any{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uploadFolder := t.TempDir()
+	nested := filepath.Join(uploadFolder, "bundle")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "main.py"), []byte("print('new')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nested, "requirements.txt"), []byte("sparkit\nrequests\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := service.ReplaceUpload(ctx, script.ID, FinalizeRequest{
+		TempFolder:  uploadFolder,
+		MainFile:    "bundle/main.py",
+		Name:        "Updated Script",
+		Description: "after",
+		Author:      "SparkEdge Team",
+		Version:     "2.0.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Script.ID != script.ID {
+		t.Fatalf("expected script ID %q, got %q", script.ID, result.Script.ID)
+	}
+	if result.Script.MainFile != "bundle/main.py" {
+		t.Fatalf("expected updated main file, got %q", result.Script.MainFile)
+	}
+	if result.Script.Version != "2.0.0" {
+		t.Fatalf("expected updated version, got %q", result.Script.Version)
+	}
+	if result.Script.SchemaConfig["outputs"] == nil {
+		t.Fatalf("expected refreshed schema config, got %#v", result.Script.SchemaConfig)
+	}
+	if runtime.lastMainFile != "bundle/main.py" {
+		t.Fatalf("expected schema extraction from new entrypoint, got %q", runtime.lastMainFile)
+	}
+
+	content, err := service.FileContent(ctx, script.ID, "bundle/main.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "print('new')" {
+		t.Fatalf("expected updated code, got %q", content)
+	}
+
+	history, err := service.History(ctx, script.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected two history entries, got %#v", history)
+	}
+	if history[0].Action != ScriptHistoryActionBundleUpdated {
+		t.Fatalf("expected latest history action %q, got %#v", ScriptHistoryActionBundleUpdated, history[0])
+	}
+	if history[1].Action != ScriptHistoryActionInstalled {
+		t.Fatalf("expected oldest history action %q, got %#v", ScriptHistoryActionInstalled, history[1])
 	}
 }
 

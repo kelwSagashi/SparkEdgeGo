@@ -12,6 +12,20 @@ type ScriptsRepository struct {
 	db *gorm.DB
 }
 
+type CreateScriptHistoryParams struct {
+	ID               string
+	ScriptID         string
+	Action           string
+	Name             string
+	Description      string
+	Author           string
+	Version          string
+	MainFile         string
+	RequirementsFile string
+	Tags             []string
+	SchemaConfig     map[string]any
+}
+
 type CreateScriptParams struct {
 	ID               string
 	Name             string
@@ -141,6 +155,45 @@ func (r *ScriptsRepository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *ScriptsRepository) CreateHistoryEntry(ctx context.Context, params CreateScriptHistoryParams) (domain.ScriptHistoryEntry, error) {
+	model := downloadedScriptHistoryModel{
+		ID:               params.ID,
+		ScriptID:         params.ScriptID,
+		Action:           params.Action,
+		Name:             params.Name,
+		Description:      params.Description,
+		Author:           params.Author,
+		Version:          params.Version,
+		MainFile:         params.MainFile,
+		RequirementsFile: params.RequirementsFile,
+		Tags:             stringSliceJSON(params.Tags),
+		SchemaConfig:     mapJSON(params.SchemaConfig),
+	}
+	if model.ID == "" {
+		model.ID = newID()
+	}
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		return domain.ScriptHistoryEntry{}, err
+	}
+	return scriptHistoryFromModel(model), nil
+}
+
+func (r *ScriptsRepository) ListHistoryByScriptID(ctx context.Context, scriptID string) ([]domain.ScriptHistoryEntry, error) {
+	var models []downloadedScriptHistoryModel
+	if err := r.db.WithContext(ctx).
+		Where("script_id = ?", scriptID).
+		Order("created_at DESC").
+		Find(&models).Error; err != nil {
+		return nil, err
+	}
+
+	history := make([]domain.ScriptHistoryEntry, 0, len(models))
+	for _, model := range models {
+		history = append(history, scriptHistoryFromModel(model))
+	}
+	return history, nil
+}
+
 func scriptModelFromCreate(params CreateScriptParams) downloadedScriptModel {
 	model := downloadedScriptModel{ID: params.ID}
 	applyScriptCreate(&model, params)
@@ -249,5 +302,22 @@ func scriptFromModel(model downloadedScriptModel) domain.DownloadedScript {
 		SchemaConfig:     map[string]any(model.SchemaConfig),
 		CreatedAt:        model.CreatedAt,
 		UpdatedAt:        model.UpdatedAt,
+	}
+}
+
+func scriptHistoryFromModel(model downloadedScriptHistoryModel) domain.ScriptHistoryEntry {
+	return domain.ScriptHistoryEntry{
+		ID:               model.ID,
+		ScriptID:         model.ScriptID,
+		Action:           model.Action,
+		Name:             model.Name,
+		Description:      model.Description,
+		Author:           model.Author,
+		Version:          model.Version,
+		MainFile:         model.MainFile,
+		RequirementsFile: model.RequirementsFile,
+		Tags:             []string(model.Tags),
+		SchemaConfig:     map[string]any(model.SchemaConfig),
+		CreatedAt:        model.CreatedAt,
 	}
 }

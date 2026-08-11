@@ -154,6 +154,25 @@ func (downloadedScriptModel) TableName() string {
 	return "downloaded_scripts"
 }
 
+type downloadedScriptHistoryModel struct {
+	ID               string          `gorm:"primaryKey;type:text"`
+	ScriptID         string          `gorm:"not null;index;type:text"`
+	Action           string          `gorm:"not null;type:text"`
+	Name             string          `gorm:"not null;type:text"`
+	Description      string          `gorm:"type:text"`
+	Author           string          `gorm:"not null;type:text"`
+	Version          string          `gorm:"not null;default:1.0.0;type:text"`
+	MainFile         string          `gorm:"not null;type:text"`
+	RequirementsFile string          `gorm:"type:text"`
+	Tags             stringSliceJSON `gorm:"type:text"`
+	SchemaConfig     mapJSON         `gorm:"type:text"`
+	CreatedAt        time.Time
+}
+
+func (downloadedScriptHistoryModel) TableName() string {
+	return "downloaded_script_history"
+}
+
 type deviceModel struct {
 	ID                  string                `gorm:"primaryKey;type:text"`
 	DeviceID            string                `gorm:"uniqueIndex;type:text"`

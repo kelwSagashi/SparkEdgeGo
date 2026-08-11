@@ -169,6 +169,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/scripts/upload/finalize", Adapt(s.handleScriptUploadFinalize))
 	mux.HandleFunc("POST /api/scripts/playground/run", Adapt(s.handleScriptPlaygroundRun))
 	mux.HandleFunc("GET /api/scripts/", s.routeScripts)
+	mux.HandleFunc("POST /api/scripts/", s.routeScripts)
 	mux.HandleFunc("PUT /api/scripts/", s.routeScripts)
 	mux.HandleFunc("DELETE /api/scripts/", s.routeScripts)
 

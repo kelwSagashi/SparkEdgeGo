@@ -95,5 +95,5 @@ func (s *Store) Close() error {
 }
 
 func migrate(db *gorm.DB) error {
-	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{}, &localFallbackStorageModel{})
+	return db.AutoMigrate(&userModel{}, &projectModel{}, &projectMemberModel{}, &serverTypeModel{}, &authTypeModel{}, &credentialModel{}, &serverModel{}, &serverResourceModel{}, &resourceOperationModel{}, &downloadedScriptModel{}, &downloadedScriptHistoryModel{}, &deviceModel{}, &tagModel{}, &instanceTagModel{}, &instanceModel{}, &instanceDestinationModel{}, &dataMappingModel{}, &instanceExecutionModel{}, &mqttCommandModel{}, &mqttQueueModel{}, &edgeConfigModel{}, &edgeIdentityModel{}, &edgeCredentialModel{}, &localFallbackStorageModel{})
 }
