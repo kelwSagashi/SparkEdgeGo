@@ -250,6 +250,33 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
     loadData();
   }, [form, instanceId, project?.id]);
 
+  useEffect(() => {
+    const handleSchemaUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        script?: DownloadedScriptReturningValues;
+      }>;
+      const updatedScript = customEvent.detail?.script;
+      if (!updatedScript?.id) {
+        return;
+      }
+
+      setScripts((current) => {
+        const index = current.findIndex((item) => item.id === updatedScript.id);
+        if (index === -1) {
+          return current;
+        }
+        const next = [...current];
+        next[index] = updatedScript;
+        return next;
+      });
+    };
+
+    window.addEventListener("sparkedge-script-schema-updated", handleSchemaUpdated as EventListener);
+    return () => {
+      window.removeEventListener("sparkedge-script-schema-updated", handleSchemaUpdated as EventListener);
+    };
+  }, []);
+
   const onSubmit = async (data: InstanceFormValues) => {
     try {
       setSubmitting(true);

@@ -16,30 +16,79 @@ import ScriptPlayground from '@/components/ScriptPlayground';
 import { inferSchema } from '@/utils/schema-inference';
 import type { SchemaConfigIO } from "@/types/db";
 
-/**
- * Converte um esquema JSON (inferido) para o formato SchemaConfigIO[]
- */
-function jsonSchemaToFields(schema: any): SchemaConfigIO[] {
-  if (schema.type === "object" && schema.properties) {
-    return Object.entries(schema.properties).map(([name, config]: [string, any]) => ({
-      name,
-      type: config.type,
-      fields: config.type === "object" ? jsonSchemaToFields(config) : undefined,
-      required: schema.required?.includes(name)
-    }));
+function jsonSchemaToField(name: string, schema: any, required = false): SchemaConfigIO {
+  const field: SchemaConfigIO = {
+    name,
+    type: schema?.type || "string",
+    required,
+  };
+
+  if (schema?.type === "object" && schema?.properties) {
+    field.fields = Object.entries(schema.properties).map(([childName, childSchema]: [string, any]) =>
+      jsonSchemaToField(childName, childSchema, schema.required?.includes(childName)),
+    );
   }
-  return [];
+  return field;
+}
+
+function jsonSchemaToOutputFields(schema: any): SchemaConfigIO[] {
+  if (schema?.type === "object" && schema?.properties) {
+    return Object.entries(schema.properties).map(([name, childSchema]: [string, any]) =>
+      jsonSchemaToField(name, childSchema, schema.required?.includes(name)),
+    );
+  }
+  return [jsonSchemaToField("stdout", schema)];
+}
+
+function jsonSchemaToNamedOutput(name: string, schema: any): SchemaConfigIO[] {
+  if (name === "stdout") {
+    return jsonSchemaToOutputFields(schema);
+  }
+  return [jsonSchemaToField(name, schema)];
+}
+
+function resolveStdoutCandidate(output: any) {
+  if (output === null || output === undefined) {
+    return null;
+  }
+  if (
+    typeof output === "object" &&
+    !Array.isArray(output) &&
+    Object.prototype.hasOwnProperty.call(output, "stdout")
+  ) {
+    return output.stdout ?? null;
+  }
+  return output;
+}
+
+function resolveStderrCandidate(output: any) {
+  if (
+    output &&
+    typeof output === "object" &&
+    !Array.isArray(output) &&
+    Object.prototype.hasOwnProperty.call(output, "stderr")
+  ) {
+    return output.stderr ?? null;
+  }
+  return null;
 }
 
 // Playground Dialog Component
 function ScriptPlaygroundDialog({ open, onOpenChange, script, sampleName }: { open: boolean, onOpenChange: (open: boolean) => void, script?: DownloadedScriptReturningValues, sampleName?: string }) {
+  const upsertScript = useScriptsStore((state) => state.upsertScript);
+  const [currentScript, setCurrentScript] = useState<DownloadedScriptReturningValues | undefined>(script);
   const [schema, setSchema] = useState<any>(null);
   const [inputs, setInputs] = useState<Record<string, any>>({});
   const [output, setOutput] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    setCurrentScript(script);
+  }, [script]);
+
+  useEffect(() => {
     if (!open) {
+      setCurrentScript(script);
       setSchema(null);
       setInputs({});
       setOutput(null);
@@ -52,13 +101,13 @@ function ScriptPlaygroundDialog({ open, onOpenChange, script, sampleName }: { op
         const res: any = await scriptsApi.getSampleSchema(sampleName);
         setSchema(res.data);
         setLoading(false);
-      } else if (script) {
+      } else if (currentScript) {
         // Assume schema is saved in DB under script.schema_config
-        setSchema((script as any).schema_config || { inputs: [], outputs: [] });
+        setSchema((currentScript as any).schema_config || { inputs: [], outputs: [] });
       }
     };
     fetchSchema();
-  }, [open, script, sampleName]);
+  }, [open, currentScript, sampleName, script]);
 
   const handleRun = async () => {
     setLoading(true);
@@ -72,76 +121,63 @@ function ScriptPlaygroundDialog({ open, onOpenChange, script, sampleName }: { op
     }
   };
 
-  const handleSaveStdoutSchema = async (stdoutData: any) => {
-    if (!script?.id) return;
+  const persistOutputSchema = async (
+    outputName: "stdout" | "stderr",
+    outputData: any,
+    successMessage: string,
+  ) => {
+    if (!currentScript?.id) return;
+
     setLoading(true);
     try {
-      const outputSchema = inferSchema(stdoutData);
-      const outputFields = jsonSchemaToFields(outputSchema);
-      
-      const currentOutputs = Array.isArray(script.schema_config?.outputs) 
-        ? [...script.schema_config.outputs] 
+      const outputSchema = inferSchema(outputData);
+      const nextOutputFields = jsonSchemaToNamedOutput(outputName, outputSchema);
+
+      const currentOutputs = Array.isArray(currentScript.schema_config?.outputs)
+        ? [...currentScript.schema_config.outputs]
         : [];
-      
-      // Upsert stdout output
-      const stdoutIdx = currentOutputs.findIndex(o => o.name === 'stdout');
-      if (stdoutIdx >= 0) {
-        currentOutputs[stdoutIdx] = { ...currentOutputs[stdoutIdx], fields: outputFields };
-      } else {
-        currentOutputs.push({ name: 'stdout', type: 'object', fields: outputFields });
-      }
+
+      const replacedNames = new Set(nextOutputFields.map((field) => field.name));
+      const preservedOutputs = currentOutputs.filter(
+        (field) => !replacedNames.has(field.name || ""),
+      );
 
       const newConfig = {
-        ...(script.schema_config || { inputs: [] }),
-        outputs: currentOutputs
+        ...(currentScript.schema_config || { inputs: [] }),
+        outputs: [...nextOutputFields, ...preservedOutputs],
       };
 
-      await scriptsApi.update(script.id, {
-        schema_config: newConfig
+      const updated = await scriptsApi.update(currentScript.id, {
+        schema_config: newConfig,
       });
-      
-      alert('Esquema de Stdout gravado com sucesso!');
+      const updatedScript = updated?.data ?? { ...currentScript, schema_config: newConfig };
+      setCurrentScript(updatedScript);
+      setSchema(newConfig);
+      upsertScript(updatedScript);
+      window.dispatchEvent(
+        new CustomEvent("sparkedge-script-schema-updated", {
+          detail: { script: updatedScript },
+        }),
+      );
+
+      alert(successMessage);
     } catch (err: any) {
-      alert('Erro ao gravar esquema: ' + err.message);
+      alert("Erro ao gravar esquema: " + err.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveStdoutSchema = async (stdoutData: any) => {
+    await persistOutputSchema("stdout", stdoutData, "Esquema de Stdout gravado com sucesso!");
   };
 
   const handleSaveStderrSchema = async (stderrData: any) => {
-    if (!script?.id) return;
-    setLoading(true);
-    try {
-      const outputSchema = inferSchema(stderrData);
-      const outputFields = jsonSchemaToFields(outputSchema);
-      
-      const currentOutputs = Array.isArray(script.schema_config?.outputs) 
-        ? [...script.schema_config.outputs] 
-        : [];
-      
-      const stderrIdx = currentOutputs.findIndex(o => o.name === 'stderr');
-      if (stderrIdx >= 0) {
-        currentOutputs[stderrIdx] = { ...currentOutputs[stderrIdx], fields: outputFields };
-      } else {
-        currentOutputs.push({ name: 'stderr', type: 'object', fields: outputFields });
-      }
-
-      const newConfig = {
-        ...(script.schema_config || { inputs: [] }),
-        outputs: currentOutputs
-      };
-
-      await scriptsApi.update(script.id, {
-        schema_config: newConfig
-      });
-      
-      alert('Esquema de Stderr gravado com sucesso!');
-    } catch (err: any) {
-      alert('Erro ao gravar esquema: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
+    await persistOutputSchema("stderr", stderrData, "Esquema de Stderr gravado com sucesso!");
   };
+
+  const stdoutCandidate = resolveStdoutCandidate(output);
+  const stderrCandidate = resolveStderrCandidate(output);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -149,7 +185,7 @@ function ScriptPlaygroundDialog({ open, onOpenChange, script, sampleName }: { op
             <DialogHeader className="p-4 py-3 border-b border-white/[0.08] bg-white/[0.02]">
                <DialogTitle className="text-white flex items-center gap-2">
                  <Play className="w-4 h-4 text-violet-400" />
-                 Playground: {script?.name || sampleName}
+                 Playground: {currentScript?.name || sampleName}
                </DialogTitle>
             </DialogHeader>
             <ScriptPlayground
@@ -159,8 +195,10 @@ function ScriptPlaygroundDialog({ open, onOpenChange, script, sampleName }: { op
               output={output}
               schema={schema}
               loading={loading}
-              handleSaveStdoutSchema={script ? handleSaveStdoutSchema : undefined}
-              handleSaveStderrSchema={script ? handleSaveStderrSchema : undefined}
+              stdoutCandidate={stdoutCandidate}
+              stderrCandidate={stderrCandidate}
+              handleSaveStdoutSchema={currentScript ? handleSaveStdoutSchema : undefined}
+              handleSaveStderrSchema={currentScript ? handleSaveStderrSchema : undefined}
             />
         </DialogContent>
     </Dialog>
