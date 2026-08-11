@@ -24,6 +24,8 @@ type CreateScriptHistoryParams struct {
 	RequirementsFile string
 	Tags             []string
 	SchemaConfig     map[string]any
+	ChangeSummary    []string
+	BundlePath       string
 }
 
 type CreateScriptParams struct {
@@ -168,6 +170,8 @@ func (r *ScriptsRepository) CreateHistoryEntry(ctx context.Context, params Creat
 		RequirementsFile: params.RequirementsFile,
 		Tags:             stringSliceJSON(params.Tags),
 		SchemaConfig:     mapJSON(params.SchemaConfig),
+		ChangeSummary:    stringSliceJSON(params.ChangeSummary),
+		BundlePath:       params.BundlePath,
 	}
 	if model.ID == "" {
 		model.ID = newID()
@@ -192,6 +196,19 @@ func (r *ScriptsRepository) ListHistoryByScriptID(ctx context.Context, scriptID 
 		history = append(history, scriptHistoryFromModel(model))
 	}
 	return history, nil
+}
+
+func (r *ScriptsRepository) FindHistoryEntryByID(ctx context.Context, scriptID string, historyID string) (domain.ScriptHistoryEntry, error) {
+	var model downloadedScriptHistoryModel
+	if err := r.db.WithContext(ctx).
+		Where("script_id = ? AND id = ?", scriptID, historyID).
+		First(&model).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return domain.ScriptHistoryEntry{}, ErrNotFound
+		}
+		return domain.ScriptHistoryEntry{}, err
+	}
+	return scriptHistoryFromModel(model), nil
 }
 
 func scriptModelFromCreate(params CreateScriptParams) downloadedScriptModel {
@@ -318,6 +335,8 @@ func scriptHistoryFromModel(model downloadedScriptHistoryModel) domain.ScriptHis
 		RequirementsFile: model.RequirementsFile,
 		Tags:             []string(model.Tags),
 		SchemaConfig:     map[string]any(model.SchemaConfig),
+		ChangeSummary:    []string(model.ChangeSummary),
+		BundlePath:       model.BundlePath,
 		CreatedAt:        model.CreatedAt,
 	}
 }

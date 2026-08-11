@@ -37,6 +37,20 @@ func (s *Server) handleScriptHistoryList(r *http.Request) (any, error) {
 	return map[string]any{"data": publicScriptHistory(items), "error": nil}, nil
 }
 
+func (s *Server) handleScriptHistoryRestore(r *http.Request) (any, error) {
+	result, err := s.deps.Scripts.RestoreHistory(r.Context(), r.PathValue("id"), r.PathValue("historyId"))
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{
+		"data": map[string]any{
+			"script": publicScript(result.Script),
+			"schema": result.Schema,
+		},
+		"error": nil,
+	}, nil
+}
+
 func (s *Server) handleScriptFileContent(r *http.Request) (any, error) {
 	content, err := s.deps.Scripts.FileContent(r.Context(), r.PathValue("id"), r.PathValue("filename"))
 	if err != nil {
@@ -244,6 +258,9 @@ func publicScriptHistory(items []domain.ScriptHistoryEntry) []map[string]any {
 			"requirements_file": item.RequirementsFile,
 			"tags":              item.Tags,
 			"schema_config":     item.SchemaConfig,
+			"change_summary":    item.ChangeSummary,
+			"bundle_path":       item.BundlePath,
+			"can_restore":       strings.TrimSpace(item.BundlePath) != "",
 			"created_at":        item.CreatedAt,
 		})
 	}

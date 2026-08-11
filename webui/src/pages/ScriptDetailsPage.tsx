@@ -13,6 +13,7 @@ import {
   Globe,
   Package,
   Play,
+  RotateCcw,
   Tag,
   TerminalSquare,
   Upload,
@@ -100,6 +101,7 @@ export default function ScriptDetailsPage() {
   const [playgroundLoading, setPlaygroundLoading] = useState(false);
   const [updateBundleOpen, setUpdateBundleOpen] = useState(false);
   const [history, setHistory] = useState<DownloadedScriptHistoryEntry[]>([]);
+  const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null);
 
   const fetchScriptData = async () => {
     if (!id) {
@@ -187,6 +189,30 @@ export default function ScriptDetailsPage() {
     }
   };
 
+  const handleRestoreHistory = async (entry: DownloadedScriptHistoryEntry) => {
+    if (!script?.id || !entry.id || !entry.can_restore) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Restaurar o script para a versão registrada em ${entry.created_at ? new Date(entry.created_at).toLocaleString("pt-BR") : "um ponto anterior do histórico"}?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setRestoringHistoryId(entry.id);
+    setError(null);
+    try {
+      await scriptsApi.restoreHistory(script.id, entry.id);
+      await fetchScriptData();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || "Erro ao restaurar versão do script");
+    } finally {
+      setRestoringHistoryId(null);
+    }
+  };
+
   const schema = useMemo(
     () => script?.schema_config || { inputs: [], outputs: [] },
     [script],
@@ -200,6 +226,8 @@ export default function ScriptDetailsPage() {
         return "Atualização de bundle";
       case "metadata_updated":
         return "Edição de metadados";
+      case "restored":
+        return "Restauração";
       default:
         return action;
     }
@@ -447,7 +475,7 @@ export default function ScriptDetailsPage() {
                     Histórico
                   </h4>
                   <p className="text-xs text-zinc-500">
-                    Linha do tempo simples das versões e atualizações do script.
+                    Linha do tempo com resumo das mudanças e restauração de versões anteriores.
                   </p>
                 </div>
 
@@ -458,7 +486,7 @@ export default function ScriptDetailsPage() {
                     {history.map((entry) => (
                       <div
                         key={entry.id}
-                        className="rounded-xl border border-white/[0.06] bg-black/20 p-4 space-y-2"
+                        className="rounded-xl border border-white/[0.06] bg-black/20 p-4 space-y-3"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -476,10 +504,39 @@ export default function ScriptDetailsPage() {
                             v{entry.version || "?"}
                           </Badge>
                         </div>
+
                         <div className="space-y-1 text-xs text-zinc-400">
                           <p><span className="text-zinc-500">Nome:</span> {entry.name}</p>
                           <p><span className="text-zinc-500">Autor:</span> {entry.author || "-"}</p>
                           <p><span className="text-zinc-500">Entrypoint:</span> <span className="font-mono">{entry.main_file || "-"}</span></p>
+                        </div>
+
+                        {entry.change_summary && entry.change_summary.length > 0 && (
+                          <div className="space-y-2 pt-1">
+                            <p className="text-[11px] uppercase tracking-[0.2em] text-zinc-500">
+                              Resumo das mudanças
+                            </p>
+                            <ul className="space-y-1">
+                              {entry.change_summary.map((item, index) => (
+                                <li key={`${entry.id}-${index}`} className="text-xs text-zinc-300">
+                                  {item}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        <div className="pt-1">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={!entry.can_restore || restoringHistoryId === entry.id}
+                            onClick={() => void handleRestoreHistory(entry)}
+                            className="border-white/[0.1] bg-white/[0.02] hover:bg-white/[0.06] text-white text-xs"
+                          >
+                            <RotateCcw className="w-3 h-3 mr-2" />
+                            {restoringHistoryId === entry.id ? "Restaurando..." : "Restaurar esta versão"}
+                          </Button>
                         </div>
                       </div>
                     ))}

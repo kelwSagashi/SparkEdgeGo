@@ -166,6 +166,8 @@ type downloadedScriptHistoryModel struct {
 	RequirementsFile string          `gorm:"type:text"`
 	Tags             stringSliceJSON `gorm:"type:text"`
 	SchemaConfig     mapJSON         `gorm:"type:text"`
+	ChangeSummary    stringSliceJSON `gorm:"type:text"`
+	BundlePath       string          `gorm:"type:text"`
 	CreatedAt        time.Time
 }
 

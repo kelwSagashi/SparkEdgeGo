@@ -17,6 +17,8 @@ export const scriptsApi = {
   get: (id: string) => axios_api_instance.get(`/scripts/${id}`).then((res) => res.data),
   getById: (id: string) => axios_api_instance.get(`/scripts/${id}`).then((res) => res.data),
   getHistory: (id: string) => axios_api_instance.get(`/scripts/${id}/history`).then((res) => res.data),
+  restoreHistory: (id: string, historyId: string) =>
+    axios_api_instance.post(`/scripts/${id}/history/${historyId}/restore`).then((res) => res.data),
   getFileContent: (id: string, filename: string) => axios_api_instance.get(`/scripts/${id}/contents/${filename}`).then((res) => res.data),
 
   create: (data: Partial<DownloadedScriptUpsertValues>) => axios_api_instance.post('/scripts', data).then((res) => res.data),

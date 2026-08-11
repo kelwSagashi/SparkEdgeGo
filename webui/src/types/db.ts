@@ -176,7 +176,7 @@ export type DownloadedScriptReturningValues = {
 export type DownloadedScriptHistoryEntry = {
   id: string;
   script_id: string;
-  action: "installed" | "bundle_updated" | "metadata_updated" | string;
+  action: "installed" | "bundle_updated" | "metadata_updated" | "restored" | string;
   name: string;
   description?: string | null;
   author?: string | null;
@@ -185,6 +185,9 @@ export type DownloadedScriptHistoryEntry = {
   requirements_file?: string | null;
   tags?: string[];
   schema_config?: { inputs?: SchemaConfigIO[]; outputs?: SchemaConfigIO[] } | null;
+  change_summary?: string[];
+  bundle_path?: string | null;
+  can_restore?: boolean;
   created_at?: string;
 };
 

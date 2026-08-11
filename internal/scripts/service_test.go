@@ -308,6 +308,38 @@ func TestReplaceUploadPreservesScriptIDAndRefreshesBundle(t *testing.T) {
 	if history[1].Action != ScriptHistoryActionInstalled {
 		t.Fatalf("expected oldest history action %q, got %#v", ScriptHistoryActionInstalled, history[1])
 	}
+	if len(history[0].ChangeSummary) == 0 {
+		t.Fatalf("expected change summary for updated bundle, got %#v", history[0])
+	}
+	if history[1].BundlePath == "" {
+		t.Fatalf("expected initial bundle snapshot path, got %#v", history[1])
+	}
+
+	restored, err := service.RestoreHistory(ctx, script.ID, history[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored.Script.MainFile != "main.py" {
+		t.Fatalf("expected restored main file %q, got %q", "main.py", restored.Script.MainFile)
+	}
+	restoredContent, err := service.FileContent(ctx, script.ID, "main.py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredContent != "print('old')" {
+		t.Fatalf("expected restored code, got %q", restoredContent)
+	}
+
+	history, err = service.History(ctx, script.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("expected three history entries after restore, got %#v", history)
+	}
+	if history[0].Action != ScriptHistoryActionRestored {
+		t.Fatalf("expected latest history action %q, got %#v", ScriptHistoryActionRestored, history[0])
+	}
 }
 
 func TestListSamplesAndRunSamplePlayground(t *testing.T) {

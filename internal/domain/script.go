@@ -57,5 +57,7 @@ type ScriptHistoryEntry struct {
 	RequirementsFile string
 	Tags             []string
 	SchemaConfig     map[string]any
+	ChangeSummary    []string
+	BundlePath       string
 	CreatedAt        time.Time
 }
