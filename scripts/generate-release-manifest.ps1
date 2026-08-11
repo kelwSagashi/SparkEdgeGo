@@ -25,7 +25,7 @@ foreach ($file in $zipFiles) {
     $target = $Matches[2]
 
     if ($fileVersion -ne $Version) {
-        throw "Package $($file.Name) does not match version $Version"
+        continue
     }
 
     $hash = (Get-FileHash -Path $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -36,6 +36,10 @@ foreach ($file in $zipFiles) {
         size      = [int64]$file.Length
     }
     $checksums += "$hash  $($file.Name)"
+}
+
+if (-not $packages) {
+    throw "No release packages matching version $Version were found in $resolvedPackagesDir"
 }
 
 $manifest = [pscustomobject]@{

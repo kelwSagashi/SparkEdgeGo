@@ -2,6 +2,17 @@
 
 Use este checklist antes de publicar uma nova versao do SparkEdge Go.
 
+## Baseline validada
+
+Em 2026-08-11 foi validado o baseline automatizado com:
+
+- `go test ./...`
+- `npm run build` em `webui`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\validate-release.ps1 -Version v0.0.0 -IncludeArm32`
+- geracao de `manifest.json` e `checksums.txt`
+
+Este checklist continua valendo como smoke test por release. Os itens abaixo devem ser revisitados a cada nova versao publicada.
+
 ## 1. Validacao do backend
 
 - [ ] rodar `go test ./...`

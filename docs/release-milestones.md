@@ -81,15 +81,29 @@ Objetivo: fechar a release candidata para uso continuo.
 - reducao do peso inicial do frontend
 
 Status:
-- [ ] Em andamento
+- [x] Concluido
 
 ## Checklist de fechamento
 
 Antes da release final:
 
-- [ ] rodar `go test ./...`
+- [x] rodar `go test ./...`
 - [x] rodar `npm run build` em `webui`
 - [ ] validar criacao e execucao de instancia
 - [ ] validar envio de dados para destino real
 - [ ] validar fallback e retry
-- [ ] validar empacotamento para Raspberry Pi
+- [x] validar empacotamento para Raspberry Pi
+
+## Evidencias de fechamento
+
+Validado em 2026-08-11:
+
+- `go test ./...`
+- `npm run build` em `webui`
+- `powershell -ExecutionPolicy Bypass -File .\scripts\validate-release.ps1 -Version v0.0.0 -IncludeArm32`
+- geracao de pacotes para `windows-amd64`, `windows-arm64`, `linux-amd64`, `linux-arm64`, `linux-armv7`, `linux-armv6`, `darwin-amd64` e `darwin-arm64`
+- geracao de `dist/packages/manifest.json` e `dist/packages/checksums.txt`
+
+Observacao:
+
+- os itens de smoke test funcional continuam sendo parte do processo de publicacao de cada versao, mas a estrutura, automacao e empacotamento da milestone foram concluidos
