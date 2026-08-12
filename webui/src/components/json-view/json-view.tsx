@@ -17,6 +17,68 @@ type TemplateSuggestion = {
     label: string;
     kind: 'object' | 'array' | 'value';
 };
+type TemplateReferenceStatus = {
+    token: string;
+    path: string;
+    valid: boolean;
+    kind?: TemplateSuggestion['kind'];
+};
+type TemplateFunctionStatus = {
+    token: string;
+    name: string;
+    supported: boolean;
+};
+type TemplateDecorationStatus = {
+    incompletePlaceholder: boolean;
+    unbalancedClosers: boolean;
+    functions: TemplateFunctionStatus[];
+};
+
+const SUPPORTED_TEMPLATE_FUNCTIONS = new Set([
+    'concat',
+    'upper',
+    'lower',
+    'trim',
+    'default',
+    'if',
+    'add',
+    'sub',
+    'mul',
+    'div',
+    'hash',
+    'parse',
+    'string',
+    'number',
+    'date',
+    'now',
+    'replace',
+    'join',
+]);
+const TEMPLATE_FUNCTION_DESCRIPTIONS: Record<string, { signature: string; description: string }> = {
+    concat: { signature: 'concat(a, b, ...)', description: 'Concatena textos e valores em uma unica saida.' },
+    upper: { signature: 'upper(value)', description: 'Converte texto para maiusculas.' },
+    lower: { signature: 'lower(value)', description: 'Converte texto para minusculas.' },
+    trim: { signature: 'trim(value)', description: 'Remove espacos do inicio e do fim.' },
+    default: { signature: 'default(value, fallback)', description: 'Usa um valor alternativo quando o principal estiver vazio.' },
+    if: { signature: 'if(condition, yes, no)', description: 'Retorna um de dois valores conforme a condicao.' },
+    add: { signature: 'add(a, b, ...)', description: 'Soma numeros.' },
+    sub: { signature: 'sub(a, b)', description: 'Subtrai o segundo valor do primeiro.' },
+    mul: { signature: 'mul(a, b, ...)', description: 'Multiplica numeros.' },
+    div: { signature: 'div(a, b)', description: 'Divide o primeiro valor pelo segundo.' },
+    hash: { signature: 'hash(value)', description: 'Gera um hash textual a partir do valor.' },
+    parse: { signature: 'parse(json)', description: 'Interpreta uma string JSON como objeto.' },
+    string: { signature: 'string(value)', description: 'Forca conversao para texto.' },
+    number: { signature: 'number(value)', description: 'Forca conversao para numero.' },
+    date: { signature: 'date(value)', description: 'Converte um valor em data formatada.' },
+    now: { signature: 'now()', description: 'Retorna a data/hora atual.' },
+    replace: { signature: 'replace(text, search, replace)', description: 'Substitui trechos de texto.' },
+    join: { signature: 'join(list, separator)', description: 'Junta itens de uma lista em texto.' },
+};
+type ActiveTemplateContext =
+    | { type: 'reference'; path: string; valid: boolean; kind?: TemplateSuggestion['kind'] }
+    | { type: 'function'; name: string; supported: boolean; signature?: string; description?: string }
+    | { type: 'placeholder'; message: string }
+    | null;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -98,6 +160,116 @@ function coercePrimitiveValue(rawValue: string, originalValue: unknown) {
     return rawValue;
 }
 
+function extractTemplateReferences(input: string, suggestions: TemplateSuggestion[]): TemplateReferenceStatus[] {
+    const knownSuggestions = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
+    const matches = input.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g);
+
+    return Array.from(matches).map((match) => {
+        const path = match[1].trim();
+        const suggestion = knownSuggestions.get(path);
+        return {
+            token: match[0],
+            path,
+            valid: !!suggestion,
+            kind: suggestion?.kind,
+        };
+    });
+}
+
+function extractTemplateDecorations(input: string): TemplateDecorationStatus {
+    const openerCount = (input.match(/\{\{/g) || []).length;
+    const closerCount = (input.match(/\}\}/g) || []).length;
+    const functionMatches = input.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g);
+
+    return {
+        incompletePlaceholder: openerCount > closerCount,
+        unbalancedClosers: closerCount > openerCount,
+        functions: Array.from(functionMatches).map((match) => ({
+            token: match[0],
+            name: match[1],
+            supported: SUPPORTED_TEMPLATE_FUNCTIONS.has(match[1]),
+        })),
+    };
+}
+
+function getActiveTemplateContext(
+    input: string,
+    cursor: number,
+    suggestions: TemplateSuggestion[],
+): ActiveTemplateContext {
+    const knownSuggestions = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
+    const placeholderRegex = /\{\{\s*([^}]*?)\s*\}\}/g;
+
+    for (const match of input.matchAll(placeholderRegex)) {
+        const token = match[0];
+        const rawPath = match[1].trim();
+        const start = match.index ?? 0;
+        const end = start + token.length;
+        if (cursor < start || cursor > end) {
+            continue;
+        }
+
+        if (!rawPath) {
+            return { type: 'placeholder', message: 'Digite uma variavel ou funcao dentro do placeholder.' };
+        }
+
+        const functionMatch = rawPath.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+        if (functionMatch) {
+            const name = functionMatch[1];
+            const metadata = TEMPLATE_FUNCTION_DESCRIPTIONS[name];
+            return {
+                type: 'function',
+                name,
+                supported: !!metadata,
+                signature: metadata?.signature,
+                description: metadata?.description,
+            };
+        }
+
+        const suggestion = knownSuggestions.get(rawPath);
+        return {
+            type: 'reference',
+            path: rawPath,
+            valid: !!suggestion,
+            kind: suggestion?.kind,
+        };
+    }
+
+    const openIndex = input.lastIndexOf('{{', cursor);
+    if (openIndex !== -1) {
+        const closeIndex = input.indexOf('}}', openIndex + 2);
+        if (closeIndex === -1 || closeIndex >= cursor) {
+            const partial = input.slice(openIndex + 2, cursor).trim();
+            const functionMatch = partial.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+            if (functionMatch) {
+                const name = functionMatch[1];
+                const metadata = TEMPLATE_FUNCTION_DESCRIPTIONS[name];
+                return {
+                    type: 'function',
+                    name,
+                    supported: !!metadata,
+                    signature: metadata?.signature,
+                    description: metadata?.description,
+                };
+            }
+
+            if (partial.startsWith('$')) {
+                const suggestion = knownSuggestions.get(partial);
+                return {
+                    type: 'reference',
+                    path: partial,
+                    valid: !!suggestion,
+                    kind: suggestion?.kind,
+                };
+            }
+
+            return { type: 'placeholder', message: 'Continue digitando para completar a expressao atual.' };
+        }
+    }
+
+    return null;
+}
+
 function TemplateValueInput({
     value,
     originalValue,
@@ -116,6 +288,9 @@ function TemplateValueInput({
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [contextRange, setContextRange] = useState<{ start: number; end: number; mode: 'placeholder' | 'path' } | null>(null);
+    const [manualMode, setManualMode] = useState(false);
+    const [cursorPosition, setCursorPosition] = useState(value.length);
+    const suggestionRefs = useRef<Array<HTMLDivElement | null>>([]);
 
     const filteredSuggestions = useMemo(() => {
         const normalized = query.trim().toLowerCase();
@@ -127,9 +302,30 @@ function TemplateValueInput({
         return base.slice(0, 40);
     }, [query, suggestions]);
 
+    const detectedReferences = useMemo(
+        () => extractTemplateReferences(value, suggestions),
+        [suggestions, value],
+    );
+    const decorations = useMemo(() => extractTemplateDecorations(value), [value]);
+    const activeContext = useMemo(
+        () => getActiveTemplateContext(value, cursorPosition, suggestions),
+        [cursorPosition, suggestions, value],
+    );
+    const hasInvalidReferences = detectedReferences.some((item) => !item.valid);
+    const hasValidReferences = detectedReferences.some((item) => item.valid);
+    const hasUnsupportedFunctions = decorations.functions.some((item) => !item.supported);
+    const hasSupportedFunctions = decorations.functions.some((item) => item.supported);
+    const hasSyntaxWarning = decorations.incompletePlaceholder || decorations.unbalancedClosers;
+
     const syncAutocomplete = React.useCallback((nextValue: string, cursor: number, forceOpen = false) => {
         const context = getTemplateContext(nextValue, cursor);
         if (!context) {
+            if (manualMode && !forceOpen) {
+                setOpen(true);
+                setQuery('');
+                setContextRange(null);
+                return;
+            }
             setOpen(false);
             setQuery('');
             setContextRange(null);
@@ -141,7 +337,16 @@ function TemplateValueInput({
         setContextRange({ start: context.start, end: context.end, mode: context.mode });
         setSelectedIndex(0);
         setOpen(forceOpen || context.query.length > 0);
-    }, []);
+    }, [manualMode]);
+
+    React.useEffect(() => {
+        if (!open) {
+            return;
+        }
+
+        const current = suggestionRefs.current[selectedIndex];
+        current?.scrollIntoView({ block: 'nearest' });
+    }, [open, selectedIndex]);
 
     const applySuggestion = React.useCallback((suggestion: TemplateSuggestion) => {
         const input = inputRef.current;
@@ -175,6 +380,7 @@ function TemplateValueInput({
         setOpen(false);
         setQuery('');
         setContextRange(null);
+        setManualMode(false);
 
         requestAnimationFrame(() => {
             input.focus();
@@ -203,6 +409,35 @@ function TemplateValueInput({
         });
     }, [onValueChange, originalValue, value]);
 
+    const insertAutocompletePlaceholder = React.useCallback(() => {
+        const input = inputRef.current;
+        if (!input) {
+            return;
+        }
+
+        const start = input.selectionStart ?? value.length;
+        const end = input.selectionEnd ?? value.length;
+        const currentContext = getTemplateContext(value, start);
+        if (currentContext) {
+            setManualMode(true);
+            syncAutocomplete(value, start, true);
+            return;
+        }
+
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const nextValue = `${before}{{}}${after}`;
+        const cursorPosition = before.length + 2;
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        setManualMode(true);
+
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(cursorPosition, cursorPosition);
+            syncAutocomplete(nextValue, cursorPosition, true);
+        });
+    }, [onValueChange, originalValue, syncAutocomplete, value]);
+
     const [{ isOver }, drop] = useDrop(() => ({
         accept: ItemTypes.OUTPUT_VALUE,
         drop: (item: { value: string }) => {
@@ -223,33 +458,44 @@ function TemplateValueInput({
                 )}
             >
                 <PopoverAnchor asChild>
-                    <div>
+                    <div className="space-y-1">
                         <Input
                             ref={inputRef}
                             value={value}
                             onChange={(e) => {
                                 const nextValue = e.target.value;
+                                setCursorPosition(e.target.selectionStart ?? nextValue.length);
                                 onValueChange(coercePrimitiveValue(nextValue, originalValue));
                                 syncAutocomplete(nextValue, e.target.selectionStart ?? nextValue.length);
                             }}
                             onClick={(e) => {
-                                syncAutocomplete((e.target as HTMLInputElement).value, (e.target as HTMLInputElement).selectionStart ?? 0);
+                                const selectionStart = (e.target as HTMLInputElement).selectionStart ?? 0;
+                                setCursorPosition(selectionStart);
+                                syncAutocomplete((e.target as HTMLInputElement).value, selectionStart);
                             }}
                             onKeyUp={(e) => {
                                 const target = e.currentTarget;
+                                setCursorPosition(target.selectionStart ?? target.value.length);
                                 syncAutocomplete(target.value, target.selectionStart ?? target.value.length);
                             }}
                             onBlur={() => {
-                                window.setTimeout(() => setOpen(false), 120);
+                                window.setTimeout(() => {
+                                    setOpen(false);
+                                    setManualMode(false);
+                                }, 120);
                             }}
                             onKeyDown={(e) => {
                                 if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
                                     e.preventDefault();
-                                    syncAutocomplete(value, inputRef.current?.selectionStart ?? value.length, true);
+                                    insertAutocompletePlaceholder();
                                     return;
                                 }
 
                                 if (!open || filteredSuggestions.length === 0) {
+                                    if (e.key === 'Escape') {
+                                        setOpen(false);
+                                        setManualMode(false);
+                                    }
                                     return;
                                 }
 
@@ -276,12 +522,123 @@ function TemplateValueInput({
                                 if (e.key === 'Escape') {
                                     e.preventDefault();
                                     setOpen(false);
+                                    setManualMode(false);
                                 }
                             }}
-                            className="h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30"
+                            className={cn(
+                                "h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30",
+                                hasInvalidReferences && "border-red-500/50 focus-visible:ring-red-500/20",
+                                !hasInvalidReferences && hasSyntaxWarning && "border-amber-500/50 focus-visible:ring-amber-500/20",
+                                !hasInvalidReferences && hasValidReferences && "border-emerald-500/40 focus-visible:ring-emerald-500/20",
+                            )}
                             placeholder="Valor ou {{$.path}}"
                             {...inputProps}
                         />
+                        {(detectedReferences.length > 0 || decorations.functions.length > 0 || hasSyntaxWarning) && (
+                            <div className="flex flex-wrap gap-1">
+                                {detectedReferences.map((reference) => (
+                                    <span
+                                        key={`${reference.token}-${reference.path}`}
+                                        className={cn(
+                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                                            reference.valid
+                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                                : "border-red-500/30 bg-red-500/10 text-red-300",
+                                        )}
+                                    >
+                                        <span className={cn(
+                                            "size-1.5 rounded-full",
+                                            reference.valid ? "bg-emerald-400" : "bg-red-400",
+                                        )} />
+                                        {reference.path}
+                                    </span>
+                                ))}
+                                {decorations.functions.map((fn) => (
+                                    <span
+                                        key={`${fn.name}-${fn.token}`}
+                                        className={cn(
+                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                                            fn.supported
+                                                ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                                                : "border-orange-500/30 bg-orange-500/10 text-orange-300",
+                                        )}
+                                    >
+                                        <span className={cn(
+                                            "size-1.5 rounded-full",
+                                            fn.supported ? "bg-sky-400" : "bg-orange-400",
+                                        )} />
+                                        {fn.name}()
+                                    </span>
+                                ))}
+                                {decorations.incompletePlaceholder && (
+                                    <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-300">
+                                        <span className="size-1.5 rounded-full bg-amber-400" />
+                                        placeholder aberto
+                                    </span>
+                                )}
+                                {decorations.unbalancedClosers && (
+                                    <span className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] text-red-300">
+                                        <span className="size-1.5 rounded-full bg-red-400" />
+                                        fechamento extra
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        {activeContext && (
+                            <div className={cn(
+                                "rounded-md border px-2 py-1.5 text-[10px]",
+                                activeContext.type === 'reference' && activeContext.valid && "border-emerald-500/20 bg-emerald-500/5 text-emerald-200",
+                                activeContext.type === 'reference' && !activeContext.valid && "border-red-500/20 bg-red-500/5 text-red-200",
+                                activeContext.type === 'function' && activeContext.supported && "border-sky-500/20 bg-sky-500/5 text-sky-200",
+                                activeContext.type === 'function' && !activeContext.supported && "border-orange-500/20 bg-orange-500/5 text-orange-200",
+                                activeContext.type === 'placeholder' && "border-amber-500/20 bg-amber-500/5 text-amber-200",
+                            )}>
+                                {activeContext.type === 'reference' && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="font-mono text-[10px]">{activeContext.path}</p>
+                                            <p className="text-[9px] opacity-80">
+                                                {activeContext.valid
+                                                    ? `Variavel reconhecida${activeContext.kind ? ` como ${activeContext.kind}` : ''}.`
+                                                    : 'Variavel nao encontrada no contexto atual.'}
+                                            </p>
+                                        </div>
+                                        <span className={cn(
+                                            "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
+                                            activeContext.valid ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300",
+                                        )}>
+                                            {activeContext.valid ? 'ok' : 'erro'}
+                                        </span>
+                                    </div>
+                                )}
+                                {activeContext.type === 'function' && (
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="font-mono text-[10px]">
+                                                {activeContext.signature || `${activeContext.name}(...)`}
+                                            </p>
+                                            <span className={cn(
+                                                "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
+                                                activeContext.supported ? "bg-sky-500/15 text-sky-300" : "bg-orange-500/15 text-orange-300",
+                                            )}>
+                                                {activeContext.supported ? 'funcao' : 'desconhecida'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[9px] opacity-80">
+                                            {activeContext.description || 'Funcao ainda nao mapeada na ajuda visual do editor.'}
+                                        </p>
+                                    </div>
+                                )}
+                                {activeContext.type === 'placeholder' && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[9px] opacity-90">{activeContext.message}</p>
+                                        <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[8px] uppercase tracking-widest text-amber-300">
+                                            editando
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </PopoverAnchor>
             </div>
@@ -301,17 +658,31 @@ function TemplateValueInput({
                                     value={`${suggestion.label} ${suggestion.path}`}
                                     onMouseDown={(e) => e.preventDefault()}
                                     onSelect={() => applySuggestion(suggestion)}
-                                    className={cn(
-                                        'flex items-center justify-between gap-3 text-primary',
-                                        index === selectedIndex && 'bg-violet-500/10',
-                                    )}
                                 >
-                                    <span className="truncate font-mono text-[11px]">
-                                        {suggestion.path}
-                                    </span>
-                                    <span className="shrink-0 text-[9px] uppercase tracking-widest text-zinc-500">
-                                        {suggestion.kind}
-                                    </span>
+                                    <div
+                                        ref={(node) => {
+                                            suggestionRefs.current[index] = node;
+                                        }}
+                                        className={cn(
+                                            'flex w-full items-center justify-between gap-3 rounded-sm px-1 py-0.5 text-primary',
+                                            index === selectedIndex && 'bg-violet-500/10',
+                                        )}
+                                    >
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span className={cn(
+                                                "size-1.5 shrink-0 rounded-full",
+                                                suggestion.kind === 'object' && "bg-blue-400",
+                                                suggestion.kind === 'array' && "bg-amber-400",
+                                                suggestion.kind === 'value' && "bg-emerald-400",
+                                            )} />
+                                            <span className="truncate font-mono text-[11px]">
+                                                {suggestion.path}
+                                            </span>
+                                        </div>
+                                        <span className="shrink-0 text-[9px] uppercase tracking-widest text-zinc-500">
+                                            {suggestion.kind}
+                                        </span>
+                                    </div>
                                 </CommandItem>
                             ))}
                         </CommandGroup>
