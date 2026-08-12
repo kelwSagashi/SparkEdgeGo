@@ -19,7 +19,9 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/firebaseprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/googleprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/httpprovider"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/jsonfileprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/mongoprovider"
+	"github.com/kelwSagashi/sparkedge-go/internal/providers/mqttprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers/supabaseprovider"
 	"github.com/kelwSagashi/sparkedge-go/internal/python/sparkit"
 	"github.com/kelwSagashi/sparkedge-go/internal/runtime"
@@ -61,7 +63,9 @@ func New(cfg *config.Manager) *App {
 	firebaseprovider.Register(providerRegistry)
 	googleprovider.Register(providerRegistry)
 	httpprovider.Register(providerRegistry)
+	jsonfileprovider.Register(providerRegistry)
 	mongoprovider.Register(providerRegistry)
+	mqttprovider.Register(providerRegistry)
 	supabaseprovider.Register(providerRegistry)
 	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
@@ -70,11 +74,20 @@ func New(cfg *config.Manager) *App {
 		panic(err)
 	}
 	serverInfraService := serverinfra.NewService(store)
-	serverTypes := []domain.ServerType{firebaseprovider.ServerType(), httpprovider.ServerType(), mongoprovider.ServerType(), supabaseprovider.ServerType()}
+	serverTypes := []domain.ServerType{
+		firebaseprovider.ServerType(),
+		httpprovider.ServerType(),
+		jsonfileprovider.ServerType(),
+		mongoprovider.ServerType(),
+		mqttprovider.ServerType(),
+		supabaseprovider.ServerType(),
+	}
 	serverTypes = append(serverTypes, googleprovider.ServerTypes()...)
 	authTypes := append(firebaseprovider.AuthTypes(), googleprovider.AuthTypes()...)
 	authTypes = append(authTypes, httpprovider.AuthTypes()...)
+	authTypes = append(authTypes, jsonfileprovider.AuthTypes()...)
 	authTypes = append(authTypes, mongoprovider.AuthTypes()...)
+	authTypes = append(authTypes, mqttprovider.AuthTypes()...)
 	authTypes = append(authTypes, supabaseprovider.AuthTypes()...)
 	if err := serverInfraService.SeedCatalog(context.Background(), serverTypes, authTypes); err != nil {
 		panic(err)
