@@ -242,6 +242,7 @@ export function InstanceScriptForm({
                       render={({ field }) => (
                         <JsonViewMain
                           data={field.value || {}}
+                          templateContext={sourceData as Record<string, unknown>}
                           onParamChange={(path, key, value) => {
                             const fullPath = path ? `${path}.${key}` : key;
                             setValue(

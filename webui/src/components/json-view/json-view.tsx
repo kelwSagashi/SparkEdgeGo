@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Input } from '../ui/input';
 import { Box, ChevronRight, Quote, Plus, Trash2, List, MoveDown, HelpCircle, GripVertical, Check } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
@@ -8,8 +8,319 @@ import { ItemTypes } from '@/lib/constants';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useDrop } from 'react-dnd';
+import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '../ui/command';
 
 export type JsonFieldType = 'string' | 'number' | 'boolean' | 'object' | 'array';
+type TemplateSuggestion = {
+    path: string;
+    label: string;
+    kind: 'object' | 'array' | 'value';
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildTemplateSuggestions(
+    value: unknown,
+    prefix = '$',
+    label = '$',
+): TemplateSuggestion[] {
+    if (Array.isArray(value)) {
+        const current: TemplateSuggestion[] = [{ path: prefix, label, kind: 'array' }];
+        value.forEach((item, index) => {
+            current.push(...buildTemplateSuggestions(item, `${prefix}.${index}`, `${label}.${index}`));
+        });
+        return current;
+    }
+
+    if (isPlainObject(value)) {
+        const current: TemplateSuggestion[] = [{ path: prefix, label, kind: 'object' }];
+        Object.entries(value).forEach(([key, nested]) => {
+            current.push(...buildTemplateSuggestions(nested, `${prefix}.${key}`, `${label}.${key}`));
+        });
+        return current;
+    }
+
+    return [{ path: prefix, label, kind: 'value' }];
+}
+
+function getTemplateContext(value: string, cursor: number) {
+    const beforeCursor = value.slice(0, cursor);
+    const lastOpen = beforeCursor.lastIndexOf('{{');
+    if (lastOpen !== -1) {
+        const closeAfterOpen = value.indexOf('}}', lastOpen + 2);
+        if (closeAfterOpen === -1 || closeAfterOpen >= cursor) {
+            const rawQuery = value.slice(lastOpen + 2, cursor);
+            return {
+                mode: 'placeholder' as const,
+                start: lastOpen,
+                end: closeAfterOpen === -1 ? cursor : closeAfterOpen + 2,
+                query: rawQuery.trim(),
+            };
+        }
+    }
+
+    let tokenStart = cursor;
+    while (tokenStart > 0) {
+        const previous = value[tokenStart - 1];
+        if (/\s|["',:[\]{}()]/.test(previous)) {
+            break;
+        }
+        tokenStart -= 1;
+    }
+
+    const token = value.slice(tokenStart, cursor);
+    if (token.startsWith('$')) {
+        return {
+            mode: 'path' as const,
+            start: tokenStart,
+            end: cursor,
+            query: token,
+        };
+    }
+
+    return null;
+}
+
+function coercePrimitiveValue(rawValue: string, originalValue: unknown) {
+    if (typeof originalValue === 'number') {
+        const parsed = Number(rawValue);
+        return Number.isNaN(parsed) ? rawValue : parsed;
+    }
+
+    if (typeof originalValue === 'boolean') {
+        if (rawValue === 'true') return true;
+        if (rawValue === 'false') return false;
+    }
+
+    return rawValue;
+}
+
+function TemplateValueInput({
+    value,
+    originalValue,
+    onValueChange,
+    suggestions,
+    inputProps,
+}: {
+    value: string;
+    originalValue: unknown;
+    onValueChange: (value: any) => void;
+    suggestions: TemplateSuggestion[];
+    inputProps?: React.ComponentProps<'input'>;
+}) {
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [selectedIndex, setSelectedIndex] = useState(0);
+    const [contextRange, setContextRange] = useState<{ start: number; end: number; mode: 'placeholder' | 'path' } | null>(null);
+
+    const filteredSuggestions = useMemo(() => {
+        const normalized = query.trim().toLowerCase();
+        const base = !normalized
+            ? suggestions
+            : suggestions.filter((item) =>
+                item.path.toLowerCase().includes(normalized) || item.label.toLowerCase().includes(normalized),
+            );
+        return base.slice(0, 40);
+    }, [query, suggestions]);
+
+    const syncAutocomplete = React.useCallback((nextValue: string, cursor: number, forceOpen = false) => {
+        const context = getTemplateContext(nextValue, cursor);
+        if (!context) {
+            setOpen(false);
+            setQuery('');
+            setContextRange(null);
+            setSelectedIndex(0);
+            return;
+        }
+
+        setQuery(context.query);
+        setContextRange({ start: context.start, end: context.end, mode: context.mode });
+        setSelectedIndex(0);
+        setOpen(forceOpen || context.query.length > 0);
+    }, []);
+
+    const applySuggestion = React.useCallback((suggestion: TemplateSuggestion) => {
+        const input = inputRef.current;
+        if (!input) {
+            return;
+        }
+
+        const selectionStart = input.selectionStart ?? value.length;
+        const currentContext = contextRange ?? getTemplateContext(value, selectionStart);
+        let nextValue = value;
+        let cursorPosition = selectionStart;
+
+        if (currentContext?.mode === 'placeholder') {
+            const before = value.slice(0, currentContext.start);
+            const after = value.slice(currentContext.end);
+            nextValue = `${before}{{${suggestion.path}}}${after}`;
+            cursorPosition = before.length + suggestion.path.length + 4;
+        } else if (currentContext?.mode === 'path') {
+            const before = value.slice(0, currentContext.start);
+            const after = value.slice(currentContext.end);
+            nextValue = `${before}${suggestion.path}${after}`;
+            cursorPosition = before.length + suggestion.path.length;
+        } else {
+            const before = value.slice(0, selectionStart);
+            const after = value.slice(input.selectionEnd ?? selectionStart);
+            nextValue = `${before}{{${suggestion.path}}}${after}`;
+            cursorPosition = before.length + suggestion.path.length + 4;
+        }
+
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        setOpen(false);
+        setQuery('');
+        setContextRange(null);
+
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(cursorPosition, cursorPosition);
+        });
+    }, [contextRange, onValueChange, originalValue, value]);
+
+    const insertTemplateAtCursor = React.useCallback((templatePath: string) => {
+        const input = inputRef.current;
+        if (!input) {
+            onValueChange(coercePrimitiveValue(`{{${templatePath}}}`, originalValue));
+            return;
+        }
+
+        const start = input.selectionStart ?? value.length;
+        const end = input.selectionEnd ?? value.length;
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const nextValue = `${before}{{${templatePath}}}${after}`;
+        const cursorPosition = before.length + templatePath.length + 4;
+
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(cursorPosition, cursorPosition);
+        });
+    }, [onValueChange, originalValue, value]);
+
+    const [{ isOver }, drop] = useDrop(() => ({
+        accept: ItemTypes.OUTPUT_VALUE,
+        drop: (item: { value: string }) => {
+            insertTemplateAtCursor(item.value);
+        },
+        collect: (monitor) => ({
+            isOver: !!monitor.isOver(),
+        }),
+    }), [insertTemplateAtCursor]);
+
+    return (
+        <Popover open={open && filteredSuggestions.length > 0} onOpenChange={setOpen}>
+            <div
+                ref={drop as any}
+                className={cn(
+                    'flex-1 min-w-0 rounded-md transition-colors',
+                    isOver && 'ring-1 ring-violet-500/50 bg-violet-500/10',
+                )}
+            >
+                <PopoverAnchor asChild>
+                    <div>
+                        <Input
+                            ref={inputRef}
+                            value={value}
+                            onChange={(e) => {
+                                const nextValue = e.target.value;
+                                onValueChange(coercePrimitiveValue(nextValue, originalValue));
+                                syncAutocomplete(nextValue, e.target.selectionStart ?? nextValue.length);
+                            }}
+                            onClick={(e) => {
+                                syncAutocomplete((e.target as HTMLInputElement).value, (e.target as HTMLInputElement).selectionStart ?? 0);
+                            }}
+                            onKeyUp={(e) => {
+                                const target = e.currentTarget;
+                                syncAutocomplete(target.value, target.selectionStart ?? target.value.length);
+                            }}
+                            onBlur={() => {
+                                window.setTimeout(() => setOpen(false), 120);
+                            }}
+                            onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
+                                    e.preventDefault();
+                                    syncAutocomplete(value, inputRef.current?.selectionStart ?? value.length, true);
+                                    return;
+                                }
+
+                                if (!open || filteredSuggestions.length === 0) {
+                                    return;
+                                }
+
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    setSelectedIndex((current) => (current + 1) % filteredSuggestions.length);
+                                    return;
+                                }
+
+                                if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    setSelectedIndex((current) =>
+                                        current === 0 ? filteredSuggestions.length - 1 : current - 1,
+                                    );
+                                    return;
+                                }
+
+                                if (e.key === 'Enter' || e.key === 'Tab') {
+                                    e.preventDefault();
+                                    applySuggestion(filteredSuggestions[selectedIndex]);
+                                    return;
+                                }
+
+                                if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setOpen(false);
+                                }
+                            }}
+                            className="h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30"
+                            placeholder="Valor ou {{$.path}}"
+                            {...inputProps}
+                        />
+                    </div>
+                </PopoverAnchor>
+            </div>
+            <PopoverContent
+                align="start"
+                side="bottom"
+                className="w-[360px] p-0 border-border bg-zinc-950"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+                <Command className="bg-transparent">
+                    <CommandList>
+                        <CommandEmpty>Nenhuma variavel encontrada.</CommandEmpty>
+                        <CommandGroup heading="Variaveis disponiveis">
+                            {filteredSuggestions.map((suggestion, index) => (
+                                <CommandItem
+                                    key={suggestion.path}
+                                    value={`${suggestion.label} ${suggestion.path}`}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onSelect={() => applySuggestion(suggestion)}
+                                    className={cn(
+                                        'flex items-center justify-between gap-3 text-primary',
+                                        index === selectedIndex && 'bg-violet-500/10',
+                                    )}
+                                >
+                                    <span className="truncate font-mono text-[11px]">
+                                        {suggestion.path}
+                                    </span>
+                                    <span className="shrink-0 text-[9px] uppercase tracking-widest text-zinc-500">
+                                        {suggestion.kind}
+                                    </span>
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 export function JsonViewMain({
     className,
@@ -28,6 +339,7 @@ export function JsonViewMain({
     filter,
     draggableValue = true,
     rootPath = '',
+    templateContext,
     ...props
 }: React.ComponentProps<"div"> & {
     mainClassName?: string,
@@ -50,9 +362,14 @@ export function JsonViewMain({
     };
     draggableValue?: boolean;
     rootPath?: string;
+    templateContext?: Record<string, unknown>;
 }) {
     const [_expandOnce, setExpandOnce] = React.useState(expandOnce)
     const isArray = Array.isArray(data);
+    const templateSuggestions = useMemo(
+        () => (templateContext ? buildTemplateSuggestions(templateContext) : []),
+        [templateContext],
+    );
 
     return (
         <div className={cn('flex flex-col')}>
@@ -79,6 +396,7 @@ export function JsonViewMain({
                                     inputProps={inputProps}
                                     pProps={pProps}
                                     draggableValue={draggableValue}
+                                    templateSuggestions={templateSuggestions}
                                 />
                             ))}
                             {onAddField && (
@@ -174,7 +492,8 @@ export function JsonView({
     onAddField,
     onDeleteField,
     onDestructure,
-    draggableValue = true
+    draggableValue = true,
+    templateSuggestions = [],
 }: {
     name: string;
     value: any;
@@ -191,7 +510,8 @@ export function JsonView({
     onDestructure?: (path: string, key: string, value: any) => void;
     inputProps?: React.ComponentProps<"input">;
     pProps?: React.ComponentProps<"p">;
-    draggableValue?: boolean
+    draggableValue?: boolean;
+    templateSuggestions?: TemplateSuggestion[];
 }) {
     const isObject = typeof value === "object" && value !== null;
     const [open, setOpen] = React.useState(forceExpand ? forceExpand : level < defaultExpandLevel);
@@ -208,8 +528,8 @@ export function JsonView({
                         onParamChange(parentPath, name, `{{${item.value}}}`);
                     }
                 } else {
-                    if (item.data && typeof item.data === 'object' && typeof value === 'string') {
-                        onParamChange(parentPath, name, JSON.stringify(item.data, null, 2));
+                    if (item.data && typeof item.data === 'object' && value !== null && value !== undefined && typeof value !== 'string') {
+                        onParamChange(parentPath, name, item.data);
                     } else {
                         onParamChange(parentPath, name, `{{${item.value}}}`);
                     }
@@ -242,7 +562,7 @@ export function JsonView({
     if (!isObject) {
         return (
             <div 
-                ref={onParamChange ? drop as any : undefined}
+                ref={onParamChange ? undefined : drop as any}
                 className={cn(
                     "flex items-center group/item rounded transition-colors",
                     isOver && "bg-violet-500/20 ring-1 ring-violet-500/50"
@@ -259,12 +579,14 @@ export function JsonView({
                             {onParamChange ? (
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                      <GripVertical className="w-3 h-3 text-zinc-600 shrink-0 opacity-0 group-hover/item:opacity-100" />
-                                     <Input
-                                        value={value === null || value === undefined ? "" : value}
-                                        onChange={(e) => onParamChange(path.split('.').slice(0, -1).join('.'), name, e.target.value)}
-                                        className="h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30"
-                                        placeholder="Valor ou {{path}}"
-                                        {...inputProps}
+                                     <TemplateValueInput
+                                        value={value === null || value === undefined ? "" : String(value)}
+                                        originalValue={value}
+                                        onValueChange={(nextValue) =>
+                                            onParamChange(path.split('.').slice(0, -1).join('.'), name, nextValue)
+                                        }
+                                        suggestions={templateSuggestions}
+                                        inputProps={inputProps}
                                     />
                                 </div>
                             ) : (
@@ -393,6 +715,7 @@ export function JsonView({
                                     setExpandOnce={setExpandOnce}
                                     inputProps={inputProps}
                                     pProps={pProps}
+                                    templateSuggestions={templateSuggestions}
                                 />
                             );
                         })}

@@ -99,6 +99,25 @@ export default function DeviceForm({
         setExecutionResult(null);
     }, [selectedOperation]);
 
+    const updateNestedValue = useCallback((obj: any, path: string, key: string, value: any) => {
+        const current = JSON.parse(JSON.stringify(obj || {}));
+        if (!path) {
+            current[key] = value;
+            return current;
+        }
+
+        const parts = path.split(".");
+        let ref = current;
+        for (const part of parts) {
+            if (!ref[part] || typeof ref[part] !== "object") {
+                ref[part] = {};
+            }
+            ref = ref[part];
+        }
+        ref[key] = value;
+        return current;
+    }, []);
+
     const handleExecute = useCallback(async () => {
         if (!selectedOperationId) return;
         setExecuting(true);
@@ -278,8 +297,9 @@ export default function DeviceForm({
                                             <span className="text-[10px] text-secondary font-mono mb-1 block">PARÂMETROS DE ENTRADA</span>
                                             <JsonViewMain 
                                                 data={executionInput}
-                                                onParamChange={(name, param, val) => {
-                                                    setExecutionInput((prev: any) => ({ ...prev, [param]: val }));
+                                                templateContext={executionResult && typeof executionResult === "object" ? executionResult : undefined}
+                                                onParamChange={(path, param, val) => {
+                                                    setExecutionInput((prev: any) => updateNestedValue(prev, path, param, val));
                                                 }}
                                                 inputProps={{ className: "h-7 text-xs" }}
                                             />
