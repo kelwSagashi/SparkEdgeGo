@@ -2,16 +2,21 @@ package mqtt
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
 
 	paho "github.com/eclipse/paho.mqtt.golang"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
+	"github.com/kelwSagashi/sparkedge-go/internal/system"
 )
+
+const edgeCloudSchemaVersion = "edge-cloud.v1"
 
 type Config struct {
 	EdgeID    string
@@ -43,6 +48,7 @@ type Command struct {
 
 type CommandHandler func(context.Context, map[string]any) (map[string]any, error)
 type TopicHandler func(context.Context, string, []byte)
+type StatsProvider func(context.Context) map[string]any
 
 type CommandStore interface {
 	FindByCommandID(context.Context, string) (domain.MqttCommand, error)
@@ -68,6 +74,8 @@ type Client struct {
 	subscribed    map[string]struct{}
 	processed     map[string]struct{}
 	heartbeatStop chan struct{}
+	statsStop     chan struct{}
+	statsProvider StatsProvider
 }
 
 func NewClient() *Client {
@@ -133,6 +141,12 @@ func (c *Client) RegisterHandler(commandType string, handler CommandHandler) {
 	c.handlers[commandType] = handler
 }
 
+func (c *Client) SetStatsProvider(provider StatsProvider) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.statsProvider = provider
+}
+
 func (c *Client) SubscribeCommands(ctx context.Context) error {
 	return c.broker.Subscribe(ctx, CommandTopic(c.config.EdgeID), 1)
 }
@@ -166,28 +180,67 @@ func (c *Client) PublishStatus(ctx context.Context, status string) error {
 }
 
 func (c *Client) PublishHeartbeat(ctx context.Context) error {
-	return c.PublishJSON(ctx, HeartbeatTopic(c.config.EdgeID), map[string]any{"edge_id": c.config.EdgeID, "ts": time.Now().Unix()}, false)
+	now := time.Now().UTC()
+	stats := c.collectStats(ctx)
+	status := "online"
+	if value, ok := stats["status"].(string); ok && strings.TrimSpace(value) != "" {
+		status = strings.TrimSpace(value)
+	}
+	return c.PublishJSON(ctx, HeartbeatTopic(c.config.EdgeID), c.envelope("heartbeat", map[string]any{
+		"status":       status,
+		"ts":           now.Unix(),
+		"connectivity": stats["connectivity"],
+		"runtime": map[string]any{
+			"uptime_seconds":   stats["uptime_seconds"],
+			"goroutines":       stats["goroutines"],
+			"active_instances": stats["active_instances"],
+		},
+		"queue_sizes":                stats["queue_sizes"],
+		"oldest_pending_age_seconds": stats["oldest_pending_age_seconds"],
+	}, now), false)
+}
+
+func (c *Client) PublishStats(ctx context.Context) error {
+	now := time.Now().UTC()
+	return c.PublishJSON(ctx, StatsTopic(c.config.EdgeID), c.envelope("stats", map[string]any{
+		"status": statsStatus(c.collectStats(ctx)),
+		"data":   c.collectStats(ctx),
+	}, now), false)
+}
+
+func (c *Client) PublishMeta(ctx context.Context, metadata map[string]any) error {
+	now := time.Now().UTC()
+	payload := map[string]any{}
+	for key, value := range metadata {
+		payload[key] = value
+	}
+	delete(payload, "message_id")
+	delete(payload, "schema_version")
+	delete(payload, "type")
+	delete(payload, "occurred_at")
+	delete(payload, "timestamp")
+	delete(payload, "ts")
+	return c.PublishJSON(ctx, MetaTopic(c.config.EdgeID), c.envelope("meta", payload, now), false)
 }
 
 func (c *Client) PublishResponse(ctx context.Context, commandID string, status string, result map[string]any, errText string) error {
-	return c.PublishJSON(ctx, ResponseTopic(c.config.EdgeID), map[string]any{
+	return c.PublishJSON(ctx, ResponseTopic(c.config.EdgeID), c.envelope("command_response", map[string]any{
 		"command_id": commandID,
 		"status":     status,
 		"result":     result,
 		"error":      nullableString(errText),
-		"timestamp":  time.Now().UTC().Format(time.RFC3339),
-	}, false)
+	}, time.Now().UTC()), false)
 }
 
 func (c *Client) PublishLog(ctx context.Context, level string, message string) error {
 	if level == "" {
 		level = "info"
 	}
-	return c.PublishJSON(ctx, LogTopic(c.config.EdgeID), map[string]any{"level": level, "message": message, "timestamp": time.Now().UTC().Format(time.RFC3339)}, false)
+	return c.PublishJSON(ctx, LogTopic(c.config.EdgeID), c.envelope("log", map[string]any{"level": level, "message": message}, time.Now().UTC()), false)
 }
 
 func (c *Client) PublishContext(ctx context.Context, user map[string]any) error {
-	return c.PublishJSON(ctx, ContextTopic(c.config.EdgeID), map[string]any{"edge_id": c.config.EdgeID, "local_user": user, "timestamp": time.Now().UTC().Format(time.RFC3339)}, false)
+	return c.PublishJSON(ctx, ContextTopic(c.config.EdgeID), c.envelope("context", map[string]any{"local_user": user}, time.Now().UTC()), false)
 }
 
 func (c *Client) PublishJSON(ctx context.Context, topic string, payload map[string]any, retain bool) error {
@@ -241,12 +294,42 @@ func (c *Client) StartHeartbeat(interval time.Duration) {
 	}()
 }
 
+func (c *Client) StartStats(interval time.Duration) {
+	if interval <= 0 {
+		interval = 2 * time.Minute
+	}
+	c.mu.Lock()
+	if c.statsStop != nil {
+		c.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	c.statsStop = stop
+	c.mu.Unlock()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				_ = c.PublishStats(context.Background())
+			case <-stop:
+				return
+			}
+		}
+	}()
+}
+
 func (c *Client) StopHeartbeat() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.heartbeatStop != nil {
 		close(c.heartbeatStop)
 		c.heartbeatStop = nil
+	}
+	if c.statsStop != nil {
+		close(c.statsStop)
+		c.statsStop = nil
 	}
 }
 
@@ -294,6 +377,10 @@ func (c *Client) HandleCommand(ctx context.Context, raw []byte) error {
 	c.processed[command.CommandID] = struct{}{}
 	handler := c.handlers[command.Type]
 	c.mu.Unlock()
+	if c.commands != nil {
+		_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandReceived, nil, "")
+	}
+	_ = c.PublishResponse(ctx, command.CommandID, "received", map[string]any{"accepted": true}, "")
 	if handler == nil {
 		errText := fmt.Sprintf("unknown command type: %s", command.Type)
 		if c.commands != nil {
@@ -305,7 +392,13 @@ func (c *Client) HandleCommand(ctx context.Context, raw []byte) error {
 	if c.commands != nil {
 		_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandRunning, nil, "")
 	}
-	result, err := handler(ctx, command.Payload)
+	_ = c.PublishResponse(ctx, command.CommandID, "running", nil, "")
+	handlerPayload := map[string]any{}
+	for key, value := range command.Payload {
+		handlerPayload[key] = value
+	}
+	handlerPayload["command_id"] = command.CommandID
+	result, err := handler(ctx, handlerPayload)
 	if err != nil {
 		if c.commands != nil {
 			_, _ = c.commands.UpdateStatus(ctx, command.CommandID, domain.MqttCommandError, nil, err.Error())
@@ -363,6 +456,53 @@ func nullableString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func (c *Client) collectStats(ctx context.Context) map[string]any {
+	c.mu.Lock()
+	provider := c.statsProvider
+	c.mu.Unlock()
+	if provider != nil {
+		if stats := provider(ctx); stats != nil {
+			return stats
+		}
+	}
+	return system.CollectStats()
+}
+
+func statsStatus(stats map[string]any) string {
+	if value, ok := stats["status"].(string); ok && strings.TrimSpace(value) != "" {
+		return strings.TrimSpace(value)
+	}
+	return "online"
+}
+
+func (c *Client) envelope(eventType string, payload map[string]any, now time.Time) map[string]any {
+	result := map[string]any{
+		"schema_version": edgeCloudSchemaVersion,
+		"message_id":     newMessageID(),
+		"type":           eventType,
+		"edge_id":        c.config.EdgeID,
+		"occurred_at":    now.Format(time.RFC3339),
+		"timestamp":      now.Format(time.RFC3339),
+	}
+	for key, value := range payload {
+		result[key] = value
+	}
+	return result
+}
+
+func newMessageID() string {
+	const alphabet = "0123456789abcdef"
+	result := make([]byte, 32)
+	for index := range result {
+		value, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
+		if err != nil {
+			return fmt.Sprintf("msg-%d", time.Now().UTC().UnixNano())
+		}
+		result[index] = alphabet[value.Int64()]
+	}
+	return string(result)
 }
 
 func StatusTopic(edgeID string) string    { return "spark/" + edgeID + "/status" }

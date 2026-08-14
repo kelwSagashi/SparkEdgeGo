@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -49,6 +50,7 @@ type App struct {
 	Runtime     *runtime.Runner
 	ServerInfra *serverinfra.Service
 	Updater     *updater.Service
+	CloudSync   *cloudsync.Service
 	Config      *config.Manager
 	RuntimeCfg  config.Runtime
 }
@@ -96,6 +98,12 @@ func New(cfg *config.Manager) *App {
 	mqttClient.UseStores(store.MqttCommands, store.MqttQueue)
 	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(runtimeCfg.CloudURL), mqttClient)
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
+	cloudSyncService := cloudsync.NewService(store.CloudSync, cloudsync.Config{
+		BaseURL:   runtimeCfg.CloudURL,
+		EdgeID:    "",
+		SyncToken: runtimeCfg.CloudSyncToken,
+		Enabled:   true,
+	})
 
 	application := &App{
 		DB:         store,
@@ -130,9 +138,11 @@ func New(cfg *config.Manager) *App {
 			ServiceName:     runtimeCfg.Update.ServiceName,
 			RestartCommand:  runtimeCfg.Update.RestartCommand,
 		}, &updater.GitHubClient{Token: strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_GITHUB_TOKEN"))}),
+		CloudSync:  cloudSyncService,
 		Config:     cfg,
 		RuntimeCfg: runtimeCfg,
 	}
+	application.MQTT.SetStatsProvider(application.collectOperationalSnapshot)
 	application.registerMqttCommandHandlers()
 	return application
 }
@@ -160,6 +170,7 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		},
 		ServerInfra: a.ServerInfra,
 		Updater:     a.Updater,
+		CloudSync:   a.CloudSync,
 		Config:      a.Config,
 		RuntimeCfg:  a.RuntimeCfg,
 	})
