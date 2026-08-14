@@ -88,54 +88,25 @@ func (s *Service) ApplyDownloaded(_ context.Context, downloadedPath string) (App
 		PreservedFiles:  preserved,
 	}
 
+	applyScriptPath := ""
+	rollbackPath := ""
 	if strings.HasPrefix(descriptor.Target, "windows-") {
-		scriptPath, rollbackPath, err := writeWindowsScripts(packageRoot, appRoot, backupDir, descriptor.Target)
-		if err != nil {
-			return ApplyResult{}, err
-		}
-		result.PreparedOnly = true
-		result.ScriptPath = scriptPath
-		result.RollbackPath = rollbackPath
-		result.Message = "Atualizacao preparada. Pare o SparkEdge e execute o script de aplicacao para concluir no Windows."
-		result.NextSteps = []string{
-			"Pare o processo atual do SparkEdge.",
-			"Execute o script de aplicacao gerado.",
-			"Inicie novamente o SparkEdge apos a troca.",
-			"Se algo falhar, execute o script de rollback.",
-		}
-		_ = s.saveStateWithHistory(previous, UpdateState{
-			LastDownloadedPackage: downloadedPath,
-			LastPreparedVersion:   descriptor.Version,
-			LastPreparedTarget:    descriptor.Target,
-			LastApplyResult:       &result,
-		}, HistoryEntry{
-			Type:      "apply",
-			Status:    "prepared",
-			Version:   descriptor.Version,
-			Target:    descriptor.Target,
-			Message:   result.Message,
-			Artifact:  downloadedPath,
-			CreatedAt: time.Now().UTC(),
-		})
-		return result, nil
+		applyScriptPath, rollbackPath, err = writeWindowsScripts(packageRoot, appRoot, backupDir, descriptor.Target)
+	} else {
+		applyScriptPath, rollbackPath, err = writeUnixScripts(packageRoot, appRoot, backupDir, descriptor.Target)
 	}
-
-	appliedFiles, err := applyPackageFiles(packageRoot, appRoot, descriptor.Target)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	rollbackPath, err := writeUnixRollbackScript(appRoot, backupDir, descriptor.Target)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	result.Applied = true
-	result.AppliedFiles = appliedFiles
+	result.PreparedOnly = true
+	result.ScriptPath = applyScriptPath
 	result.RollbackPath = rollbackPath
-	result.Message = "Arquivos da nova versao aplicados. Reinicie o SparkEdge para carregar o binario e a WebUI atualizados."
+	result.Message = "Atualizacao preparada com staging, backup e scripts de aplicacao. Pare o SparkEdge e execute o script gerado para concluir a troca com seguranca."
 	result.NextSteps = []string{
-		"Reinicie o SparkEdge para carregar a nova versao.",
-		"Valide a WebUI e as rotas principais apos o restart.",
-		"Se houver problema, use o script de rollback gerado.",
+		"Pare o processo atual do SparkEdge.",
+		"Execute o script de aplicacao gerado.",
+		"Inicie novamente o SparkEdge apos a troca.",
+		"Se algo falhar, execute o script de rollback.",
 	}
 	_ = s.saveStateWithHistory(previous, UpdateState{
 		LastDownloadedPackage: downloadedPath,
@@ -144,7 +115,7 @@ func (s *Service) ApplyDownloaded(_ context.Context, downloadedPath string) (App
 		LastApplyResult:       &result,
 	}, HistoryEntry{
 		Type:      "apply",
-		Status:    "applied",
+		Status:    "prepared",
 		Version:   descriptor.Version,
 		Target:    descriptor.Target,
 		Message:   result.Message,
@@ -400,8 +371,39 @@ func writeWindowsScripts(packageRoot string, appRoot string, backupDir string, t
 	return scriptPath, rollbackPath, nil
 }
 
-func writeUnixRollbackScript(appRoot string, backupDir string, target string) (string, error) {
-	scriptPath := filepath.Join(backupDir, "rollback-update.sh")
+func writeUnixScripts(packageRoot string, appRoot string, backupDir string, target string) (string, string, error) {
+	scriptDir := filepath.Dir(packageRoot)
+	scriptPath := filepath.Join(scriptDir, "apply-update.sh")
+	rollbackPath := filepath.Join(backupDir, "rollback-update.sh")
+	lines := []string{
+		"#!/usr/bin/env sh",
+		"set -eu",
+		"",
+		"source_root='" + escapeSingleQuotes(packageRoot) + "'",
+		"target_root='" + escapeSingleQuotes(appRoot) + "'",
+		"backup_root='" + escapeSingleQuotes(backupDir) + "'",
+		"",
+		"echo 'Applying SparkEdge update...'",
+	}
+	for _, relative := range replaceableRelativePaths(target) {
+		lines = append(lines,
+			"rm -rf \"$target_root/"+relative+"\"",
+			"cp -R \"$source_root/"+relative+"\" \"$target_root/"+relative+"\"",
+		)
+	}
+	lines = append(lines, "echo 'Update applied. Backup preserved at:' \"$backup_root\"")
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
+		return "", "", err
+	}
+
+	if err := writeUnixRollbackScript(appRoot, backupDir, target, rollbackPath); err != nil {
+		return "", "", err
+	}
+	return scriptPath, rollbackPath, nil
+}
+
+func writeUnixRollbackScript(appRoot string, backupDir string, target string, scriptPath string) error {
 	lines := []string{
 		"#!/usr/bin/env sh",
 		"set -eu",
@@ -422,9 +424,9 @@ func writeUnixRollbackScript(appRoot string, backupDir string, target string) (s
 	lines = append(lines, "echo 'Rollback completed.'")
 	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(scriptPath, []byte(content), 0o755); err != nil {
-		return "", err
+		return err
 	}
-	return scriptPath, nil
+	return nil
 }
 
 func escapeSingleQuotes(value string) string {

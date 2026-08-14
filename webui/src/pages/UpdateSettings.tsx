@@ -81,6 +81,10 @@ function summarizeReleaseNotes(notes?: string) {
     .slice(0, 6);
 }
 
+function resolveAPIErrorMessage(error: any) {
+  return error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Erro desconhecido';
+}
+
 export default function UpdateSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -147,7 +151,7 @@ export default function UpdateSettingsPage() {
       ]);
       setResult(checkResponse.data.data);
     } catch (error: any) {
-      toast.error(`Falha ao verificar atualizacao: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao verificar atualizacao: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setLoading(false);
       setChecking(false);
@@ -196,7 +200,7 @@ export default function UpdateSettingsPage() {
       toast.success(response.data.message || 'Configuracao do updater salva.');
       await loadCheck();
     } catch (error: any) {
-      toast.error(`Falha ao salvar configuracao do updater: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao salvar configuracao do updater: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setSavingConfig(false);
     }
@@ -210,7 +214,7 @@ export default function UpdateSettingsPage() {
       toast.success('Pacote de atualizacao baixado com sucesso.');
       await loadCheck();
     } catch (error: any) {
-      toast.error(`Falha ao baixar pacote: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao baixar pacote: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setDownloading(false);
     }
@@ -227,7 +231,7 @@ export default function UpdateSettingsPage() {
       setApplyResult(response.data.data);
       toast.success('Atualizacao assistida preparada com sucesso.');
     } catch (error: any) {
-      toast.error(`Falha ao preparar aplicacao: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao preparar aplicacao: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setApplying(false);
     }
@@ -241,7 +245,7 @@ export default function UpdateSettingsPage() {
       toast.success('Rollback assistido processado.');
       await loadStatus();
     } catch (error: any) {
-      toast.error(`Falha ao preparar rollback: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao preparar rollback: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setRollingBack(false);
     }
@@ -255,7 +259,7 @@ export default function UpdateSettingsPage() {
       toast.success(execute ? 'Reinicio disparado.' : 'Plano de reinicio gerado.');
       await loadStatus();
     } catch (error: any) {
-      toast.error(`Falha ao processar reinicio: ${error?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Falha ao processar reinicio: ${resolveAPIErrorMessage(error)}`);
     } finally {
       setRestarting(false);
     }

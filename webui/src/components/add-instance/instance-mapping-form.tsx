@@ -227,10 +227,10 @@ export function InstanceMappingForm({
     return match ? Number.parseInt(match[1], 10) - 1 : -1;
   };
 
-  const getDestinationSubPath = (fullPath: string) => {
+  const getDestinationSubPath = (fullPath: string): string | null => {
     const destinationIndex = getDestinationIndex(fullPath);
     if (destinationIndex === -1) {
-      return "";
+      return null;
     }
 
     const operation = allOperations.find(
@@ -244,7 +244,7 @@ export function InstanceMappingForm({
     if (fullPath.startsWith(`${prefix}.`)) {
       return fullPath.slice(prefix.length + 1);
     }
-    return "";
+    return null;
   };
 
   const updateNestedValue = (obj: any, path: string, value: any) => {
@@ -381,7 +381,7 @@ export function InstanceMappingForm({
                       }
 
                       const subPath = getDestinationSubPath(fullPath);
-                      if (!subPath) {
+                      if (subPath === null) {
                         return;
                       }
 
@@ -401,7 +401,7 @@ export function InstanceMappingForm({
                       }
 
                       const subPath = getDestinationSubPath(fullPath);
-                      if (!subPath) {
+                      if (subPath === null) {
                         return;
                       }
 
@@ -431,7 +431,7 @@ export function InstanceMappingForm({
                       }
 
                       const subPath = getDestinationSubPath(fullPath);
-                      if (!subPath) {
+                      if (subPath === null) {
                         return;
                       }
 
