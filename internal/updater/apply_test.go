@@ -38,14 +38,18 @@ func TestApplyDownloadedPreservesConfigAndUpdatesFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.Applied || result.PreparedOnly {
-		t.Fatalf("expected direct apply result, got %#v", result)
+	if !result.PreparedOnly || result.Applied {
+		t.Fatalf("expected prepared-only result, got %#v", result)
 	}
+	if result.ScriptPath == "" {
+		t.Fatalf("expected apply script path, got %#v", result)
+	}
+	assertFileContains(t, result.ScriptPath, "Applying SparkEdge update")
 
-	assertFileContains(t, filepath.Join(appRoot, "sparkedge"), "new-binary")
-	assertFileContains(t, filepath.Join(appRoot, "README.md"), "new-readme")
-	assertFileContains(t, filepath.Join(appRoot, "webui", "dist", "index.html"), "new-ui")
-	assertFileContains(t, filepath.Join(appRoot, "config", ".env.example"), "new-env")
+	assertFileContains(t, filepath.Join(appRoot, "sparkedge"), "old-binary")
+	assertFileContains(t, filepath.Join(appRoot, "README.md"), "old-readme")
+	assertFileContains(t, filepath.Join(appRoot, "webui", "dist", "index.html"), "old-ui")
+	assertFileContains(t, filepath.Join(appRoot, "config", ".env.example"), "old-env")
 	assertFileContains(t, filepath.Join(appRoot, "config.yml"), "https://current.example")
 	assertFileContains(t, filepath.Join(appRoot, "sparkedge.db"), "db-state")
 	assertFileContains(t, filepath.Join(result.BackupPath, "sparkedge"), "old-binary")

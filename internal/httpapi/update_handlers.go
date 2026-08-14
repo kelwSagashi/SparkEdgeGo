@@ -5,6 +5,20 @@ import (
 	"net/http"
 )
 
+func wrapUpdateError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if httpErr, ok := err.(*HTTPError); ok {
+		return httpErr
+	}
+	return &HTTPError{
+		Status:  http.StatusInternalServerError,
+		Code:    0,
+		Message: err.Error(),
+	}
+}
+
 func (s *Server) handleUpdateCheck(r *http.Request) (any, error) {
 	if s.deps.Updater == nil {
 		return nil, NewHTTPError(http.StatusServiceUnavailable, "update service unavailable")
@@ -12,7 +26,7 @@ func (s *Server) handleUpdateCheck(r *http.Request) (any, error) {
 
 	result, err := s.deps.Updater.Check(r.Context())
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
@@ -28,7 +42,7 @@ func (s *Server) handleUpdateStatus(_ *http.Request) (any, error) {
 
 	state, err := s.deps.Updater.LoadState()
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
@@ -44,7 +58,7 @@ func (s *Server) handleUpdateDownload(r *http.Request) (any, error) {
 
 	result, err := s.deps.Updater.DownloadLatest(r.Context())
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
@@ -67,7 +81,7 @@ func (s *Server) handleUpdateApply(r *http.Request) (any, error) {
 
 	result, err := s.deps.Updater.ApplyDownloaded(r.Context(), req.DownloadedPath)
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
@@ -83,7 +97,7 @@ func (s *Server) handleUpdateRollback(r *http.Request) (any, error) {
 
 	result, err := s.deps.Updater.RollbackLatest(r.Context())
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
@@ -106,7 +120,7 @@ func (s *Server) handleUpdateRestart(r *http.Request) (any, error) {
 
 	result, err := s.deps.Updater.Restart(r.Context(), req.Execute)
 	if err != nil {
-		return nil, err
+		return nil, wrapUpdateError(err)
 	}
 
 	return map[string]any{
