@@ -373,6 +373,7 @@ export function InstanceMappingForm({
                   <JsonViewMain
                     data={combinedPayload}
                     templateContext={sourceData as Record<string, unknown>}
+                    showRootAddField={false}
                     onParamChange={(path, key, value) => {
                       const fullPath = path ? `${path}.${key}` : key;
                       const destinationIndex = getDestinationIndex(fullPath);

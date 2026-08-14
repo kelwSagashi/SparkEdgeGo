@@ -216,3 +216,25 @@ Para considerar uma versao operacionalmente fechada, manter:
 - release com `manifest.json` e `checksums.txt`;
 - smoke test local concluido;
 - fluxo de update assistido validado ao menos em ambiente controlado.
+
+
+## Atualizar manualmente no Linux
+
+```bash
+cd /home/rasplaber/sparkEdge
+ZIP_PATH="$(find updates/downloads -type f -name '*.zip' | head -n 1)"
+echo "$ZIP_PATH"
+mkdir -p /tmp/sparkedge-manual-update
+rm -rf /tmp/sparkedge-manual-update/*
+unzip "$ZIP_PATH" -d /tmp/sparkedge-manual-update
+pkill -f sparkedge
+cd /home/rasplaber
+cp -a sparkEdge sparkEdge.backup-$(date +%Y%m%d-%H%M%S)
+cp -f /tmp/sparkedge-manual-update/sparkEdge/sparkedge /home/rasplaber/sparkEdge/
+chmod +x /home/rasplaber/sparkEdge/sparkedge
+rm -rf /home/rasplaber/sparkEdge/webui/dist
+mkdir -p /home/rasplaber/sparkEdge/webui
+cp -a /tmp/sparkedge-manual-update/sparkEdge/webui/dist /home/rasplaber/sparkEdge/webui/
+cd /home/rasplaber/sparkEdge
+nohup ./sparkedge > sparkedge.log 2>&1 &
+```
