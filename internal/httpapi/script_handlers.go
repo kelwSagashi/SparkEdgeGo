@@ -271,6 +271,9 @@ func publicScriptExecutionResult(result domain.ScriptResult) map[string]any {
 	if result.Data != nil {
 		return result.Data
 	}
+	if result.ErrorData != nil {
+		return result.ErrorData
+	}
 
 	payload := map[string]any{
 		"stdout": nil,

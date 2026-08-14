@@ -70,6 +70,7 @@ const defaultValues: InstanceFormValues = {
     action: "log_only",
     notify_url: undefined,
     max_retries: undefined,
+    retry_interval_seconds: 5,
   },
   active: true,
 };
@@ -262,6 +263,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
             action: instance.on_error_action || "log_only",
             notify_url: instance.on_error_config?.notify_url,
             max_retries: instance.on_error_config?.max_retries,
+            retry_interval_seconds: instance.on_error_config?.retry_interval_seconds ?? 5,
           },
         };
 
@@ -331,6 +333,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
           action: data.errorConfig.action,
           notify_url: data.errorConfig.notify_url,
           max_retries: data.errorConfig.max_retries,
+          retry_interval_seconds: data.errorConfig.retry_interval_seconds,
         },
         active: data.active,
         destinations: data.destinations.map((destination) => ({

@@ -126,7 +126,9 @@ export default function ScriptPlayground({
               )}
           </div>
         </div>
-        {output ? (
+        {(() => {
+          const displayOutput = stdoutCandidate ?? output;
+          return displayOutput ? (
           <JsonViewMain
             pProps={{
               className: cn(
@@ -135,13 +137,14 @@ export default function ScriptPlayground({
             }}
             draggableValue={true}
             rootPath="$.script"
-            data={output}
+            data={displayOutput}
           />
-        ) : (
+          ) : (
           <p className="text-xs text-zinc-600 italic">
             Execute o script para ver os resultados aqui...
           </p>
-        )}
+          );
+        })()}
       </div>
     </div>
   );

@@ -213,6 +213,7 @@ export const ErrorConfigSchema = z.object({
   action: z.enum(["log_only", "retry", "notify_webhook", "stop"]),
   notify_url: z.string().url().optional().nullable(),
   max_retries: z.number().optional().nullable(),
+  retry_interval_seconds: z.number().optional().nullable(),
 });
 
 export const InstanceFallbackSchema = z.object({

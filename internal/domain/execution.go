@@ -3,9 +3,11 @@ package domain
 import "time"
 
 type ExecutionLog struct {
-	Level     string    `json:"level"`
-	Message   string    `json:"message"`
-	Timestamp time.Time `json:"timestamp"`
+	Level     string         `json:"level"`
+	Code      string         `json:"code,omitempty"`
+	Message   string         `json:"message"`
+	Timestamp time.Time      `json:"timestamp"`
+	Meta      map[string]any `json:"meta,omitempty"`
 }
 
 type ExecutionDestinationDetail struct {

@@ -54,7 +54,9 @@ function resolveStdoutCandidate(output: any) {
   if (
     typeof output === "object" &&
     !Array.isArray(output) &&
-    Object.prototype.hasOwnProperty.call(output, "stdout")
+    Object.prototype.hasOwnProperty.call(output, "stdout") &&
+    Object.prototype.hasOwnProperty.call(output, "stderr") &&
+    Object.keys(output).length === 2
   ) {
     return output.stdout ?? null;
   }
@@ -66,7 +68,9 @@ function resolveStderrCandidate(output: any) {
     output &&
     typeof output === "object" &&
     !Array.isArray(output) &&
-    Object.prototype.hasOwnProperty.call(output, "stderr")
+    Object.prototype.hasOwnProperty.call(output, "stdout") &&
+    Object.prototype.hasOwnProperty.call(output, "stderr") &&
+    Object.keys(output).length === 2
   ) {
     return output.stderr ?? null;
   }
