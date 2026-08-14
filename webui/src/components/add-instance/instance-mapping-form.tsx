@@ -222,31 +222,6 @@ export function InstanceMappingForm({
     return visit(combinedPayload);
   }, [combinedPayload]);
 
-  const getDestinationIndex = (path: string) => {
-    const match = path.match(/^(\d+)\./);
-    return match ? Number.parseInt(match[1], 10) - 1 : -1;
-  };
-
-  const getDestinationSubPath = (fullPath: string): string | null => {
-    const destinationIndex = getDestinationIndex(fullPath);
-    if (destinationIndex === -1) {
-      return null;
-    }
-
-    const operation = allOperations.find(
-      (item) =>
-        String(item.id) === String(destinations[destinationIndex]?.resourceOperationId),
-    );
-    const prefix = `${destinationIndex + 1}. ${operation?.name || "Destino"}`;
-    if (fullPath === prefix) {
-      return "";
-    }
-    if (fullPath.startsWith(`${prefix}.`)) {
-      return fullPath.slice(prefix.length + 1);
-    }
-    return null;
-  };
-
   const updateNestedValue = (obj: any, path: string, value: any) => {
     if (!path) {
       return value;
@@ -282,6 +257,22 @@ export function InstanceMappingForm({
       delete ref[lastKey];
     }
     return current;
+  };
+
+  const defaultValueForFieldType = (type: "string" | "number" | "boolean" | "object" | "array") => {
+    if (type === "object") {
+      return {};
+    }
+    if (type === "array") {
+      return [];
+    }
+    if (type === "number") {
+      return 0;
+    }
+    if (type === "boolean") {
+      return false;
+    }
+    return "";
   };
 
   return (
@@ -370,112 +361,83 @@ export function InstanceMappingForm({
                   </span>
                 </div>
                 <div className="flex-1 overflow-auto p-2">
-                  <JsonViewMain
-                    data={combinedPayload}
-                    templateContext={sourceData as Record<string, unknown>}
-                    showRootAddField={false}
-                    onParamChange={(path, key, value) => {
-                      const fullPath = path ? `${path}.${key}` : key;
-                      const destinationIndex = getDestinationIndex(fullPath);
-                      if (destinationIndex === -1) {
-                        return;
-                      }
-
-                      const subPath = getDestinationSubPath(fullPath);
-                      if (subPath === null) {
-                        return;
-                      }
-
-                      const currentTemplate =
-                        destinations[destinationIndex].dataMapping?.payloadTemplate || {};
-                      setValue(
-                        `destinations.${destinationIndex}.dataMapping.payloadTemplate`,
-                        updateNestedValue(currentTemplate, subPath, value),
-                        { shouldValidate: true, shouldDirty: true },
+                  <div className="space-y-3">
+                    {destinations.map((destination: any, destinationIndex: number) => {
+                      const operation = allOperations.find(
+                        (item) =>
+                          String(item.id) === String(destination.resourceOperationId),
                       );
-                    }}
-                    onAddField={(path, key, type) => {
-                      const fullPath = path ? `${path}.${key}` : key;
-                      const destinationIndex = getDestinationIndex(fullPath);
-                      if (destinationIndex === -1) {
-                        return;
-                      }
-
-                      const subPath = getDestinationSubPath(fullPath);
-                      if (subPath === null) {
-                        return;
-                      }
-
-                      const defaultValue =
-                        type === "object"
-                          ? {}
-                          : type === "array"
-                            ? []
-                            : type === "number"
-                              ? 0
-                              : type === "boolean"
-                                ? false
-                                : "";
                       const currentTemplate =
-                        destinations[destinationIndex].dataMapping?.payloadTemplate || {};
-                      setValue(
-                        `destinations.${destinationIndex}.dataMapping.payloadTemplate`,
-                        updateNestedValue(currentTemplate, subPath, defaultValue),
-                        { shouldValidate: true, shouldDirty: true },
-                      );
-                    }}
-                    onDeleteField={(path, key) => {
-                      const fullPath = path ? `${path}.${key}` : key;
-                      const destinationIndex = getDestinationIndex(fullPath);
-                      if (destinationIndex === -1) {
-                        return;
-                      }
-
-                      const subPath = getDestinationSubPath(fullPath);
-                      if (subPath === null) {
-                        return;
-                      }
-
-                      const currentTemplate =
-                        destinations[destinationIndex].dataMapping?.payloadTemplate || {};
-                      setValue(
-                        `destinations.${destinationIndex}.dataMapping.payloadTemplate`,
-                        deleteNestedValue(currentTemplate, subPath),
-                        { shouldValidate: true, shouldDirty: true },
-                      );
-                    }}
-                    onDestructure={(path, key, value) => {
-                      const fullPath = path ? `${path}.${key}` : key;
-                      const destinationIndex = getDestinationIndex(fullPath);
-                      if (destinationIndex === -1 || typeof value !== "object" || value === null) {
-                        return;
-                      }
-
-                      const subPath = getDestinationSubPath(fullPath);
-                      let currentTemplate = {
-                        ...(destinations[destinationIndex].dataMapping?.payloadTemplate || {}),
+                        destination.dataMapping?.payloadTemplate || {};
+                      const setTemplate = (template: unknown) => {
+                        setValue(
+                          `destinations.${destinationIndex}.dataMapping.payloadTemplate`,
+                          template,
+                          { shouldValidate: true, shouldDirty: true },
+                        );
                       };
 
-                      Object.entries(value).forEach(([childKey, childValue]) => {
-                        const childPath = subPath ? `${subPath}.${childKey}` : childKey;
-                        currentTemplate = updateNestedValue(
-                          currentTemplate,
-                          childPath,
-                          childValue,
-                        );
-                      });
+                      return (
+                        <div
+                          key={`${destination.resourceOperationId || "destination"}-${destinationIndex}`}
+                          className="rounded-md border border-border/70 bg-black/15 p-2"
+                        >
+                          <div className="mb-2 flex items-center justify-between gap-2">
+                            <span className="truncate text-[10px] font-bold uppercase tracking-widest text-secondary">
+                              {destinationIndex + 1}. {operation?.name || "Destino"}
+                            </span>
+                            <span className="shrink-0 text-[9px] text-secondary">
+                              {Object.keys(currentTemplate).length} campos
+                            </span>
+                          </div>
+                          <JsonViewMain
+                            data={currentTemplate}
+                            templateContext={sourceData as Record<string, unknown>}
+                            onParamChange={(path, key, value) => {
+                              const subPath = path ? `${path}.${key}` : key;
+                              setTemplate(updateNestedValue(currentTemplate, subPath, value));
+                            }}
+                            onAddField={(path, key, type) => {
+                              const subPath = path ? `${path}.${key}` : key;
+                              setTemplate(
+                                updateNestedValue(
+                                  currentTemplate,
+                                  subPath,
+                                  defaultValueForFieldType(type),
+                                ),
+                              );
+                            }}
+                            onDeleteField={(path, key) => {
+                              const subPath = path ? `${path}.${key}` : key;
+                              setTemplate(deleteNestedValue(currentTemplate, subPath));
+                            }}
+                            onDestructure={(path, key, value) => {
+                              if (typeof value !== "object" || value === null) {
+                                return;
+                              }
 
-                      setValue(
-                        `destinations.${destinationIndex}.dataMapping.payloadTemplate`,
-                        currentTemplate,
-                        { shouldValidate: true, shouldDirty: true },
+                              let nextTemplate = { ...currentTemplate };
+                              Object.entries(value).forEach(([childKey, childValue]) => {
+                                const childPath = path
+                                  ? `${path}.${key}.${childKey}`
+                                  : `${key}.${childKey}`;
+                                nextTemplate = updateNestedValue(
+                                  nextTemplate,
+                                  childPath,
+                                  childValue,
+                                );
+                              });
+                              setTemplate(nextTemplate);
+                            }}
+                            draggableValue={false}
+                            pProps={{
+                              className: "bg-transparent border-none text-xs text-primary",
+                            }}
+                          />
+                        </div>
                       );
-                    }}
-                    draggableValue={false}
-                    pProps={{
-                      className: "bg-transparent border-none text-xs text-primary",
-                    }}
-                  />
+                    })}
+                  </div>
                 </div>
               </Card>
 
