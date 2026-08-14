@@ -7,10 +7,11 @@ type ScriptInput struct {
 }
 
 type ScriptResult struct {
-	Stdout   string
-	Stderr   string
-	ExitCode int
-	Data     map[string]any
+	Stdout    string
+	Stderr    string
+	ExitCode  int
+	Data      map[string]any
+	ErrorData map[string]any
 }
 
 type ScriptSource string
