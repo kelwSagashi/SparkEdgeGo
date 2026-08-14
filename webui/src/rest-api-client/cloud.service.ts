@@ -109,8 +109,8 @@ export const cloudService = {
   saveOnboarding: (data: {
     name: string;
     description?: string;
-    lat: string;
-    lng: string;
+    lat?: string;
+    lng?: string;
     tags: string[];
   }) =>
     axios_api_instance.post<ReturningQueries<{ success: boolean }>>(`/cli/onboarding`, data),

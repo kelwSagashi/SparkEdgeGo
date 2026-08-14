@@ -267,7 +267,6 @@ export default function CloudSettingsPage() {
 
   const handleSaveOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!location) return;
 
     setError(null);
     setActionLoading(true);
@@ -275,8 +274,8 @@ export default function CloudSettingsPage() {
       await cloudService.saveOnboarding({
         name,
         description,
-        lat: String(location.lat),
-        lng: String(location.lng),
+        lat: location ? String(location.lat) : undefined,
+        lng: location ? String(location.lng) : undefined,
         tags,
       });
       setManualStepOverride(null);
@@ -752,14 +751,26 @@ export default function CloudSettingsPage() {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelCls}><MapPin size={11} className="inline mr-1" /> Localizacao</label>
-                <button
-                  type="button"
-                  onClick={handleLocateMe}
-                  className="text-[10px] uppercase font-bold text-cyan-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"
-                >
-                  <Navigation size={10} />
-                  Usar meu GPS
-                </button>
+                <div className="flex items-center gap-3">
+                  {location ? (
+                    <button
+                      type="button"
+                      onClick={() => setLocation(null)}
+                      className="text-[10px] uppercase font-bold text-rose-400 hover:text-rose-300 flex items-center gap-1 transition-colors"
+                    >
+                      <Trash2 size={10} />
+                      Limpar
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={handleLocateMe}
+                    className="text-[10px] uppercase font-bold text-cyan-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"
+                  >
+                    <Navigation size={10} />
+                    Usar meu GPS
+                  </button>
+                </div>
               </div>
 
               <div className="relative h-[240px] rounded-xl overflow-hidden border border-white/10 group">
@@ -778,6 +789,7 @@ export default function CloudSettingsPage() {
                   <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-6 text-center pointer-events-none transition-opacity group-hover:opacity-0">
                     <MousePointer2 size={24} className="text-white/40 mb-2 animate-bounce" />
                     <p className="text-xs text-white/60 font-medium">Clique no mapa para marcar a posicao do Edge</p>
+                    <p className="mt-1 text-[11px] text-white/40">Opcional: voce pode pular agora e definir depois no Edge ou no Spark Cloud.</p>
                   </div>
                 )}
 
@@ -819,7 +831,7 @@ export default function CloudSettingsPage() {
             <Button
               type="submit"
               className="w-full gap-2 bg-white text-zinc-900 hover:bg-zinc-100 font-medium h-11 transition-all active:scale-95"
-              disabled={actionLoading || !name || !location}
+              disabled={actionLoading || !name}
             >
               {actionLoading ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
               Proximo Passo: Conectar Cloud

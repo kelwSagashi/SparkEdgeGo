@@ -66,7 +66,7 @@ func (s *Service) GetOnboarding(ctx context.Context) (domain.EdgeConfig, bool, e
 	if err != nil {
 		return domain.EdgeConfig{}, false, err
 	}
-	return config, config.EdgeName != "" && config.Lat != "" && config.Lng != "", nil
+	return config, strings.TrimSpace(config.EdgeName) != "", nil
 }
 
 func (s *Service) SaveOnboarding(ctx context.Context, req OnboardingRequest) (domain.EdgeConfig, error) {
@@ -74,7 +74,10 @@ func (s *Service) SaveOnboarding(ctx context.Context, req OnboardingRequest) (do
 	if name == "" {
 		return domain.EdgeConfig{}, ErrInvalidOnboarding
 	}
-	locationSource := "manual"
+	locationSource := ""
+	if strings.TrimSpace(req.Lat) != "" && strings.TrimSpace(req.Lng) != "" {
+		locationSource = "manual"
+	}
 	return s.repo.UpsertEdgeConfig(ctx, sqlite.UpsertEdgeConfigParams{
 		EdgeName:       &name,
 		Description:    nullablePtr(req.Description),
