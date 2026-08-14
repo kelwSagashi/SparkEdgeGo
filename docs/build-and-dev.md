@@ -190,6 +190,77 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-release.ps1 -TargetOS w
 ./scripts/build-release.ps1 -TargetOS linux -TargetArch arm -GoArm 7 -Version dev
 ```
 
+#### Como executar no Raspberry Pi 3
+
+Depois de copiar o pacote `linux-armv7` para o Raspberry Pi 3:
+
+1. extraia o `.zip`;
+2. entre na pasta `sparkEdge`;
+3. garanta permissao de execucao;
+4. rode o binario dentro dessa mesma pasta.
+
+Comandos:
+
+```bash
+unzip sparkedge-<versao>-linux-armv7.zip
+cd sparkEdge
+chmod +x sparkedge
+./sparkedge
+```
+
+Para rodar em background:
+
+```bash
+cd sparkEdge
+nohup ./sparkedge > sparkedge.log 2>&1 &
+```
+
+Para descobrir o PID:
+
+```bash
+pgrep -af sparkedge
+```
+
+Para acompanhar o log:
+
+```bash
+tail -f sparkedge.log
+```
+
+Para parar o processo:
+
+```bash
+pkill -f sparkedge
+```
+
+Ou, se preferir confirmar o PID antes:
+
+```bash
+ps aux | grep sparkedge
+kill <PID>
+```
+
+Se nao encerrar normalmente:
+
+```bash
+kill -9 <PID>
+```
+
+Para validar:
+
+1. abra `http://localhost:3009/api/health` no Raspberry;
+2. abra `http://localhost:3009/`;
+3. se estiver acessando de outra maquina, use `http://IP_DO_RASPBERRY:3009/`.
+
+Lembretes:
+
+- use `linux-armv7` para Raspberry Pi 3 em 32 bits;
+- execute o binario dentro da pasta `sparkEdge`;
+- mantenha `config.yml` e `webui/dist` ao lado do executavel;
+- o `sparkedge.db` sera criado ou reutilizado na mesma pasta.
+- `nohup` e util para testes e operacao manual;
+- para producao, reboot automatico e reinicio controlado, prefira `systemd`.
+
 ### Raspberry Pi Zero ou Pi 1
 
 ```powershell
