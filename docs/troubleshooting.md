@@ -115,6 +115,8 @@ Verifique:
 - arquitetura correta do pacote
 - permissao de execucao do binario
 - compatibilidade do sistema operacional
+- se foi usado o asset `linux-armv7` para Raspberry Pi 3 32 bits
+- se o pacote foi extraido preservando a pasta `webui/dist`
 
 Teste rapido:
 
@@ -122,3 +124,32 @@ Teste rapido:
 chmod +x sparkedge
 ./sparkedge
 ```
+
+## Release automatica nao apareceu no GitHub
+
+Verifique:
+
+- se houve `push` real na branch `main`
+- se o workflow `release.yml` executou
+- se todos os 8 targets foram gerados
+- se `manifest.json` e `checksums.txt` foram publicados
+
+Pontos de analise:
+
+- aba Actions do GitHub
+- release criada com tag `vMAJOR.MINOR.PATCH`
+- assets `linux-armv7` e `linux-armv6`
+
+## Update assistido preservou config mas nao refletiu a mudanca esperada
+
+Verifique:
+
+- se o `config.yml` local foi preservado de proposito
+- se a mudanca esperada estava no binario ou na `webui/dist`
+- se o restart foi realmente executado apos o apply
+
+Pontos de analise:
+
+- `updates/backups`
+- `updates/staging`
+- tela `/settings/update`

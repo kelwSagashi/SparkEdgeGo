@@ -75,3 +75,12 @@ Este checklist continua valendo como smoke test por release. Os itens abaixo dev
 - [ ] conferir workflow de release no GitHub
 - [ ] conferir assets publicados
 - [ ] conferir release notes
+
+## 7. Fechamento operacional
+
+- [ ] validar estrutura final `sparkEdge/` com binario, `config.yml` e `webui/dist`
+- [ ] validar smoke test com pacote extraido
+- [ ] validar pacote `linux-armv7` para Raspberry Pi 3
+- [ ] validar tela `/settings/update`
+- [ ] confirmar `manifest.json` e `checksums.txt` dentro da release
+- [ ] registrar evidencias minimas de publicacao e rollback

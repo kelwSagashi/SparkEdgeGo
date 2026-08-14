@@ -47,6 +47,7 @@ $env:GOCACHE="$PWD\.gocache"
 ## Build e execucao
 
 O guia detalhado para modo dev, geracao de executavel local e cross-compilation esta em [docs/build-and-dev.md](./docs/build-and-dev.md).
+O runbook operacional de release, instalacao em campo, Raspberry e update assistido esta em [docs/operations-runbook.md](./docs/operations-runbook.md).
 
 # Inicialização
 

@@ -215,9 +215,13 @@ O workflow [`release.yml`](../.github/workflows/release.yml) gera automaticament
 - Linux armv7 e armv6;
 - macOS amd64 e arm64.
 
-Ele pode rodar de duas formas:
+Ele roda de duas formas:
 
-1. manualmente via `workflow_dispatch`;
-2. automaticamente ao publicar tags como `v0.1.0`.
+1. automaticamente a cada `push` na branch `main`;
+2. manualmente via `workflow_dispatch`, com override de versao e bump semantico.
 
-Em tags, os artefatos `.zip`, o `manifest.json` e o `checksums.txt` sao publicados na release do GitHub.
+Em cada execucao de release, os artefatos `.zip`, o `manifest.json` e o `checksums.txt` sao publicados na release do GitHub gerada automaticamente.
+
+## Referencia operacional
+
+Para o fluxo completo de operacao, instalacao em campo, smoke test e update assistido, veja [docs/operations-runbook.md](./operations-runbook.md).
