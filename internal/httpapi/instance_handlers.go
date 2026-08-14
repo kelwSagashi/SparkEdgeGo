@@ -114,6 +114,29 @@ func (s *Server) handleInstanceTrigger(r *http.Request) (any, error) {
 	if triggerType == "" {
 		triggerType = domain.TriggerManual
 	}
+	if s.deps.TriggerInstance != nil {
+		execution, result, err := s.deps.TriggerInstance(r.Context(), r.PathValue("id"), req.Input, triggerType)
+		if err != nil && result.Error == "" {
+			result.Error = err.Error()
+		}
+		body := map[string]any{
+			"data": map[string]any{
+				"execution": publicExecution(execution),
+				"result": map[string]any{
+					"status":              result.Status,
+					"output":              result.Output,
+					"mapped_payloads":     result.MappedPayloads,
+					"destination_details": result.DestinationDetails,
+				},
+			},
+			"error": nil,
+		}
+		if err != nil || result.Status != domain.ExecutionSuccess {
+			body["error"] = result.Error
+		}
+		return body, nil
+	}
+
 	startedAt := time.Now().UTC()
 	execution, err := s.deps.Executions.Create(r.Context(), sqlite.CreateInstanceExecutionParams{
 		InstanceID:  instance.ID,

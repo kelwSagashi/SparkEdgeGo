@@ -3,6 +3,7 @@ package instances
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -189,6 +190,9 @@ func (s *Service) Create(ctx context.Context, payload Payload) (domain.Instance,
 	if err != nil {
 		return domain.Instance{}, err
 	}
+	if err := s.validateDependencies(ctx, "", params.DependsOn); err != nil {
+		return domain.Instance{}, err
+	}
 	instance, err := s.instances.Create(ctx, params)
 	if err != nil {
 		return domain.Instance{}, err
@@ -212,6 +216,9 @@ func (s *Service) Update(ctx context.Context, id string, payload Payload) (domai
 		if err != nil {
 			return domain.Instance{}, err
 		}
+		if err := s.validateDependencies(ctx, id, params.DependsOn); err != nil {
+			return domain.Instance{}, err
+		}
 		instance, err := s.instances.Upsert(ctx, params)
 		if err != nil {
 			return domain.Instance{}, err
@@ -226,6 +233,11 @@ func (s *Service) Update(ctx context.Context, id string, payload Payload) (domai
 	}
 
 	update := normalizePartialUpdate(payload)
+	if update.DependsOn != nil {
+		if err := s.validateDependencies(ctx, id, *update.DependsOn); err != nil {
+			return domain.Instance{}, err
+		}
+	}
 	instance, err := s.instances.Update(ctx, id, update)
 	if err != nil {
 		return domain.Instance{}, err
@@ -330,6 +342,80 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 		return ErrInvalidInstance
 	}
 	return s.instances.Delete(ctx, id)
+}
+
+func (s *Service) validateDependencies(ctx context.Context, instanceID string, dependsOn []string) error {
+	if len(dependsOn) == 0 {
+		return nil
+	}
+
+	allInstances, err := s.instances.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	graph := make(map[string][]string, len(allInstances)+1)
+	known := make(map[string]struct{}, len(allInstances))
+	for _, item := range allInstances {
+		graph[item.ID] = append([]string{}, item.DependsOn...)
+		known[item.ID] = struct{}{}
+	}
+
+	normalized := make([]string, 0, len(dependsOn))
+	seen := map[string]struct{}{}
+	for _, dependency := range dependsOn {
+		dependency = strings.TrimSpace(dependency)
+		if dependency == "" {
+			continue
+		}
+		if dependency == instanceID && instanceID != "" {
+			return fmt.Errorf("%w: instancia nao pode depender dela mesma", ErrInvalidInstance)
+		}
+		if _, ok := known[dependency]; !ok {
+			return fmt.Errorf("%w: dependencia %s nao existe", ErrInvalidInstance, dependency)
+		}
+		if _, ok := seen[dependency]; ok {
+			continue
+		}
+		seen[dependency] = struct{}{}
+		normalized = append(normalized, dependency)
+	}
+
+	if instanceID == "" {
+		return nil
+	}
+
+	graph[instanceID] = normalized
+	if hasDependencyCycle(instanceID, graph) {
+		return fmt.Errorf("%w: dependencias geram ciclo na orquestracao", ErrInvalidInstance)
+	}
+	return nil
+}
+
+func hasDependencyCycle(root string, graph map[string][]string) bool {
+	visited := map[string]bool{}
+	active := map[string]bool{}
+
+	var visit func(string) bool
+	visit = func(node string) bool {
+		if active[node] {
+			return true
+		}
+		if visited[node] {
+			return false
+		}
+		visited[node] = true
+		active[node] = true
+		for _, dependency := range graph[node] {
+			if visit(dependency) {
+				return true
+			}
+		}
+		delete(active, node)
+		return false
+	}
+
+	return visit(root)
 }
 
 func (s *Service) syncNamedTags(ctx context.Context, instanceID string, names []string, projectID string) error {

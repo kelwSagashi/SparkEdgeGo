@@ -202,7 +202,20 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 				Timestamp:           now,
 			}, nil, []domain.ExecutionLog{newLog("info", "Destination "+destination.ID+" disabled, skipping", now)}, false, false, nil
 		}
-		payload := r.applyMapping(ctx, item.Mapping, output, req)
+		payload, mapErr := r.applyMapping(ctx, item.Mapping, output, req)
+		if mapErr != nil {
+			return domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "failed",
+				Payload:             map[string]any{},
+				Error:               mapErr.Error(),
+				Timestamp:           now,
+			}, nil, []domain.ExecutionLog{newLog("error", "Failed to map destination "+destination.ID+": "+mapErr.Error(), now)}, false, false, mapErr
+		}
 		mapped := &MappedPayload{
 			DestinationID:       destination.ID,
 			ResourceOperationID: destination.ResourceOperationID,
@@ -570,7 +583,7 @@ func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destin
 	}, true
 }
 
-func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, output map[string]any, req TriggerRequest) map[string]any {
+func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, output map[string]any, req TriggerRequest) (map[string]any, error) {
 	context := r.buildTemplateContext(ctx, req, output)
 	for key, value := range output {
 		context[key] = value
@@ -610,7 +623,14 @@ func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, 
 			payload[key] = value
 		}
 	}
-	return payload
+	if mapping != nil && strings.TrimSpace(mapping.TransformScript) != "" {
+		transformed, err := applyTransformScript(mapping.TransformScript, payload, context)
+		if err != nil {
+			return nil, err
+		}
+		payload = transformed
+	}
+	return payload, nil
 }
 
 func (r *Runner) resolveScriptInput(ctx context.Context, req TriggerRequest, input map[string]any) map[string]any {
@@ -631,9 +651,12 @@ func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, o
 	device := r.resolveDeviceContext(ctx, req.Instance.DeviceID)
 	instance := instanceContext(req.Instance)
 	system := r.resolveSystemContext(ctx, req.Instance)
+	triggerInput := cloneMap(req.Input)
 	context := map[string]any{
 		"script":            output,
 		"output":            output,
+		"input":             triggerInput,
+		"trigger_input":     triggerInput,
 		"instance":          instance,
 		"device":            device,
 		"device_data":       device,
@@ -642,6 +665,10 @@ func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, o
 		"script_metadata":   scriptContext(req.Script),
 		"script_parameters": req.Instance.ScriptParameters,
 		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+		"trigger": map[string]any{
+			"type":  req.Trigger,
+			"input": triggerInput,
+		},
 	}
 	return context
 }

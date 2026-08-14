@@ -670,6 +670,9 @@ func (a *App) triggerInstance(ctx context.Context, instanceID string, input map[
 	if updateErr != nil {
 		return updated, result, updateErr
 	}
+	if updated.Status == domain.ExecutionSuccess {
+		a.scheduleDependentTriggers(updated, result)
+	}
 	if runErr != nil {
 		return updated, result, runErr
 	}
@@ -757,19 +760,21 @@ func (a *App) enqueueExecutionCloudSync(ctx context.Context, execution domain.In
 		return
 	}
 	payload := map[string]any{
-		"message_id":       execution.ID,
-		"edge_id":          edgeInfo.EdgeID,
-		"execution_id":     execution.ID,
-		"instance_id":      execution.InstanceID,
-		"status":           execution.Status,
-		"trigger_type":     execution.TriggerType,
-		"occurred_at":      execution.CreatedAt.Format(time.RFC3339),
-		"finished_at":      nullableTime(execution.FinishedAt),
-		"duration_ms":      execution.DurationMS,
-		"error_message":    execution.ErrorMessage,
-		"destination_sent": execution.DestinationSent,
-		"fallback_used":    execution.FallbackUsed,
-		"logs":             execution.Logs,
+		"message_id":        execution.ID,
+		"edge_id":           edgeInfo.EdgeID,
+		"execution_id":      execution.ID,
+		"instance_id":       execution.InstanceID,
+		"status":            execution.Status,
+		"trigger_type":      execution.TriggerType,
+		"occurred_at":       execution.CreatedAt.Format(time.RFC3339),
+		"finished_at":       nullableTime(execution.FinishedAt),
+		"duration_ms":       execution.DurationMS,
+		"error_message":     execution.ErrorMessage,
+		"destination_sent":  execution.DestinationSent,
+		"fallback_used":     execution.FallbackUsed,
+		"logs":              execution.Logs,
+		"log_count":         len(execution.Logs),
+		"destination_count": len(execution.DestinationDetails),
 	}
 	if result.Output != nil {
 		payload["output_payload"] = result.Output
@@ -777,6 +782,22 @@ func (a *App) enqueueExecutionCloudSync(ctx context.Context, execution domain.In
 	if execution.OutputPayload != nil {
 		payload["output_payload"] = execution.OutputPayload
 	}
+	if execution.InputPayload != nil {
+		payload["input_payload"] = execution.InputPayload
+	}
+	if len(execution.DestinationDetails) > 0 {
+		payload["destination_details"] = execution.DestinationDetails
+	}
+	if workflow, ok := execution.InputPayload["workflow"].(map[string]any); ok {
+		payload["workflow"] = workflow
+		payload["workflow_enabled"] = true
+	}
+	if upstream, ok := execution.InputPayload["upstream"].(map[string]any); ok {
+		payload["upstream"] = upstream
+		payload["workflow_enabled"] = true
+	}
+	payload["has_input_payload"] = execution.InputPayload != nil && len(execution.InputPayload) > 0
+	payload["has_output_payload"] = execution.OutputPayload != nil && len(execution.OutputPayload) > 0
 	_, _ = a.CloudSync.EnqueueInstanceExecution(ctx, payload)
 }
 

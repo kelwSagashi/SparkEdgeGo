@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -110,7 +111,7 @@ func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 		},
 	})
 
-	payload := runner.applyMapping(context.Background(), &domain.DataMapping{
+	payload, err := runner.applyMapping(context.Background(), &domain.DataMapping{
 		PayloadTemplate: map[string]any{
 			"deviceName": "{{device.name}}",
 			"deviceZone": "{{device_data.sector}}",
@@ -127,6 +128,9 @@ func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 			DeviceID: "device-1",
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if payload["deviceName"] != "Pump A" {
 		t.Fatalf("expected device context, got %#v", payload)
@@ -139,6 +143,47 @@ func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 	}
 	if payload["temperature"] != float64(42) {
 		t.Fatalf("expected output mapping to remain intact, got %#v", payload)
+	}
+}
+
+func TestRunnerApplyMappingSupportsTransformScript(t *testing.T) {
+	runner := NewRunner(Dependencies{})
+
+	payload, err := runner.applyMapping(context.Background(), &domain.DataMapping{
+		PayloadTemplate: map[string]any{
+			"temperature": "{{script.temperature}}",
+			"status":      "{{script.status}}",
+		},
+		TransformScript: `
+set meta.collected_at = now()
+set summary = concat('status:', data.status)
+delete status
+return { ...data, status_label: summary }
+`,
+	}, map[string]any{
+		"temperature": float64(42),
+		"status":      "warning",
+	}, TriggerRequest{
+		Instance: domain.Instance{
+			ID:   "instance-1",
+			Name: "Collector 1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if payload["temperature"] != float64(42) {
+		t.Fatalf("expected original payload to remain, got %#v", payload)
+	}
+	if _, ok := payload["status"]; ok {
+		t.Fatalf("expected status to be removed by transform, got %#v", payload)
+	}
+	if payload["status_label"] != "status:warning" {
+		t.Fatalf("expected derived label, got %#v", payload)
+	}
+	meta, ok := payload["meta"].(map[string]any)
+	if !ok || meta["collected_at"] == "" {
+		t.Fatalf("expected nested meta timestamp, got %#v", payload)
 	}
 }
 
@@ -170,11 +215,21 @@ func TestRunnerResolveScriptInputSupportsTemplates(t *testing.T) {
 			Name:     "Collector 1",
 			DeviceID: "device-1",
 		},
+		Trigger: domain.TriggerWorkflow,
+		Input: map[string]any{
+			"upstream": map[string]any{
+				"output": map[string]any{
+					"temperature": float64(42),
+				},
+			},
+		},
 	}, map[string]any{
 		"device_name":   "{{device.name}}",
 		"device_sector": "{{device.sector}}",
 		"edge_name":     "{{system.edge_name}}",
 		"instance_name": "{{system.instance_name}}",
+		"upstream_temp": "{{input.upstream.output.temperature}}",
+		"trigger_type":  "{{trigger.type}}",
 		"manual":        "value",
 	})
 
@@ -183,6 +238,9 @@ func TestRunnerResolveScriptInputSupportsTemplates(t *testing.T) {
 	}
 	if input["edge_name"] != "Factory Edge" || input["instance_name"] != "Collector 1" {
 		t.Fatalf("expected resolved system aliases, got %#v", input)
+	}
+	if numericValue(input["upstream_temp"]) != 42 || fmt.Sprint(input["trigger_type"]) != string(domain.TriggerWorkflow) {
+		t.Fatalf("expected trigger input context to be available, got %#v", input)
 	}
 	if input["manual"] != "value" {
 		t.Fatalf("expected plain input to remain unchanged, got %#v", input)
@@ -224,4 +282,19 @@ type fakeEdgeConfigRepo struct {
 
 func (f fakeEdgeConfigRepo) GetEdgeConfig(_ context.Context) (domain.EdgeConfig, error) {
 	return f.config, nil
+}
+
+func numericValue(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case int:
+		return float64(typed)
+	case int32:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	default:
+		return 0
+	}
 }

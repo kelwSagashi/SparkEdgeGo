@@ -10,6 +10,7 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
@@ -39,6 +40,7 @@ type Dependencies struct {
 	MQTT                *mqtt.Client
 	Providers           *providers.Registry
 	Runtime             *runtime.Runner
+	TriggerInstance     func(context.Context, string, map[string]any, domain.TriggerType) (domain.InstanceExecution, runtime.TriggerResult, error)
 	DispatchEvent       func(context.Context, string, map[string]any) (any, error)
 	DispatchStateChange func(context.Context, map[string]any) (any, error)
 	ServerInfra         *serverinfra.Service
@@ -114,6 +116,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/cli/mqtt-config", Adapt(s.handleCliMQTTConfigGet))
 	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
 	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
+	mux.HandleFunc("GET /api/cli/operational-summary", Adapt(s.handleCliOperationalSummary))
 	mux.HandleFunc("GET /api/update/check", Adapt(s.handleUpdateCheck))
 	mux.HandleFunc("GET /api/update/status", Adapt(s.handleUpdateStatus))
 	mux.HandleFunc("POST /api/update/download", Adapt(s.handleUpdateDownload))

@@ -12,6 +12,7 @@ const (
 	TriggerEvent              TriggerType = "event"
 	TriggerMQTT               TriggerType = "mqtt"
 	TriggerStateChange        TriggerType = "state_change"
+	TriggerWorkflow           TriggerType = "workflow"
 )
 
 type InstanceStatus string

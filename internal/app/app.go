@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
 	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
@@ -53,6 +54,9 @@ type App struct {
 	CloudSync   *cloudsync.Service
 	Config      *config.Manager
 	RuntimeCfg  config.Runtime
+
+	workflowMu       sync.Mutex
+	workflowInflight map[string]bool
 }
 
 func New(cfg *config.Manager) *App {
@@ -72,6 +76,7 @@ func New(cfg *config.Manager) *App {
 	sparkitExecutor := sparkit.NewExecutor()
 	store := sqlite.NewStore()
 	store.Path = runtimeCfg.DBFile
+	sqlite.ConfigureRetention(runtimeCfg.Retention)
 	if err := store.Open(context.Background()); err != nil {
 		panic(err)
 	}
@@ -141,6 +146,7 @@ func New(cfg *config.Manager) *App {
 		CloudSync:  cloudSyncService,
 		Config:     cfg,
 		RuntimeCfg: runtimeCfg,
+		workflowInflight: map[string]bool{},
 	}
 	application.MQTT.SetStatsProvider(application.collectOperationalSnapshot)
 	application.registerMqttCommandHandlers()
@@ -162,6 +168,9 @@ func (a *App) HTTPServer(addr string) *httpapi.Server {
 		MQTT:       a.MQTT,
 		Providers:  a.Providers,
 		Runtime:    a.Runtime,
+		TriggerInstance: func(ctx context.Context, instanceID string, input map[string]any, triggerType domain.TriggerType) (domain.InstanceExecution, runtime.TriggerResult, error) {
+			return a.triggerInstance(ctx, instanceID, input, triggerType)
+		},
 		DispatchEvent: func(ctx context.Context, eventName string, payload map[string]any) (any, error) {
 			return a.DispatchEvent(ctx, eventName, payload)
 		},
