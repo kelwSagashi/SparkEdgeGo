@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -175,7 +176,9 @@ func (r *EdgeRepository) UpsertEdgeConfig(ctx context.Context, params UpsertEdge
 	if params.Description != nil {
 		model.Description = *params.Description
 	}
-	if model.LocationSource == "" {
+	if strings.TrimSpace(model.Lat) == "" || strings.TrimSpace(model.Lng) == "" {
+		model.LocationSource = ""
+	} else if model.LocationSource == "" {
 		model.LocationSource = "manual"
 	}
 	if model.Environment == "" {

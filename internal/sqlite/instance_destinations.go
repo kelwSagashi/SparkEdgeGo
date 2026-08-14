@@ -108,14 +108,25 @@ func applyDestinationParams(model *instanceDestinationModel, params UpsertInstan
 	if params.RetryPolicy.RetryInterval == 0 {
 		params.RetryPolicy.RetryInterval = 60
 	}
+	if params.RetryPolicy.TimeoutSeconds == 0 {
+		params.RetryPolicy.TimeoutSeconds = 30
+	}
+	if params.RetryPolicy.IsolationMode == "" {
+		params.RetryPolicy.IsolationMode = "isolate"
+	}
 
 	model.InstanceID = params.InstanceID
 	model.ResourceOperationID = params.ResourceOperationID
 	model.Enabled = params.Enabled
 	model.Priority = params.Priority
 	model.RetryPolicy = mapJSON{
-		"max_retries":    params.RetryPolicy.MaxRetries,
-		"retry_interval": params.RetryPolicy.RetryInterval,
+		"max_retries":                      params.RetryPolicy.MaxRetries,
+		"retry_interval":                   params.RetryPolicy.RetryInterval,
+		"timeout_seconds":                  params.RetryPolicy.TimeoutSeconds,
+		"continue_on_error":                params.RetryPolicy.ContinueOnError,
+		"isolation_mode":                   params.RetryPolicy.IsolationMode,
+		"circuit_breaker_threshold":        params.RetryPolicy.CircuitBreakerThreshold,
+		"circuit_breaker_cooldown_seconds": params.RetryPolicy.CircuitBreakerCooldownSeconds,
 	}
 }
 
@@ -127,8 +138,13 @@ func destinationFromModel(model instanceDestinationModel) domain.InstanceDestina
 		Enabled:             model.Enabled,
 		Priority:            model.Priority,
 		RetryPolicy: domain.RetryPolicy{
-			MaxRetries:    intFromJSON(model.RetryPolicy, "max_retries"),
-			RetryInterval: intFromJSON(model.RetryPolicy, "retry_interval"),
+			MaxRetries:                    intFromJSON(model.RetryPolicy, "max_retries"),
+			RetryInterval:                 intFromJSON(model.RetryPolicy, "retry_interval"),
+			TimeoutSeconds:                intFromJSON(model.RetryPolicy, "timeout_seconds"),
+			ContinueOnError:               boolFromJSON(model.RetryPolicy, "continue_on_error"),
+			IsolationMode:                 stringFromJSON(model.RetryPolicy, "isolation_mode"),
+			CircuitBreakerThreshold:       intFromJSON(model.RetryPolicy, "circuit_breaker_threshold"),
+			CircuitBreakerCooldownSeconds: intFromJSON(model.RetryPolicy, "circuit_breaker_cooldown_seconds"),
 		},
 		CreatedAt: model.CreatedAt,
 	}
@@ -143,4 +159,18 @@ func intFromJSON(value mapJSON, key string) int {
 	default:
 		return 0
 	}
+}
+
+func boolFromJSON(value mapJSON, key string) bool {
+	if raw, ok := value[key].(bool); ok {
+		return raw
+	}
+	return false
+}
+
+func stringFromJSON(value mapJSON, key string) string {
+	if raw, ok := value[key].(string); ok {
+		return raw
+	}
+	return ""
 }

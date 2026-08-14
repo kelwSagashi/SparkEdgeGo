@@ -173,6 +173,24 @@ export type DownloadedScriptReturningValues = {
   [key: string]: unknown;
 };
 
+export type DownloadedScriptHistoryEntry = {
+  id: string;
+  script_id: string;
+  action: "installed" | "bundle_updated" | "metadata_updated" | "restored" | string;
+  name: string;
+  description?: string | null;
+  author?: string | null;
+  version?: string | null;
+  main_file?: string | null;
+  requirements_file?: string | null;
+  tags?: string[];
+  schema_config?: { inputs?: SchemaConfigIO[]; outputs?: SchemaConfigIO[] } | null;
+  change_summary?: string[];
+  bundle_path?: string | null;
+  can_restore?: boolean;
+  created_at?: string;
+};
+
 export type DownloadedScriptUpsertValues = Partial<DownloadedScriptReturningValues>;
 
 export type InstanceReturningValues = {
@@ -189,6 +207,9 @@ export type InstanceReturningValues = {
   script_parameters?: Record<string, unknown> | Array<Record<string, unknown>>;
   trigger_type?: string | null;
   trigger_config?: Record<string, unknown> | null;
+  depends_on?: string[] | null;
+  execution_mode?: "sequential" | "parallel" | string | null;
+  orchestration_config?: Record<string, unknown> | null;
   fallback_enabled?: boolean | null;
   fallback_strategy?: string | null;
   fallback_retry_interval_seconds?: number | null;
@@ -216,6 +237,20 @@ export type InstanceExecutionReturningValues = {
   error_message?: string | null;
   destination_sent?: boolean | null;
   fallback_used?: boolean | null;
+  input_payload?: Record<string, unknown> | null;
+  output_payload?: Record<string, unknown> | null;
+  destination_details?: Array<{
+    destination_id: string;
+    resource_operation_id: string;
+    server_name?: string;
+    resource_name?: string;
+    operation_name?: string;
+    status: "success" | "failed" | "fallback" | "skipped" | string;
+    payload?: Record<string, unknown>;
+    error?: string | null;
+    used_fallback?: boolean;
+    timestamp?: string;
+  }>;
   duration_ms?: number | null;
   logs?: Array<Record<string, unknown>>;
   started_at?: string | null;
@@ -236,6 +271,12 @@ export type InstanceDestinationReturningValues = {
   mapping?: DataMappingReturningValues | null;
   data_mapping?: DataMappingReturningValues | null;
   dataMapping?: DataMappingReturningValues | null;
+  breaker_state?: {
+    destination_id: string;
+    consecutive_failures?: number | null;
+    opened_until?: string | null;
+    updated_at?: string;
+  } | null;
   [key: string]: unknown;
 };
 

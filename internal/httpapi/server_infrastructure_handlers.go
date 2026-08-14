@@ -285,7 +285,16 @@ func publicServerType(item domain.ServerType) map[string]any {
 func publicAuthTypes(items []domain.AuthType) []map[string]any {
 	result := make([]map[string]any, 0, len(items))
 	for _, item := range items {
-		result = append(result, map[string]any{"id": item.ID, "name": item.Name, "strategy": item.Strategy, "fields": item.Fields, "server_type_id": item.ServerTypeID})
+		metadata := adapterMetadataFor(item.ID, item.ServerTypeID)
+		result = append(result, map[string]any{
+			"id":              item.ID,
+			"name":            item.Name,
+			"strategy":        item.Strategy,
+			"fields":          item.Fields,
+			"server_type_id":  item.ServerTypeID,
+			"resourceFields":  metadata.ResourceFields,
+			"operationFields": metadata.OperationFields,
+		})
 	}
 	return result
 }

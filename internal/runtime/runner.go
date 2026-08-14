@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -39,6 +41,11 @@ type Dependencies struct {
 	Destinations interface {
 		FindByID(context.Context, string) (domain.InstanceDestination, error)
 	}
+	CircuitBreakers interface {
+		GetByDestination(context.Context, string) (domain.CircuitBreakerState, error)
+		Upsert(context.Context, domain.CircuitBreakerState) (domain.CircuitBreakerState, error)
+		Delete(context.Context, string) error
+	}
 	Devices interface {
 		FindByID(context.Context, string) (domain.Device, error)
 	}
@@ -48,7 +55,8 @@ type Dependencies struct {
 }
 
 type Runner struct {
-	deps Dependencies
+	deps      Dependencies
+	breakerMu sync.Mutex
 }
 
 func NewRunner(deps Dependencies) *Runner {
@@ -65,24 +73,32 @@ type TriggerRequest struct {
 }
 
 type TriggerResult struct {
-	ExecutionID     string
-	Status          domain.ExecutionStatus
-	Output          map[string]any
-	MappedPayloads  []MappedPayload
-	RawOutput       string
-	Error           string
-	Logs            []domain.ExecutionLog
-	DurationMS      int
-	DestinationSent bool
-	FallbackUsed    bool
-	StartedAt       time.Time
-	FinishedAt      time.Time
+	ExecutionID        string
+	Status             domain.ExecutionStatus
+	InputPayload       map[string]any
+	Output             map[string]any
+	MappedPayloads     []MappedPayload
+	DestinationDetails []domain.ExecutionDestinationDetail
+	RawOutput          string
+	Error              string
+	Logs               []domain.ExecutionLog
+	DurationMS         int
+	DestinationSent    bool
+	FallbackUsed       bool
+	StartedAt          time.Time
+	FinishedAt         time.Time
 }
 
 type MappedPayload struct {
 	DestinationID       string         `json:"destination_id"`
 	ResourceOperationID string         `json:"resource_operation_id"`
 	Payload             map[string]any `json:"payload"`
+}
+
+type destinationMetadata struct {
+	serverName    string
+	resourceName  string
+	operationName string
 }
 
 func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult, error) {
@@ -109,6 +125,7 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 		input[key] = value
 	}
 	input = r.resolveScriptInput(ctx, req, input)
+	result.InputPayload = input
 
 	logs = append(logs, newLog("info", "Running Python script with Sparkit", time.Now().UTC()))
 	scriptResult, err := r.deps.Sparkit.RunFile(ctx, resolvePath(req.Script.LocalPath), req.Script.MainFile, resolvePath(req.Script.VenvPath), input)
@@ -130,6 +147,7 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 	result.Logs = append(result.Logs, newLog("info", "Script finished successfully", time.Now().UTC()))
 	delivery, deliveryErr := r.dispatchDestinations(ctx, req, result.Output)
 	result.MappedPayloads = delivery.payloads
+	result.DestinationDetails = delivery.details
 	result.DestinationSent = delivery.sent
 	result.FallbackUsed = delivery.fallback
 	result.Logs = append(result.Logs, delivery.logs...)
@@ -146,6 +164,7 @@ type deliveryResult struct {
 	sent     bool
 	fallback bool
 	payloads []MappedPayload
+	details  []domain.ExecutionDestinationDetail
 	logs     []domain.ExecutionLog
 }
 
@@ -160,30 +179,137 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 		}, nil
 	}
 
-	result := deliveryResult{payloads: []MappedPayload{}}
+	result := deliveryResult{payloads: []MappedPayload{}, details: []domain.ExecutionDestinationDetail{}}
 	var failures []string
-	for _, item := range req.Destinations {
+	destinations := append([]domain.InstanceDestinationWithMapping{}, req.Destinations...)
+	sort.SliceStable(destinations, func(i, j int) bool {
+		return destinations[i].Destination.Priority < destinations[j].Destination.Priority
+	})
+
+	process := func(item domain.InstanceDestinationWithMapping) (domain.ExecutionDestinationDetail, *MappedPayload, []domain.ExecutionLog, bool, bool, error) {
 		destination := item.Destination
+		now := time.Now().UTC()
+		metadata := r.resolveDestinationMetadata(ctx, destination)
 		if !destination.Enabled {
-			result.logs = append(result.logs, newLog("info", "Destination "+destination.ID+" disabled, skipping", time.Now().UTC()))
-			continue
+			return domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "skipped",
+				Payload:             map[string]any{},
+				Timestamp:           now,
+			}, nil, []domain.ExecutionLog{newLog("info", "Destination "+destination.ID+" disabled, skipping", now)}, false, false, nil
 		}
-		payload := r.applyMapping(ctx, item.Mapping, output, req)
-		result.payloads = append(result.payloads, MappedPayload{
+		payload, mapErr := r.applyMapping(ctx, item.Mapping, output, req)
+		if mapErr != nil {
+			return domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "failed",
+				Payload:             map[string]any{},
+				Error:               mapErr.Error(),
+				Timestamp:           now,
+			}, nil, []domain.ExecutionLog{newLog("error", "Failed to map destination "+destination.ID+": "+mapErr.Error(), now)}, false, false, mapErr
+		}
+		mapped := &MappedPayload{
 			DestinationID:       destination.ID,
 			ResourceOperationID: destination.ResourceOperationID,
 			Payload:             payload,
-		})
-
-		if err := r.sendToDestination(ctx, destination, payload); err != nil {
-			if r.enqueueFallback(ctx, req, destination.ID, payload, err.Error(), &result) {
-				continue
-			}
-			failures = append(failures, destination.ID+": "+err.Error())
-			continue
 		}
-		result.sent = true
-		result.logs = append(result.logs, newLog("info", "Successfully dispatched to destination "+destination.ID, time.Now().UTC()))
+
+		if err := r.sendToDestinationWithPolicy(ctx, destination, payload); err != nil {
+			if fallbackLogs, ok := r.enqueueFallback(ctx, req, destination.ID, payload, err.Error()); ok {
+				return domain.ExecutionDestinationDetail{
+					DestinationID:       destination.ID,
+					ResourceOperationID: destination.ResourceOperationID,
+					ServerName:          metadata.serverName,
+					ResourceName:        metadata.resourceName,
+					OperationName:       metadata.operationName,
+					Status:              "fallback",
+					Payload:             payload,
+					Error:               err.Error(),
+					UsedFallback:        true,
+					Timestamp:           time.Now().UTC(),
+				}, mapped, fallbackLogs, false, true, nil
+			}
+			return domain.ExecutionDestinationDetail{
+				DestinationID:       destination.ID,
+				ResourceOperationID: destination.ResourceOperationID,
+				ServerName:          metadata.serverName,
+				ResourceName:        metadata.resourceName,
+				OperationName:       metadata.operationName,
+				Status:              "failed",
+				Payload:             payload,
+				Error:               err.Error(),
+				Timestamp:           time.Now().UTC(),
+			}, mapped, nil, false, false, err
+		}
+		successAt := time.Now().UTC()
+		return domain.ExecutionDestinationDetail{
+			DestinationID:       destination.ID,
+			ResourceOperationID: destination.ResourceOperationID,
+			ServerName:          metadata.serverName,
+			ResourceName:        metadata.resourceName,
+			OperationName:       metadata.operationName,
+			Status:              "success",
+			Payload:             payload,
+			Timestamp:           successAt,
+		}, mapped, []domain.ExecutionLog{newLog("info", "Successfully dispatched to destination "+destination.ID, successAt)}, true, false, nil
+	}
+
+	if req.Instance.ExecutionMode == domain.ExecutionModeParallel {
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for _, item := range destinations {
+			wg.Add(1)
+			go func(item domain.InstanceDestinationWithMapping) {
+				defer wg.Done()
+				detail, mapped, logs, sent, fallbackUsed, err := process(item)
+				mu.Lock()
+				defer mu.Unlock()
+				if mapped != nil {
+					result.payloads = append(result.payloads, *mapped)
+				}
+				result.details = append(result.details, detail)
+				result.logs = append(result.logs, logs...)
+				if sent {
+					result.sent = true
+				}
+				if fallbackUsed {
+					result.fallback = true
+				}
+				if err != nil {
+					failures = append(failures, item.Destination.ID+": "+err.Error())
+				}
+			}(item)
+		}
+		wg.Wait()
+	} else {
+		for _, item := range destinations {
+			detail, mapped, logs, sent, fallbackUsed, err := process(item)
+			if mapped != nil {
+				result.payloads = append(result.payloads, *mapped)
+			}
+			result.details = append(result.details, detail)
+			result.logs = append(result.logs, logs...)
+			if sent {
+				result.sent = true
+			}
+			if fallbackUsed {
+				result.fallback = true
+			}
+			if err != nil {
+				failures = append(failures, item.Destination.ID+": "+err.Error())
+				if !item.Destination.RetryPolicy.ContinueOnError && item.Destination.RetryPolicy.IsolationMode != "continue" {
+					break
+				}
+			}
+		}
 	}
 	if len(failures) > 0 && !result.sent {
 		return result, errors.New(strings.Join(failures, "; "))
@@ -192,6 +318,116 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 		result.logs = append(result.logs, newLog("info", "Destination dispatch completed", time.Now().UTC()))
 	}
 	return result, nil
+}
+
+func (r *Runner) sendToDestinationWithPolicy(ctx context.Context, destination domain.InstanceDestination, payload map[string]any) error {
+	policy := destination.RetryPolicy
+	if policy.MaxRetries <= 0 {
+		policy.MaxRetries = 1
+	}
+	if policy.RetryInterval <= 0 {
+		policy.RetryInterval = 1
+	}
+	if policy.TimeoutSeconds <= 0 {
+		policy.TimeoutSeconds = 30
+	}
+	if err := r.beforeSend(destination.ID, policy); err != nil {
+		return err
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= policy.MaxRetries; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, time.Duration(policy.TimeoutSeconds)*time.Second)
+		err := r.sendToDestination(attemptCtx, destination, payload)
+		cancel()
+		if err == nil {
+			r.afterSendSuccess(destination.ID)
+			return nil
+		}
+		lastErr = err
+		if attempt < policy.MaxRetries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(policy.RetryInterval) * time.Second):
+			}
+		}
+	}
+	r.afterSendFailure(destination.ID, policy)
+	return lastErr
+}
+
+func (r *Runner) beforeSend(destinationID string, policy domain.RetryPolicy) error {
+	if policy.CircuitBreakerThreshold <= 0 || policy.CircuitBreakerCooldownSeconds <= 0 {
+		return nil
+	}
+	r.breakerMu.Lock()
+	defer r.breakerMu.Unlock()
+	state, err := r.loadBreakerState(destinationID)
+	if err != nil {
+		return err
+	}
+	if state.OpenedUntil != nil && time.Now().UTC().Before(*state.OpenedUntil) {
+		return errors.New("circuit breaker open for destination")
+	}
+	if state.OpenedUntil != nil && time.Now().UTC().After(*state.OpenedUntil) {
+		state.OpenedUntil = nil
+		_ = r.saveBreakerState(state)
+	}
+	return nil
+}
+
+func (r *Runner) afterSendSuccess(destinationID string) {
+	r.breakerMu.Lock()
+	defer r.breakerMu.Unlock()
+	if r.deps.CircuitBreakers != nil {
+		_ = r.deps.CircuitBreakers.Delete(context.Background(), destinationID)
+	}
+}
+
+func (r *Runner) afterSendFailure(destinationID string, policy domain.RetryPolicy) {
+	if policy.CircuitBreakerThreshold <= 0 || policy.CircuitBreakerCooldownSeconds <= 0 {
+		return
+	}
+	r.breakerMu.Lock()
+	defer r.breakerMu.Unlock()
+	state, err := r.loadBreakerState(destinationID)
+	if err != nil {
+		return
+	}
+	state.ConsecutiveFailures++
+	if state.ConsecutiveFailures >= policy.CircuitBreakerThreshold {
+		openedUntil := time.Now().UTC().Add(time.Duration(policy.CircuitBreakerCooldownSeconds) * time.Second)
+		state.OpenedUntil = &openedUntil
+		state.ConsecutiveFailures = 0
+	}
+	_ = r.saveBreakerState(state)
+}
+
+func (r *Runner) loadBreakerState(destinationID string) (domain.CircuitBreakerState, error) {
+	if r.deps.CircuitBreakers == nil {
+		return domain.CircuitBreakerState{DestinationID: destinationID}, nil
+	}
+	state, err := r.deps.CircuitBreakers.GetByDestination(context.Background(), destinationID)
+	if err != nil {
+		if errors.Is(err, sqlite.ErrNotFound) {
+			return domain.CircuitBreakerState{DestinationID: destinationID}, nil
+		}
+		return domain.CircuitBreakerState{}, err
+	}
+	return state, nil
+}
+
+func (r *Runner) saveBreakerState(state domain.CircuitBreakerState) error {
+	if r.deps.CircuitBreakers == nil {
+		return nil
+	}
+	state.DestinationID = strings.TrimSpace(state.DestinationID)
+	if state.DestinationID == "" {
+		return nil
+	}
+	_, err := r.deps.CircuitBreakers.Upsert(context.Background(), state)
+	return err
 }
 
 func (r *Runner) FlushFallback(ctx context.Context, maxRetries int) (int, error) {
@@ -311,13 +547,28 @@ func (r *Runner) sendToDestination(ctx context.Context, destination domain.Insta
 	return adapter.Send(ctx, payload)
 }
 
-func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destinationID string, payload map[string]any, reason string, result *deliveryResult) bool {
+func (r *Runner) resolveDestinationMetadata(ctx context.Context, destination domain.InstanceDestination) destinationMetadata {
+	if r == nil || r.deps.ResourceOperations == nil {
+		return destinationMetadata{}
+	}
+	target, err := r.deps.ResourceOperations.ResolveTarget(ctx, destination.ResourceOperationID)
+	if err != nil {
+		return destinationMetadata{}
+	}
+	return destinationMetadata{
+		serverName:    target.Server.Name,
+		resourceName:  target.Resource.Name,
+		operationName: target.Operation.Name,
+	}
+}
+
+func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destinationID string, payload map[string]any, reason string) ([]domain.ExecutionLog, bool) {
 	if !req.Instance.FallbackEnabled || r.deps.Fallback == nil {
-		return false
+		return nil, false
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return false
+		return nil, false
 	}
 	if _, err := r.deps.Fallback.Create(ctx, sqlite.CreateLocalFallbackParams{
 		InstanceID:    req.Instance.ID,
@@ -325,14 +576,14 @@ func (r *Runner) enqueueFallback(ctx context.Context, req TriggerRequest, destin
 		ExecutionID:   req.ExecutionID,
 		Payload:       string(encoded),
 	}); err != nil {
-		return false
+		return nil, false
 	}
-	result.fallback = true
-	result.logs = append(result.logs, newLog("info", "Enqueued destination "+destinationID+" into fallback storage: "+reason, time.Now().UTC()))
-	return true
+	return []domain.ExecutionLog{
+		newLog("info", "Enqueued destination "+destinationID+" into fallback storage: "+reason, time.Now().UTC()),
+	}, true
 }
 
-func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, output map[string]any, req TriggerRequest) map[string]any {
+func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, output map[string]any, req TriggerRequest) (map[string]any, error) {
 	context := r.buildTemplateContext(ctx, req, output)
 	for key, value := range output {
 		context[key] = value
@@ -372,7 +623,14 @@ func (r *Runner) applyMapping(ctx context.Context, mapping *domain.DataMapping, 
 			payload[key] = value
 		}
 	}
-	return payload
+	if mapping != nil && strings.TrimSpace(mapping.TransformScript) != "" {
+		transformed, err := applyTransformScript(mapping.TransformScript, payload, context)
+		if err != nil {
+			return nil, err
+		}
+		payload = transformed
+	}
+	return payload, nil
 }
 
 func (r *Runner) resolveScriptInput(ctx context.Context, req TriggerRequest, input map[string]any) map[string]any {
@@ -393,9 +651,12 @@ func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, o
 	device := r.resolveDeviceContext(ctx, req.Instance.DeviceID)
 	instance := instanceContext(req.Instance)
 	system := r.resolveSystemContext(ctx, req.Instance)
+	triggerInput := cloneMap(req.Input)
 	context := map[string]any{
 		"script":            output,
 		"output":            output,
+		"input":             triggerInput,
+		"trigger_input":     triggerInput,
 		"instance":          instance,
 		"device":            device,
 		"device_data":       device,
@@ -404,6 +665,10 @@ func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, o
 		"script_metadata":   scriptContext(req.Script),
 		"script_parameters": req.Instance.ScriptParameters,
 		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+		"trigger": map[string]any{
+			"type":  req.Trigger,
+			"input": triggerInput,
+		},
 	}
 	return context
 }

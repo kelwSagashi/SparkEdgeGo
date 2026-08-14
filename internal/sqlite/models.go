@@ -154,6 +154,27 @@ func (downloadedScriptModel) TableName() string {
 	return "downloaded_scripts"
 }
 
+type downloadedScriptHistoryModel struct {
+	ID               string          `gorm:"primaryKey;type:text"`
+	ScriptID         string          `gorm:"not null;index;type:text"`
+	Action           string          `gorm:"not null;type:text"`
+	Name             string          `gorm:"not null;type:text"`
+	Description      string          `gorm:"type:text"`
+	Author           string          `gorm:"not null;type:text"`
+	Version          string          `gorm:"not null;default:1.0.0;type:text"`
+	MainFile         string          `gorm:"not null;type:text"`
+	RequirementsFile string          `gorm:"type:text"`
+	Tags             stringSliceJSON `gorm:"type:text"`
+	SchemaConfig     mapJSON         `gorm:"type:text"`
+	ChangeSummary    stringSliceJSON `gorm:"type:text"`
+	BundlePath       string          `gorm:"type:text"`
+	CreatedAt        time.Time
+}
+
+func (downloadedScriptHistoryModel) TableName() string {
+	return "downloaded_script_history"
+}
+
 type deviceModel struct {
 	ID                  string                `gorm:"primaryKey;type:text"`
 	DeviceID            string                `gorm:"uniqueIndex;type:text"`
@@ -211,6 +232,9 @@ type instanceModel struct {
 	ScriptParameters             mapJSON         `gorm:"type:text"`
 	TriggerType                  string          `gorm:"not null;default:interval;type:text"`
 	TriggerConfig                mapJSON         `gorm:"type:text"`
+	DependsOn                    stringSliceJSON `gorm:"type:text"`
+	ExecutionMode                string          `gorm:"not null;default:sequential;type:text"`
+	OrchestrationConfig          mapJSON         `gorm:"type:text"`
 	FallbackEnabled              bool            `gorm:"not null;default:true"`
 	FallbackStrategy             string          `gorm:"type:text;default:background_job"`
 	FallbackRetryIntervalSeconds int             `gorm:"default:300"`
@@ -253,20 +277,34 @@ func (dataMappingModel) TableName() string {
 	return "data_mappings"
 }
 
+type circuitBreakerStateModel struct {
+	DestinationID       string `gorm:"primaryKey;type:text"`
+	ConsecutiveFailures int    `gorm:"not null;default:0"`
+	OpenedUntil         *time.Time
+	UpdatedAt           time.Time
+}
+
+func (circuitBreakerStateModel) TableName() string {
+	return "circuit_breaker_states"
+}
+
 type instanceExecutionModel struct {
-	ID              string `gorm:"primaryKey;type:text"`
-	InstanceID      string `gorm:"not null;index;type:text"`
-	Status          string `gorm:"not null;default:queued;type:text"`
-	TriggerType     string `gorm:"not null;default:interval;type:text"`
-	StartedAt       *time.Time
-	FinishedAt      *time.Time
-	DurationMS      *int
-	Logs            executionLogsJSON `gorm:"type:text"`
-	Output          string            `gorm:"type:text"`
-	ErrorMessage    string            `gorm:"type:text"`
-	DestinationSent bool              `gorm:"not null;default:false"`
-	FallbackUsed    bool              `gorm:"not null;default:false"`
-	CreatedAt       time.Time
+	ID                 string `gorm:"primaryKey;type:text"`
+	InstanceID         string `gorm:"not null;index;type:text"`
+	Status             string `gorm:"not null;default:queued;type:text"`
+	TriggerType        string `gorm:"not null;default:interval;type:text"`
+	StartedAt          *time.Time
+	FinishedAt         *time.Time
+	DurationMS         *int
+	Logs               executionLogsJSON               `gorm:"type:text"`
+	Output             string                          `gorm:"type:text"`
+	ErrorMessage       string                          `gorm:"type:text"`
+	DestinationSent    bool                            `gorm:"not null;default:false"`
+	FallbackUsed       bool                            `gorm:"not null;default:false"`
+	InputPayload       mapJSON                         `gorm:"type:text"`
+	OutputPayload      mapJSON                         `gorm:"type:text"`
+	DestinationDetails executionDestinationDetailsJSON `gorm:"type:text"`
+	CreatedAt          time.Time
 }
 
 func (instanceExecutionModel) TableName() string {
@@ -301,6 +339,24 @@ type mqttQueueModel struct {
 
 func (mqttQueueModel) TableName() string {
 	return "mqtt_queue"
+}
+
+type cloudSyncQueueModel struct {
+	ID            string  `gorm:"primaryKey;type:text"`
+	EventType     string  `gorm:"not null;type:text"`
+	Priority      int     `gorm:"not null;default:0"`
+	Payload       mapJSON `gorm:"not null;type:text"`
+	Status        string  `gorm:"not null;default:pending;type:text"`
+	Attempts      int     `gorm:"not null;default:0"`
+	LastAttemptAt *time.Time
+	NextRetryAt   *time.Time
+	LastError     string `gorm:"type:text"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (cloudSyncQueueModel) TableName() string {
+	return "cloud_sync_queue"
 }
 
 type edgeConfigModel struct {

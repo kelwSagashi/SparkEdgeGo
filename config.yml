@@ -31,3 +31,84 @@ auth:
 server:
   # HTTP port the SparkEdge backend will listen on.
   port: 3009
+
+update:
+  # Enables assisted update checks against GitHub Releases.
+  enabled: true
+
+  # Current provider for the assisted update flow.
+  provider: github
+
+  # GitHub repository used as the official release source.
+  repo: kelwSagashi/SparkEdgeGo
+
+  # Release channel used by the update flow.
+  channel: stable
+
+  # Whether prereleases should be considered during checks.
+  allow_prerelease: false
+
+  # Optional service name used to suggest restart commands.
+  service_name: ""
+
+  # Optional custom restart command for assisted restart.
+  restart_command: ""
+
+connectivity:
+  # Queue age threshold to mark the edge as intermittent.
+  intermittent_pending_age_seconds: 120
+
+  # Queue age threshold to mark the edge as degraded.
+  degraded_pending_age_seconds: 600
+
+  # Cloud sync queue depth threshold for intermittent mode.
+  intermittent_cloud_sync_queue_depth: 5
+
+  # Cloud sync queue depth threshold for degraded mode.
+  degraded_cloud_sync_queue_depth: 25
+
+  # MQTT queue depth threshold for degraded mode.
+  degraded_mqtt_queue_depth: 10
+
+  # Heartbeat cadence while connectivity is healthy.
+  heartbeat_healthy_seconds: 30
+
+  # Heartbeat cadence while connectivity is degraded.
+  heartbeat_degraded_seconds: 90
+
+  # Stats cadence while connectivity is healthy.
+  stats_healthy_seconds: 120
+
+  # Stats cadence while connectivity is degraded.
+  stats_degraded_seconds: 300
+
+retention:
+  # Maximum number of queued MQTT messages kept locally.
+  mqtt_queue_max_items: 1000
+
+  # Maximum age for queued MQTT messages before cleanup.
+  mqtt_queue_max_age_hours: 336
+
+  # How long sent cloud-sync records remain available locally.
+  cloud_sync_sent_retention_hours: 168
+
+  # How long failed cloud-sync records remain available locally.
+  cloud_sync_failed_retention_hours: 720
+
+  # Maximum number of sent cloud-sync records to keep.
+  cloud_sync_keep_sent_items: 1000
+
+  # Maximum number of failed cloud-sync records to keep.
+  cloud_sync_keep_failed_items: 1000
+
+  # How long sent local fallback records remain available locally.
+  local_fallback_sent_retention_hours: 168
+
+  # How long failed local fallback records remain available locally.
+  local_fallback_failed_retention_hours: 720
+
+  # Maximum number of sent local fallback records to keep.
+  local_fallback_keep_sent_items: 1000
+
+  # Maximum number of failed local fallback records to keep.
+  local_fallback_keep_failed_items: 1000

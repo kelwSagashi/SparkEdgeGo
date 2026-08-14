@@ -11,13 +11,14 @@ func CollectStats() map[string]any {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 	return map[string]any{
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"cpu":       0,
-		"memory":    float64(mem.Alloc) / 1024 / 1024,
-		"uptime":    int(time.Since(startedAt).Seconds()),
-		"disk":      0,
+		"timestamp":      time.Now().UTC().Format(time.RFC3339),
+		"cpu_pct":        0,
+		"memory_mb":      float64(mem.Alloc) / 1024 / 1024,
+		"uptime_seconds": int(time.Since(startedAt).Seconds()),
+		"goroutines":     runtime.NumGoroutine(),
+		"disk_pct":       0,
 		"network": map[string]any{
-			"latency": nil,
+			"latency_ms": nil,
 		},
 	}
 }

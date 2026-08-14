@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import type { LocalFallbackItemReturningValues } from "@/types/db";
-import { fallbackApi } from '@/rest-api-client/fallback.service';
+import { fallbackApi, type FallbackStats } from '@/rest-api-client/fallback.service';
 
 interface FallbackState {
   items: LocalFallbackItemReturningValues[];
+  stats: FallbackStats | null;
   loading: boolean;
   refreshing: boolean;
   error: string | null;
@@ -17,6 +18,7 @@ interface FallbackState {
 
 export const useFallbackStore = create<FallbackState>((set, get) => ({
   items: [],
+  stats: null,
   loading: false,
   refreshing: false,
   error: null,
@@ -24,8 +26,8 @@ export const useFallbackStore = create<FallbackState>((set, get) => ({
   fetchItems: async () => {
     set({ loading: true, error: null });
     try {
-      const res = await fallbackApi.listAll();
-      set({ items: res.data || [] });
+      const [res, statsRes] = await Promise.all([fallbackApi.listAll(), fallbackApi.getStats()]);
+      set({ items: res.data || [], stats: statsRes.data || null });
     } catch (err: any) {
       set({ error: err?.message || 'Erro ao carregar dados locais' });
     } finally {
@@ -67,5 +69,5 @@ export const useFallbackStore = create<FallbackState>((set, get) => ({
     }
   },
 
-  reset: () => set({ items: [], loading: false, refreshing: false, error: null }),
+  reset: () => set({ items: [], stats: null, loading: false, refreshing: false, error: null }),
 }));

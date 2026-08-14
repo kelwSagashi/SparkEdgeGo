@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Input } from '../ui/input';
 import { Box, ChevronRight, Quote, Plus, Trash2, List, MoveDown, HelpCircle, GripVertical, Check } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
@@ -8,8 +8,775 @@ import { ItemTypes } from '@/lib/constants';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useDrop } from 'react-dnd';
+import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '../ui/command';
 
 export type JsonFieldType = 'string' | 'number' | 'boolean' | 'object' | 'array';
+type TemplateSuggestion = {
+    path: string;
+    label: string;
+    kind: 'object' | 'array' | 'value';
+};
+type TemplateReferenceStatus = {
+    token: string;
+    path: string;
+    valid: boolean;
+    kind?: TemplateSuggestion['kind'];
+};
+type TemplateFunctionStatus = {
+    token: string;
+    name: string;
+    supported: boolean;
+};
+type TemplateDecorationStatus = {
+    incompletePlaceholder: boolean;
+    unbalancedClosers: boolean;
+    functions: TemplateFunctionStatus[];
+};
+
+const SUPPORTED_TEMPLATE_FUNCTIONS = new Set([
+    'concat',
+    'upper',
+    'lower',
+    'trim',
+    'default',
+    'if',
+    'add',
+    'sub',
+    'mul',
+    'div',
+    'hash',
+    'parse',
+    'string',
+    'number',
+    'date',
+    'now',
+    'replace',
+    'join',
+]);
+const TEMPLATE_FUNCTION_DESCRIPTIONS: Record<string, { signature: string; description: string }> = {
+    concat: { signature: 'concat(a, b, ...)', description: 'Concatena textos e valores em uma unica saida.' },
+    upper: { signature: 'upper(value)', description: 'Converte texto para maiusculas.' },
+    lower: { signature: 'lower(value)', description: 'Converte texto para minusculas.' },
+    trim: { signature: 'trim(value)', description: 'Remove espacos do inicio e do fim.' },
+    default: { signature: 'default(value, fallback)', description: 'Usa um valor alternativo quando o principal estiver vazio.' },
+    if: { signature: 'if(condition, yes, no)', description: 'Retorna um de dois valores conforme a condicao.' },
+    add: { signature: 'add(a, b, ...)', description: 'Soma numeros.' },
+    sub: { signature: 'sub(a, b)', description: 'Subtrai o segundo valor do primeiro.' },
+    mul: { signature: 'mul(a, b, ...)', description: 'Multiplica numeros.' },
+    div: { signature: 'div(a, b)', description: 'Divide o primeiro valor pelo segundo.' },
+    hash: { signature: 'hash(value)', description: 'Gera um hash textual a partir do valor.' },
+    parse: { signature: 'parse(json)', description: 'Interpreta uma string JSON como objeto.' },
+    string: { signature: 'string(value)', description: 'Forca conversao para texto.' },
+    number: { signature: 'number(value)', description: 'Forca conversao para numero.' },
+    date: { signature: 'date(value)', description: 'Converte um valor em data formatada.' },
+    now: { signature: 'now()', description: 'Retorna a data/hora atual.' },
+    replace: { signature: 'replace(text, search, replace)', description: 'Substitui trechos de texto.' },
+    join: { signature: 'join(list, separator)', description: 'Junta itens de uma lista em texto.' },
+};
+type ActiveTemplateContext =
+    | { type: 'reference'; path: string; valid: boolean; kind?: TemplateSuggestion['kind'] }
+    | { type: 'function'; name: string; supported: boolean; signature?: string; description?: string }
+    | { type: 'placeholder'; message: string }
+    | null;
+type InputSelection = {
+    start: number;
+    end: number;
+};
+type OutputDragItem = {
+    value: string;
+    data?: unknown;
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function buildTemplateSuggestions(
+    value: unknown,
+    prefix = '$',
+    label = '$',
+): TemplateSuggestion[] {
+    if (Array.isArray(value)) {
+        const current: TemplateSuggestion[] = [{ path: prefix, label, kind: 'array' }];
+        value.forEach((item, index) => {
+            current.push(...buildTemplateSuggestions(item, `${prefix}.${index}`, `${label}.${index}`));
+        });
+        return current;
+    }
+
+    if (isPlainObject(value)) {
+        const current: TemplateSuggestion[] = [{ path: prefix, label, kind: 'object' }];
+        Object.entries(value).forEach(([key, nested]) => {
+            current.push(...buildTemplateSuggestions(nested, `${prefix}.${key}`, `${label}.${key}`));
+        });
+        return current;
+    }
+
+    return [{ path: prefix, label, kind: 'value' }];
+}
+
+function getTemplateContext(value: string, cursor: number) {
+    const beforeCursor = value.slice(0, cursor);
+    const lastOpen = beforeCursor.lastIndexOf('{{');
+    if (lastOpen !== -1) {
+        const closeAfterOpen = value.indexOf('}}', lastOpen + 2);
+        if (closeAfterOpen === -1 || closeAfterOpen >= cursor) {
+            const rawQuery = value.slice(lastOpen + 2, cursor);
+            return {
+                mode: 'placeholder' as const,
+                start: lastOpen,
+                end: closeAfterOpen === -1 ? cursor : closeAfterOpen + 2,
+                query: rawQuery.trim(),
+            };
+        }
+    }
+
+    let tokenStart = cursor;
+    while (tokenStart > 0) {
+        const previous = value[tokenStart - 1];
+        if (/\s|["',:[\]{}()]/.test(previous)) {
+            break;
+        }
+        tokenStart -= 1;
+    }
+
+    const token = value.slice(tokenStart, cursor);
+    if (token.startsWith('$')) {
+        return {
+            mode: 'path' as const,
+            start: tokenStart,
+            end: cursor,
+            query: token,
+        };
+    }
+
+    return null;
+}
+
+function coercePrimitiveValue(rawValue: string, originalValue: unknown) {
+    if (typeof originalValue === 'number') {
+        const parsed = Number(rawValue);
+        return Number.isNaN(parsed) ? rawValue : parsed;
+    }
+
+    if (typeof originalValue === 'boolean') {
+        if (rawValue === 'true') return true;
+        if (rawValue === 'false') return false;
+    }
+
+    return rawValue;
+}
+
+function cloneDroppedData<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return value;
+    }
+}
+
+function extractTemplateReferences(input: string, suggestions: TemplateSuggestion[]): TemplateReferenceStatus[] {
+    const knownSuggestions = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
+    const matches = input.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g);
+
+    return Array.from(matches).map((match) => {
+        const path = match[1].trim();
+        const suggestion = knownSuggestions.get(path);
+        return {
+            token: match[0],
+            path,
+            valid: !!suggestion,
+            kind: suggestion?.kind,
+        };
+    });
+}
+
+function extractTemplateDecorations(input: string): TemplateDecorationStatus {
+    const openerCount = (input.match(/\{\{/g) || []).length;
+    const closerCount = (input.match(/\}\}/g) || []).length;
+    const functionMatches = input.matchAll(/\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g);
+
+    return {
+        incompletePlaceholder: openerCount > closerCount,
+        unbalancedClosers: closerCount > openerCount,
+        functions: Array.from(functionMatches).map((match) => ({
+            token: match[0],
+            name: match[1],
+            supported: SUPPORTED_TEMPLATE_FUNCTIONS.has(match[1]),
+        })),
+    };
+}
+
+function getActiveTemplateContext(
+    input: string,
+    cursor: number,
+    suggestions: TemplateSuggestion[],
+): ActiveTemplateContext {
+    const knownSuggestions = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
+    const placeholderRegex = /\{\{\s*([^}]*?)\s*\}\}/g;
+
+    for (const match of input.matchAll(placeholderRegex)) {
+        const token = match[0];
+        const rawPath = match[1].trim();
+        const start = match.index ?? 0;
+        const end = start + token.length;
+        if (cursor < start || cursor > end) {
+            continue;
+        }
+
+        if (!rawPath) {
+            return { type: 'placeholder', message: 'Digite uma variavel ou funcao dentro do placeholder.' };
+        }
+
+        const functionMatch = rawPath.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+        if (functionMatch) {
+            const name = functionMatch[1];
+            const metadata = TEMPLATE_FUNCTION_DESCRIPTIONS[name];
+            return {
+                type: 'function',
+                name,
+                supported: !!metadata,
+                signature: metadata?.signature,
+                description: metadata?.description,
+            };
+        }
+
+        const suggestion = knownSuggestions.get(rawPath);
+        return {
+            type: 'reference',
+            path: rawPath,
+            valid: !!suggestion,
+            kind: suggestion?.kind,
+        };
+    }
+
+    const openIndex = input.lastIndexOf('{{', cursor);
+    if (openIndex !== -1) {
+        const closeIndex = input.indexOf('}}', openIndex + 2);
+        if (closeIndex === -1 || closeIndex >= cursor) {
+            const partial = input.slice(openIndex + 2, cursor).trim();
+            const functionMatch = partial.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/);
+            if (functionMatch) {
+                const name = functionMatch[1];
+                const metadata = TEMPLATE_FUNCTION_DESCRIPTIONS[name];
+                return {
+                    type: 'function',
+                    name,
+                    supported: !!metadata,
+                    signature: metadata?.signature,
+                    description: metadata?.description,
+                };
+            }
+
+            if (partial.startsWith('$')) {
+                const suggestion = knownSuggestions.get(partial);
+                return {
+                    type: 'reference',
+                    path: partial,
+                    valid: !!suggestion,
+                    kind: suggestion?.kind,
+                };
+            }
+
+            return { type: 'placeholder', message: 'Continue digitando para completar a expressao atual.' };
+        }
+    }
+
+    return null;
+}
+
+function TemplateValueInput({
+    value,
+    originalValue,
+    onValueChange,
+    suggestions,
+    inputProps,
+}: {
+    value: string;
+    originalValue: unknown;
+    onValueChange: (value: any) => void;
+    suggestions: TemplateSuggestion[];
+    inputProps?: React.ComponentProps<'input'>;
+}) {
+    const inputRef = useRef<HTMLInputElement | null>(null);
+    const lastSelectionRef = useRef<InputSelection>({ start: value.length, end: value.length });
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [selectedIndex, setSelectedIndex] = useState(0);
+    const [contextRange, setContextRange] = useState<{ start: number; end: number; mode: 'placeholder' | 'path' } | null>(null);
+    const [manualMode, setManualMode] = useState(false);
+    const [cursorPosition, setCursorPosition] = useState(value.length);
+    const suggestionRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+    const filteredSuggestions = useMemo(() => {
+        const normalized = query.trim().toLowerCase();
+        const base = !normalized
+            ? suggestions
+            : suggestions.filter((item) =>
+                item.path.toLowerCase().includes(normalized) || item.label.toLowerCase().includes(normalized),
+            );
+        return base.slice(0, 40);
+    }, [query, suggestions]);
+
+    const detectedReferences = useMemo(
+        () => extractTemplateReferences(value, suggestions),
+        [suggestions, value],
+    );
+    const decorations = useMemo(() => extractTemplateDecorations(value), [value]);
+    const activeContext = useMemo(
+        () => getActiveTemplateContext(value, cursorPosition, suggestions),
+        [cursorPosition, suggestions, value],
+    );
+    const hasInvalidReferences = detectedReferences.some((item) => !item.valid);
+    const hasValidReferences = detectedReferences.some((item) => item.valid);
+    const hasUnsupportedFunctions = decorations.functions.some((item) => !item.supported);
+    const hasSupportedFunctions = decorations.functions.some((item) => item.supported);
+    const hasSyntaxWarning = decorations.incompletePlaceholder || decorations.unbalancedClosers;
+
+    const updateSelectionSnapshot = React.useCallback((target: HTMLInputElement | null) => {
+        if (!target) {
+            return;
+        }
+
+        const start = target.selectionStart ?? target.value.length;
+        const end = target.selectionEnd ?? start;
+        lastSelectionRef.current = { start, end };
+        setCursorPosition(start);
+    }, []);
+
+    const syncAutocomplete = React.useCallback((nextValue: string, cursor: number, forceOpen = false) => {
+        const context = getTemplateContext(nextValue, cursor);
+        if (!context) {
+            if (manualMode && !forceOpen) {
+                setOpen(true);
+                setQuery('');
+                setContextRange(null);
+                setSelectedIndex(0);
+                return;
+            }
+            setOpen(false);
+            setQuery('');
+            setContextRange(null);
+            setSelectedIndex(0);
+            return;
+        }
+
+        setQuery(context.query);
+        setContextRange({ start: context.start, end: context.end, mode: context.mode });
+        setSelectedIndex(0);
+        setOpen(forceOpen || manualMode || context.query.length > 0);
+    }, [manualMode]);
+
+    React.useEffect(() => {
+        if (!open) {
+            return;
+        }
+
+        const current = suggestionRefs.current[selectedIndex];
+        current?.scrollIntoView({ block: 'nearest' });
+    }, [open, selectedIndex]);
+
+    const applySuggestion = React.useCallback((suggestion: TemplateSuggestion) => {
+        const input = inputRef.current;
+        if (!input) {
+            return;
+        }
+
+        const selectionStart = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const selectionEnd = input.selectionEnd ?? lastSelectionRef.current.end ?? selectionStart;
+        const currentContext = contextRange ?? getTemplateContext(value, selectionStart);
+        let nextValue = value;
+        let nextCursorPosition = selectionStart;
+
+        if (currentContext?.mode === 'placeholder') {
+            const before = value.slice(0, currentContext.start);
+            const after = value.slice(currentContext.end);
+            nextValue = `${before}{{${suggestion.path}}}${after}`;
+            nextCursorPosition = before.length + suggestion.path.length + 4;
+        } else if (currentContext?.mode === 'path') {
+            const before = value.slice(0, currentContext.start);
+            const after = value.slice(currentContext.end);
+            nextValue = `${before}${suggestion.path}${after}`;
+            nextCursorPosition = before.length + suggestion.path.length;
+        } else {
+            const before = value.slice(0, selectionStart);
+            const after = value.slice(selectionEnd);
+            nextValue = `${before}{{${suggestion.path}}}${after}`;
+            nextCursorPosition = before.length + suggestion.path.length + 4;
+        }
+
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        setOpen(false);
+        setQuery('');
+        setContextRange(null);
+        setManualMode(false);
+
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(nextCursorPosition, nextCursorPosition);
+            lastSelectionRef.current = { start: nextCursorPosition, end: nextCursorPosition };
+        });
+    }, [contextRange, onValueChange, originalValue, value]);
+
+    const insertTemplateAtCursor = React.useCallback((templatePath: string) => {
+        const input = inputRef.current;
+        if (!input) {
+            onValueChange(coercePrimitiveValue(`{{${templatePath}}}`, originalValue));
+            return;
+        }
+
+        const start = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const end = input.selectionEnd ?? lastSelectionRef.current.end ?? value.length;
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const nextValue = `${before}{{${templatePath}}}${after}`;
+        const cursorPosition = before.length + templatePath.length + 4;
+
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(cursorPosition, cursorPosition);
+            lastSelectionRef.current = { start: cursorPosition, end: cursorPosition };
+            syncAutocomplete(nextValue, cursorPosition);
+        });
+    }, [onValueChange, originalValue, syncAutocomplete, value]);
+
+    const insertAutocompletePlaceholder = React.useCallback(() => {
+        const input = inputRef.current;
+        if (!input) {
+            return;
+        }
+
+        const start = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const end = input.selectionEnd ?? lastSelectionRef.current.end ?? value.length;
+        const currentContext = getTemplateContext(value, start);
+        if (currentContext) {
+            setManualMode(true);
+            syncAutocomplete(value, start, true);
+            return;
+        }
+
+        const before = value.slice(0, start);
+        const after = value.slice(end);
+        const nextValue = `${before}{{}}${after}`;
+        const cursorPosition = before.length + 2;
+        onValueChange(coercePrimitiveValue(nextValue, originalValue));
+        setManualMode(true);
+
+        requestAnimationFrame(() => {
+            input.focus();
+            input.setSelectionRange(cursorPosition, cursorPosition);
+            lastSelectionRef.current = { start: cursorPosition, end: cursorPosition };
+            syncAutocomplete(nextValue, cursorPosition, true);
+        });
+    }, [onValueChange, originalValue, syncAutocomplete, value]);
+
+    const [{ isOver }, drop] = useDrop(() => ({
+        accept: ItemTypes.OUTPUT_VALUE,
+        drop: (item: OutputDragItem) => {
+            insertTemplateAtCursor(item.value);
+        },
+        collect: (monitor) => ({
+            isOver: !!monitor.isOver(),
+        }),
+    }), [insertTemplateAtCursor]);
+
+    return (
+        <Popover
+            open={open}
+            onOpenChange={(nextOpen) => {
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setManualMode(false);
+                }
+            }}
+        >
+            <div
+                ref={drop as any}
+                className={cn(
+                    'flex-1 min-w-0 rounded-md transition-colors',
+                    isOver && 'ring-1 ring-violet-500/50 bg-violet-500/10',
+                )}
+            >
+                <PopoverAnchor asChild>
+                    <div className="space-y-1">
+                        <Input
+                            ref={inputRef}
+                            value={value}
+                            onChange={(e) => {
+                                const nextValue = e.target.value;
+                                updateSelectionSnapshot(e.target);
+                                onValueChange(coercePrimitiveValue(nextValue, originalValue));
+                                syncAutocomplete(nextValue, e.target.selectionStart ?? nextValue.length);
+                            }}
+                            onClick={(e) => {
+                                const selectionStart = (e.target as HTMLInputElement).selectionStart ?? 0;
+                                updateSelectionSnapshot(e.target as HTMLInputElement);
+                                syncAutocomplete((e.target as HTMLInputElement).value, selectionStart);
+                            }}
+                            onFocus={(e) => {
+                                updateSelectionSnapshot(e.target);
+                            }}
+                            onSelect={(e) => {
+                                updateSelectionSnapshot(e.target as HTMLInputElement);
+                            }}
+                            onKeyUp={(e) => {
+                                const target = e.currentTarget;
+                                updateSelectionSnapshot(target);
+                                syncAutocomplete(target.value, target.selectionStart ?? target.value.length);
+                            }}
+                            onBlur={() => {
+                                window.setTimeout(() => {
+                                    setOpen(false);
+                                    setManualMode(false);
+                                }, 120);
+                            }}
+                            onKeyDown={(e) => {
+                                if ((e.ctrlKey || e.metaKey) && e.key === ' ') {
+                                    e.preventDefault();
+                                    insertAutocompletePlaceholder();
+                                    return;
+                                }
+
+                                if (!open || filteredSuggestions.length === 0) {
+                                    if (e.key === 'Escape') {
+                                        setOpen(false);
+                                        setManualMode(false);
+                                    }
+                                    return;
+                                }
+
+                                if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    setSelectedIndex((current) => (current + 1) % filteredSuggestions.length);
+                                    return;
+                                }
+
+                                if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    setSelectedIndex((current) =>
+                                        current === 0 ? filteredSuggestions.length - 1 : current - 1,
+                                    );
+                                    return;
+                                }
+
+                                if (e.key === 'Enter' || e.key === 'Tab') {
+                                    e.preventDefault();
+                                    applySuggestion(filteredSuggestions[selectedIndex]);
+                                    return;
+                                }
+
+                                if (e.key === 'Escape') {
+                                    e.preventDefault();
+                                    setOpen(false);
+                                    setManualMode(false);
+                                }
+                            }}
+                            className={cn(
+                                "h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30",
+                                hasInvalidReferences && "border-red-500/50 focus-visible:ring-red-500/20",
+                                !hasInvalidReferences && hasSyntaxWarning && "border-amber-500/50 focus-visible:ring-amber-500/20",
+                                !hasInvalidReferences && hasValidReferences && "border-emerald-500/40 focus-visible:ring-emerald-500/20",
+                            )}
+                            placeholder="Valor ou {{$.path}}"
+                            {...inputProps}
+                        />
+                        {(detectedReferences.length > 0 || decorations.functions.length > 0 || hasSyntaxWarning) && (
+                            <div className="flex flex-wrap gap-1">
+                                {detectedReferences.map((reference) => (
+                                    <span
+                                        key={`${reference.token}-${reference.path}`}
+                                        className={cn(
+                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                                            reference.valid
+                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                                                : "border-red-500/30 bg-red-500/10 text-red-300",
+                                        )}
+                                    >
+                                        <span className={cn(
+                                            "size-1.5 rounded-full",
+                                            reference.valid ? "bg-emerald-400" : "bg-red-400",
+                                        )} />
+                                        {reference.path}
+                                    </span>
+                                ))}
+                                {decorations.functions.map((fn) => (
+                                    <span
+                                        key={`${fn.name}-${fn.token}`}
+                                        className={cn(
+                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
+                                            fn.supported
+                                                ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
+                                                : "border-orange-500/30 bg-orange-500/10 text-orange-300",
+                                        )}
+                                    >
+                                        <span className={cn(
+                                            "size-1.5 rounded-full",
+                                            fn.supported ? "bg-sky-400" : "bg-orange-400",
+                                        )} />
+                                        {fn.name}()
+                                    </span>
+                                ))}
+                                {decorations.incompletePlaceholder && (
+                                    <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-300">
+                                        <span className="size-1.5 rounded-full bg-amber-400" />
+                                        placeholder aberto
+                                    </span>
+                                )}
+                                {decorations.unbalancedClosers && (
+                                    <span className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] text-red-300">
+                                        <span className="size-1.5 rounded-full bg-red-400" />
+                                        fechamento extra
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-zinc-400">
+                            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono">
+                                Ctrl+Space
+                            </span>
+                            <span>abre o autocomplete no cursor atual</span>
+                            {hasValidReferences && (
+                                <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300">
+                                    {detectedReferences.filter((item) => item.valid).length} valida(s)
+                                </span>
+                            )}
+                            {hasInvalidReferences && (
+                                <span className="rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-red-300">
+                                    {detectedReferences.filter((item) => !item.valid).length} invalida(s)
+                                </span>
+                            )}
+                            {hasSupportedFunctions && (
+                                <span className="rounded border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">
+                                    {decorations.functions.filter((item) => item.supported).length} funcao(oes)
+                                </span>
+                            )}
+                            {hasUnsupportedFunctions && (
+                                <span className="rounded border border-orange-500/20 bg-orange-500/10 px-1.5 py-0.5 text-orange-300">
+                                    revisar funcao desconhecida
+                                </span>
+                            )}
+                        </div>
+                        {activeContext && (
+                            <div className={cn(
+                                "rounded-md border px-2 py-1.5 text-[10px]",
+                                activeContext.type === 'reference' && activeContext.valid && "border-emerald-500/20 bg-emerald-500/5 text-emerald-200",
+                                activeContext.type === 'reference' && !activeContext.valid && "border-red-500/20 bg-red-500/5 text-red-200",
+                                activeContext.type === 'function' && activeContext.supported && "border-sky-500/20 bg-sky-500/5 text-sky-200",
+                                activeContext.type === 'function' && !activeContext.supported && "border-orange-500/20 bg-orange-500/5 text-orange-200",
+                                activeContext.type === 'placeholder' && "border-amber-500/20 bg-amber-500/5 text-amber-200",
+                            )}>
+                                {activeContext.type === 'reference' && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                            <p className="font-mono text-[10px]">{activeContext.path}</p>
+                                            <p className="text-[9px] opacity-80">
+                                                {activeContext.valid
+                                                    ? `Variavel reconhecida${activeContext.kind ? ` como ${activeContext.kind}` : ''}.`
+                                                    : 'Variavel nao encontrada no contexto atual.'}
+                                            </p>
+                                        </div>
+                                        <span className={cn(
+                                            "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
+                                            activeContext.valid ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300",
+                                        )}>
+                                            {activeContext.valid ? 'ok' : 'erro'}
+                                        </span>
+                                    </div>
+                                )}
+                                {activeContext.type === 'function' && (
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="font-mono text-[10px]">
+                                                {activeContext.signature || `${activeContext.name}(...)`}
+                                            </p>
+                                            <span className={cn(
+                                                "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
+                                                activeContext.supported ? "bg-sky-500/15 text-sky-300" : "bg-orange-500/15 text-orange-300",
+                                            )}>
+                                                {activeContext.supported ? 'funcao' : 'desconhecida'}
+                                            </span>
+                                        </div>
+                                        <p className="text-[9px] opacity-80">
+                                            {activeContext.description || 'Funcao ainda nao mapeada na ajuda visual do editor.'}
+                                        </p>
+                                    </div>
+                                )}
+                                {activeContext.type === 'placeholder' && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-[9px] opacity-90">{activeContext.message}</p>
+                                        <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[8px] uppercase tracking-widest text-amber-300">
+                                            editando
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </PopoverAnchor>
+            </div>
+            <PopoverContent
+                align="start"
+                side="bottom"
+                className="w-[360px] p-0 border-border bg-zinc-950"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
+                <Command className="bg-transparent">
+                    <CommandList>
+                        <CommandEmpty>
+                            <div className="space-y-1 px-3 py-2 text-left">
+                                <p className="text-[11px] text-zinc-200">Nenhuma variavel encontrada.</p>
+                                <p className="text-[10px] text-zinc-500">
+                                    Continue digitando ou referencie o contexto com <span className="font-mono">{'{{$.path}}'}</span>.
+                                </p>
+                            </div>
+                        </CommandEmpty>
+                        <CommandGroup heading="Variaveis disponiveis">
+                            {filteredSuggestions.map((suggestion, index) => (
+                                <CommandItem
+                                    key={suggestion.path}
+                                    value={`${suggestion.label} ${suggestion.path}`}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onSelect={() => applySuggestion(suggestion)}
+                                >
+                                    <div
+                                        ref={(node) => {
+                                            suggestionRefs.current[index] = node;
+                                        }}
+                                        className={cn(
+                                            'flex w-full items-center justify-between gap-3 rounded-sm px-1 py-0.5 text-primary',
+                                            index === selectedIndex && 'bg-violet-500/10',
+                                        )}
+                                    >
+                                        <div className="flex min-w-0 items-center gap-2">
+                                            <span className={cn(
+                                                "size-1.5 shrink-0 rounded-full",
+                                                suggestion.kind === 'object' && "bg-blue-400",
+                                                suggestion.kind === 'array' && "bg-amber-400",
+                                                suggestion.kind === 'value' && "bg-emerald-400",
+                                            )} />
+                                            <span className="truncate font-mono text-[11px]">
+                                                {suggestion.path}
+                                            </span>
+                                        </div>
+                                        <span className="shrink-0 text-[9px] uppercase tracking-widest text-zinc-500">
+                                            {suggestion.kind}
+                                        </span>
+                                    </div>
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 export function JsonViewMain({
     className,
@@ -28,6 +795,7 @@ export function JsonViewMain({
     filter,
     draggableValue = true,
     rootPath = '',
+    templateContext,
     ...props
 }: React.ComponentProps<"div"> & {
     mainClassName?: string,
@@ -50,9 +818,14 @@ export function JsonViewMain({
     };
     draggableValue?: boolean;
     rootPath?: string;
+    templateContext?: Record<string, unknown>;
 }) {
     const [_expandOnce, setExpandOnce] = React.useState(expandOnce)
     const isArray = Array.isArray(data);
+    const templateSuggestions = useMemo(
+        () => (templateContext ? buildTemplateSuggestions(templateContext) : []),
+        [templateContext],
+    );
 
     return (
         <div className={cn('flex flex-col')}>
@@ -79,6 +852,7 @@ export function JsonViewMain({
                                     inputProps={inputProps}
                                     pProps={pProps}
                                     draggableValue={draggableValue}
+                                    templateSuggestions={templateSuggestions}
                                 />
                             ))}
                             {onAddField && (
@@ -174,7 +948,8 @@ export function JsonView({
     onAddField,
     onDeleteField,
     onDestructure,
-    draggableValue = true
+    draggableValue = true,
+    templateSuggestions = [],
 }: {
     name: string;
     value: any;
@@ -191,35 +966,43 @@ export function JsonView({
     onDestructure?: (path: string, key: string, value: any) => void;
     inputProps?: React.ComponentProps<"input">;
     pProps?: React.ComponentProps<"p">;
-    draggableValue?: boolean
+    draggableValue?: boolean;
+    templateSuggestions?: TemplateSuggestion[];
 }) {
     const isObject = typeof value === "object" && value !== null;
     const [open, setOpen] = React.useState(forceExpand ? forceExpand : level < defaultExpandLevel);
 
+    const handleDropValue = React.useCallback((item: OutputDragItem) => {
+        if (!onParamChange) {
+            return;
+        }
+
+        const parentPath = path.split('.').slice(0, -1).join('.');
+        const droppedData = item.data;
+        const canAssignStructuredValue =
+            droppedData !== null &&
+            droppedData !== undefined &&
+            typeof droppedData === 'object' &&
+            isObject;
+
+        if (canAssignStructuredValue) {
+            onParamChange(parentPath, name, cloneDroppedData(droppedData));
+            setOpen(true);
+            return;
+        }
+
+        onParamChange(parentPath, name, `{{${item.value}}}`);
+    }, [isObject, name, onParamChange, path]);
+
     const [{ isOver }, drop] = useDrop(() => ({
         accept: ItemTypes.OUTPUT_VALUE,
-        drop: (item: { value: string, data?: any }) => {
-            if (onParamChange) {
-                const parentPath = path.split('.').slice(0, -1).join('.');
-                if (isObject) {
-                    if (item.data && typeof item.data === 'object') {
-                        onParamChange(parentPath, name, item.data);
-                    } else {
-                        onParamChange(parentPath, name, `{{${item.value}}}`);
-                    }
-                } else {
-                    if (item.data && typeof item.data === 'object' && typeof value === 'string') {
-                        onParamChange(parentPath, name, JSON.stringify(item.data, null, 2));
-                    } else {
-                        onParamChange(parentPath, name, `{{${item.value}}}`);
-                    }
-                }
-            }
+        drop: (item: OutputDragItem) => {
+            handleDropValue(item);
         },
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }), [name, path, onParamChange, isObject, value]);
+    }), [handleDropValue]);
 
     const handleSetExpand = React.useCallback((value: boolean) => {
         setExpandOnce(false);
@@ -242,7 +1025,7 @@ export function JsonView({
     if (!isObject) {
         return (
             <div 
-                ref={onParamChange ? drop as any : undefined}
+                ref={onParamChange ? undefined : drop as any}
                 className={cn(
                     "flex items-center group/item rounded transition-colors",
                     isOver && "bg-violet-500/20 ring-1 ring-violet-500/50"
@@ -259,12 +1042,14 @@ export function JsonView({
                             {onParamChange ? (
                                 <div className="flex-1 min-w-0 flex items-center gap-2">
                                      <GripVertical className="w-3 h-3 text-zinc-600 shrink-0 opacity-0 group-hover/item:opacity-100" />
-                                     <Input
-                                        value={value === null || value === undefined ? "" : value}
-                                        onChange={(e) => onParamChange(path.split('.').slice(0, -1).join('.'), name, e.target.value)}
-                                        className="h-7 text-[10px] py-1 bg-input border-border text-primary placeholder:text-secondary font-mono focus:ring-violet-500/30"
-                                        placeholder="Valor ou {{path}}"
-                                        {...inputProps}
+                                     <TemplateValueInput
+                                        value={value === null || value === undefined ? "" : String(value)}
+                                        originalValue={value}
+                                        onValueChange={(nextValue) =>
+                                            onParamChange(path.split('.').slice(0, -1).join('.'), name, nextValue)
+                                        }
+                                        suggestions={templateSuggestions}
+                                        inputProps={inputProps}
                                     />
                                 </div>
                             ) : (
@@ -393,6 +1178,7 @@ export function JsonView({
                                     setExpandOnce={setExpandOnce}
                                     inputProps={inputProps}
                                     pProps={pProps}
+                                    templateSuggestions={templateSuggestions}
                                 />
                             );
                         })}

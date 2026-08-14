@@ -36,11 +36,17 @@ func (a *App) pollScheduledInstances(ctx context.Context, processing *atomic.Boo
 	defer processing.Store(false)
 
 	_, _ = a.Runtime.FlushFallback(ctx, 10)
+	if a.CloudSync != nil {
+		_, _ = a.CloudSync.Flush(ctx, 20)
+	}
 
 	instances, err := a.Instances.ListActive(ctx)
 	if err != nil {
 		log.Printf("[InstanceScheduler] list active failed: %v", err)
 		return
+	}
+	if err := a.SyncMQTTTriggerSubscriptions(ctx); err != nil {
+		log.Printf("[InstanceScheduler] mqtt trigger sync failed: %v", err)
 	}
 	now := time.Now().UTC()
 	for _, instance := range instances {

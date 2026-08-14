@@ -9,6 +9,10 @@ const (
 	TriggerWebhook            TriggerType = "webhook"
 	TriggerInterval           TriggerType = "interval"
 	TriggerIntervalAndWebhook TriggerType = "interval_and_webhook"
+	TriggerEvent              TriggerType = "event"
+	TriggerMQTT               TriggerType = "mqtt"
+	TriggerStateChange        TriggerType = "state_change"
+	TriggerWorkflow           TriggerType = "workflow"
 )
 
 type InstanceStatus string
@@ -46,6 +50,13 @@ const (
 	ExecutionQueued  ExecutionStatus = "queued"
 )
 
+type ExecutionMode string
+
+const (
+	ExecutionModeSequential ExecutionMode = "sequential"
+	ExecutionModeParallel   ExecutionMode = "parallel"
+)
+
 type Instance struct {
 	ID                           string
 	Name                         string
@@ -60,6 +71,9 @@ type Instance struct {
 	ScriptParameters             map[string]any
 	TriggerType                  TriggerType
 	TriggerConfig                map[string]any
+	DependsOn                    []string
+	ExecutionMode                ExecutionMode
+	OrchestrationConfig          map[string]any
 	FallbackEnabled              bool
 	FallbackStrategy             FallbackStrategy
 	FallbackRetryIntervalSeconds int

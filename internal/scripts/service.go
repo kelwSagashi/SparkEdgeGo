@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/appfs"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 )
@@ -30,6 +31,9 @@ type Repository interface {
 	ListAll(ctx context.Context) ([]domain.DownloadedScript, error)
 	Update(ctx context.Context, id string, params sqlite.UpdateScriptParams) (domain.DownloadedScript, error)
 	Delete(ctx context.Context, id string) error
+	CreateHistoryEntry(ctx context.Context, params sqlite.CreateScriptHistoryParams) (domain.ScriptHistoryEntry, error)
+	ListHistoryByScriptID(ctx context.Context, scriptID string) ([]domain.ScriptHistoryEntry, error)
+	FindHistoryEntryByID(ctx context.Context, scriptID string, historyID string) (domain.ScriptHistoryEntry, error)
 }
 
 type Service struct {
@@ -109,6 +113,13 @@ type PlaygroundRequest struct {
 	Inputs     map[string]any `json:"inputs"`
 }
 
+const (
+	ScriptHistoryActionInstalled       = "installed"
+	ScriptHistoryActionBundleUpdated   = "bundle_updated"
+	ScriptHistoryActionMetadataUpdated = "metadata_updated"
+	ScriptHistoryActionRestored        = "restored"
+)
+
 func NewService(scripts Repository, python ...PythonRuntime) *Service {
 	service := &Service{scripts: scripts}
 	if len(python) > 0 {
@@ -132,7 +143,14 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (domain.Downloa
 	if err := validateCreate(req); err != nil {
 		return domain.DownloadedScript{}, err
 	}
-	return s.scripts.Create(ctx, createParams(req))
+	script, err := s.scripts.Create(ctx, createParams(req))
+	if err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	if err := s.recordHistory(ctx, domain.DownloadedScript{}, script, ScriptHistoryActionInstalled, "", resolveHomePath(script.LocalPath), nil); err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	return script, nil
 }
 
 func (s *Service) Upsert(ctx context.Context, req CreateRequest) (domain.DownloadedScript, error) {
@@ -146,7 +164,11 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (dom
 	if strings.TrimSpace(id) == "" {
 		return domain.DownloadedScript{}, ErrInvalidScript
 	}
-	return s.scripts.Update(ctx, id, sqlite.UpdateScriptParams{
+	previous, err := s.FindByID(ctx, id)
+	if err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	script, err := s.scripts.Update(ctx, id, sqlite.UpdateScriptParams{
 		Name:             req.Name,
 		Description:      req.Description,
 		Author:           req.Author,
@@ -163,6 +185,13 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) (dom
 		Tags:             req.Tags,
 		SchemaConfig:     req.SchemaConfig,
 	})
+	if err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	if err := s.recordHistory(ctx, previous, script, ScriptHistoryActionMetadataUpdated, "", resolveHomePath(script.LocalPath), nil); err != nil {
+		return domain.DownloadedScript{}, err
+	}
+	return script, nil
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
@@ -191,7 +220,10 @@ func (s *Service) FileContent(ctx context.Context, id string, filename string) (
 		return "", err
 	}
 
-	fullPath := filepath.Join(resolveHomePath(script.LocalPath), filepath.FromSlash(filename))
+	fullPath, err := resolveScriptFilePath(resolveHomePath(script.LocalPath), filename)
+	if err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(fullPath)
 	if os.IsNotExist(err) {
 		return "", ErrScriptFileNotFound
@@ -235,42 +267,7 @@ func (s *Service) FinalizeUpload(ctx context.Context, req FinalizeRequest) (Fina
 	}
 
 	finalID := newScriptID()
-	storageDir, err := scriptsStorageDir()
-	if err != nil {
-		return FinalizeResult{}, err
-	}
-	finalFolder := filepath.Join(storageDir, finalID)
-	venvPath := filepath.Join(finalFolder, "venv")
-
-	if err := os.MkdirAll(storageDir, 0o755); err != nil {
-		return FinalizeResult{}, err
-	}
-	if err := os.RemoveAll(finalFolder); err != nil {
-		return FinalizeResult{}, err
-	}
-	if err := os.Rename(req.TempFolder, finalFolder); err != nil {
-		return FinalizeResult{}, err
-	}
-
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.RemoveAll(finalFolder)
-		}
-	}()
-
-	if err := s.python.CreateVenv(ctx, venvPath); err != nil {
-		return FinalizeResult{}, err
-	}
-
-	requirementsPath := findRequirementsFile(finalFolder)
-	if requirementsPath != "" {
-		if err := s.python.InstallRequirements(ctx, venvPath, requirementsPath); err != nil {
-			return FinalizeResult{}, err
-		}
-	}
-
-	schema, err := s.python.SchemaFile(ctx, finalFolder, req.MainFile, venvPath)
+	finalFolder, venvPath, _, schema, err := s.prepareScriptFolder(ctx, req.TempFolder, finalID, req.MainFile)
 	if err != nil {
 		return FinalizeResult{}, err
 	}
@@ -293,8 +290,170 @@ func (s *Service) FinalizeUpload(ctx context.Context, req FinalizeRequest) (Fina
 		return FinalizeResult{}, err
 	}
 
-	cleanup = false
 	return FinalizeResult{Script: script, Schema: schema}, nil
+}
+
+func (s *Service) ReplaceUpload(ctx context.Context, scriptID string, req FinalizeRequest) (FinalizeResult, error) {
+	return s.replaceUpload(ctx, scriptID, req, ScriptHistoryActionBundleUpdated, nil)
+}
+
+func (s *Service) replaceUpload(ctx context.Context, scriptID string, req FinalizeRequest, historyAction string, explicitSummary []string) (FinalizeResult, error) {
+	if s.python == nil {
+		return FinalizeResult{}, errors.New("sparkit runtime unavailable")
+	}
+	if strings.TrimSpace(scriptID) == "" || strings.TrimSpace(req.TempFolder) == "" || strings.TrimSpace(req.MainFile) == "" {
+		return FinalizeResult{}, ErrInvalidScript
+	}
+
+	existing, err := s.FindByID(ctx, scriptID)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+
+	if req.Name == "" {
+		req.Name = existing.Name
+	}
+	if req.Description == "" {
+		req.Description = existing.Description
+	}
+	if len(req.Tags) == 0 {
+		req.Tags = existing.Tags
+	}
+	if req.Author == "" {
+		req.Author = existing.Author
+	}
+	if req.Version == "" {
+		req.Version = existing.Version
+	}
+	previousFolder := resolveHomePath(existing.LocalPath)
+
+	replacementID := scriptID + "_replacement"
+	replacementFolder, _, requirementsPath, schema, err := s.prepareScriptFolder(ctx, req.TempFolder, replacementID, req.MainFile)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	defer os.RemoveAll(replacementFolder)
+
+	finalFolder := resolveHomePath(existing.LocalPath)
+	backupFolder := finalFolder + "_backup"
+	_ = os.RemoveAll(backupFolder)
+
+	if _, err := os.Stat(finalFolder); err == nil {
+		if err := os.Rename(finalFolder, backupFolder); err != nil {
+			return FinalizeResult{}, err
+		}
+	}
+
+	restoreBackup := true
+	defer func() {
+		if restoreBackup {
+			_ = os.RemoveAll(finalFolder)
+			if _, err := os.Stat(backupFolder); err == nil {
+				_ = os.Rename(backupFolder, finalFolder)
+			}
+		}
+	}()
+
+	if err := os.Rename(replacementFolder, finalFolder); err != nil {
+		return FinalizeResult{}, err
+	}
+
+	finalVenv := filepath.Join(finalFolder, "venv")
+	requirementsRelative := ""
+	if requirementsPath != "" {
+		if rel, err := filepath.Rel(replacementFolder, requirementsPath); err == nil {
+			requirementsRelative = rel
+		}
+	}
+	if requirementsRelative != "" {
+		requirementsRelative = filepath.ToSlash(requirementsRelative)
+	}
+	mainFile := filepath.ToSlash(req.MainFile)
+	localPath := toRelativePath(finalFolder)
+	venvPath := toRelativePath(finalVenv)
+	requirementsFile := requirementsRelative
+	requirementsFilePtr := &requirementsFile
+	venvReady := true
+
+	name := req.Name
+	description := req.Description
+	author := req.Author
+	version := req.Version
+	tags := req.Tags
+	mainFilePtr := &mainFile
+	localPathPtr := &localPath
+	venvPathPtr := &venvPath
+
+	script, err := s.scripts.Update(ctx, scriptID, sqlite.UpdateScriptParams{
+		Name:             &name,
+		Description:      &description,
+		Author:           &author,
+		Version:          &version,
+		LocalPath:        localPathPtr,
+		MainFile:         mainFilePtr,
+		VenvPath:         venvPathPtr,
+		RequirementsFile: requirementsFilePtr,
+		VenvReady:        &venvReady,
+		Tags:             &tags,
+		SchemaConfig:     &schema,
+	})
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	if err := s.recordHistory(ctx, existing, script, historyAction, previousFolder, finalFolder, explicitSummary); err != nil {
+		return FinalizeResult{}, err
+	}
+	_ = os.RemoveAll(backupFolder)
+	restoreBackup = false
+	return FinalizeResult{Script: script, Schema: schema}, nil
+}
+
+func (s *Service) History(ctx context.Context, scriptID string) ([]domain.ScriptHistoryEntry, error) {
+	if strings.TrimSpace(scriptID) == "" {
+		return nil, ErrInvalidScript
+	}
+	return s.scripts.ListHistoryByScriptID(ctx, scriptID)
+}
+
+func (s *Service) RestoreHistory(ctx context.Context, scriptID string, historyID string) (FinalizeResult, error) {
+	if s.python == nil {
+		return FinalizeResult{}, errors.New("sparkit runtime unavailable")
+	}
+	if strings.TrimSpace(scriptID) == "" || strings.TrimSpace(historyID) == "" {
+		return FinalizeResult{}, ErrInvalidScript
+	}
+
+	entry, err := s.scripts.FindHistoryEntryByID(ctx, scriptID, historyID)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	if strings.TrimSpace(entry.BundlePath) == "" {
+		return FinalizeResult{}, ErrScriptFileNotFound
+	}
+
+	tempFolder, err := os.MkdirTemp("", "spark_edge_script_restore_*")
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+
+	if _, err := extractZipToTemp(resolveHomePath(entry.BundlePath), tempFolder); err != nil {
+		_ = os.RemoveAll(tempFolder)
+		return FinalizeResult{}, err
+	}
+
+	result, err := s.replaceUpload(ctx, scriptID, FinalizeRequest{
+		TempFolder:  tempFolder,
+		MainFile:    entry.MainFile,
+		Name:        entry.Name,
+		Description: entry.Description,
+		Tags:        entry.Tags,
+		Author:      entry.Author,
+		Version:     entry.Version,
+	}, ScriptHistoryActionRestored, []string{
+		fmt.Sprintf("Restaurado a partir do histórico %s", historyID),
+		fmt.Sprintf("Versão restaurada: %s", entry.Version),
+	})
+	return result, err
 }
 
 func (s *Service) RunPlayground(ctx context.Context, req PlaygroundRequest) (domain.ScriptResult, error) {
@@ -389,11 +548,7 @@ func createParams(req CreateRequest) sqlite.CreateScriptParams {
 
 func resolveHomePath(pathValue string) string {
 	if strings.HasPrefix(pathValue, ".spark_edge") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return pathValue
-		}
-		return filepath.Join(home, pathValue)
+		return appfs.ResolveFromRoot(pathValue)
 	}
 	if strings.HasPrefix(pathValue, "~/") || pathValue == "~" {
 		home, err := os.UserHomeDir()
@@ -409,11 +564,8 @@ func resolveHomePath(pathValue string) string {
 }
 
 func toRelativePath(pathValue string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return pathValue
-	}
-	rel, err := filepath.Rel(home, pathValue)
+	appRoot := appfs.AppRoot()
+	rel, err := filepath.Rel(appRoot, pathValue)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return pathValue
 	}
@@ -421,11 +573,7 @@ func toRelativePath(pathValue string) string {
 }
 
 func scriptsStorageDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".spark_edge", "scripts"), nil
+	return appfs.ResolveFromRoot(".spark_edge", "scripts"), nil
 }
 
 func samplesRoot() (string, error) {
@@ -523,6 +671,38 @@ func extractZipToTemp(zipFilePath string, tempFolder string) (InspectResult, err
 	return result, nil
 }
 
+func resolveScriptFilePath(root string, filename string) (string, error) {
+	directPath := filepath.Join(root, filepath.FromSlash(filename))
+	if _, err := os.Stat(directPath); err == nil {
+		return directPath, nil
+	}
+
+	if strings.ContainsAny(filename, `/\`) {
+		return "", ErrScriptFileNotFound
+	}
+
+	var resolved string
+	_ = filepath.WalkDir(root, func(pathValue string, entry os.DirEntry, err error) error {
+		if err != nil || resolved != "" {
+			return nil
+		}
+		if entry.IsDir() {
+			if strings.EqualFold(entry.Name(), "venv") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.EqualFold(entry.Name(), filename) {
+			resolved = pathValue
+		}
+		return nil
+	})
+	if resolved == "" {
+		return "", ErrScriptFileNotFound
+	}
+	return resolved, nil
+}
+
 func extractZipFile(file *zip.File, targetPath string) error {
 	source, err := file.Open()
 	if err != nil {
@@ -557,6 +737,266 @@ func findRequirementsFile(root string) string {
 	return result
 }
 
+func listBundleFiles(root string) ([]string, error) {
+	if root == "" {
+		return nil, nil
+	}
+	info, err := os.Stat(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, nil
+	}
+
+	files := make([]string, 0)
+	err = filepath.WalkDir(root, func(pathValue string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if strings.EqualFold(entry.Name(), "venv") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(root, pathValue)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+func filesDiffSummary(previousFiles []string, nextFiles []string) []string {
+	prevSet := make(map[string]struct{}, len(previousFiles))
+	nextSet := make(map[string]struct{}, len(nextFiles))
+	for _, item := range previousFiles {
+		prevSet[item] = struct{}{}
+	}
+	for _, item := range nextFiles {
+		nextSet[item] = struct{}{}
+	}
+
+	added := make([]string, 0)
+	removed := make([]string, 0)
+	for _, item := range nextFiles {
+		if _, ok := prevSet[item]; !ok {
+			added = append(added, item)
+		}
+	}
+	for _, item := range previousFiles {
+		if _, ok := nextSet[item]; !ok {
+			removed = append(removed, item)
+		}
+	}
+
+	summary := make([]string, 0)
+	if len(added) > 0 {
+		summary = append(summary, summarizeFiles("Arquivos adicionados", added))
+	}
+	if len(removed) > 0 {
+		summary = append(summary, summarizeFiles("Arquivos removidos", removed))
+	}
+	if len(summary) == 0 && len(nextFiles) > 0 {
+		summary = append(summary, fmt.Sprintf("Bundle mantido com %d arquivo(s)", len(nextFiles)))
+	}
+	return summary
+}
+
+func summarizeFiles(prefix string, files []string) string {
+	if len(files) == 0 {
+		return prefix
+	}
+	limit := minInt(len(files), 3)
+	snippet := strings.Join(files[:limit], ", ")
+	if len(files) > limit {
+		return fmt.Sprintf("%s (%d): %s...", prefix, len(files), snippet)
+	}
+	return fmt.Sprintf("%s (%d): %s", prefix, len(files), snippet)
+}
+
+func metadataDiffSummary(previous domain.DownloadedScript, current domain.DownloadedScript) []string {
+	summary := make([]string, 0)
+	if previous.Name != current.Name {
+		summary = append(summary, fmt.Sprintf("Nome: %q -> %q", previous.Name, current.Name))
+	}
+	if previous.Version != current.Version {
+		summary = append(summary, fmt.Sprintf("Versão: %q -> %q", previous.Version, current.Version))
+	}
+	if previous.Author != current.Author {
+		summary = append(summary, fmt.Sprintf("Autor: %q -> %q", previous.Author, current.Author))
+	}
+	if previous.Description != current.Description {
+		summary = append(summary, "Descrição atualizada")
+	}
+	if previous.MainFile != current.MainFile {
+		summary = append(summary, fmt.Sprintf("Entrypoint: %q -> %q", previous.MainFile, current.MainFile))
+	}
+	if previous.RequirementsFile != current.RequirementsFile {
+		summary = append(summary, fmt.Sprintf("Requirements: %q -> %q", previous.RequirementsFile, current.RequirementsFile))
+	}
+	if !stringSlicesEqual(previous.Tags, current.Tags) {
+		summary = append(summary, fmt.Sprintf("Tags: [%s] -> [%s]", strings.Join(previous.Tags, ", "), strings.Join(current.Tags, ", ")))
+	}
+	return summary
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func historyStorageDir() (string, error) {
+	return appfs.ResolveFromRoot(".spark_edge", "script_history"), nil
+}
+
+func createBundleArchive(scriptID string, historyID string, scriptFolder string) (string, error) {
+	if strings.TrimSpace(scriptFolder) == "" {
+		return "", nil
+	}
+	info, err := os.Stat(scriptFolder)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", nil
+	}
+
+	historyRoot, err := historyStorageDir()
+	if err != nil {
+		return "", err
+	}
+	targetDir := filepath.Join(historyRoot, scriptID)
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		return "", err
+	}
+	archivePath := filepath.Join(targetDir, historyID+".zip")
+	if err := zipDirectory(scriptFolder, archivePath); err != nil {
+		return "", err
+	}
+	return toRelativePath(archivePath), nil
+}
+
+func zipDirectory(root string, archivePath string) error {
+	target, err := os.Create(archivePath)
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+
+	writer := zip.NewWriter(target)
+	defer writer.Close()
+
+	return filepath.WalkDir(root, func(pathValue string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if strings.EqualFold(entry.Name(), "venv") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, pathValue)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+
+		fileInfo, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		header, err := zip.FileInfoHeader(fileInfo)
+		if err != nil {
+			return err
+		}
+		header.Name = rel
+		header.Method = zip.Deflate
+
+		fileWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			return err
+		}
+		source, err := os.Open(pathValue)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(fileWriter, source)
+		closeErr := source.Close()
+		if err != nil {
+			return err
+		}
+		return closeErr
+	})
+}
+
+func (s *Service) prepareScriptFolder(ctx context.Context, tempFolder string, folderID string, mainFile string) (string, string, string, map[string]any, error) {
+	storageDir, err := scriptsStorageDir()
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	finalFolder := filepath.Join(storageDir, folderID)
+	venvPath := filepath.Join(finalFolder, "venv")
+
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		return "", "", "", nil, err
+	}
+	if err := os.RemoveAll(finalFolder); err != nil {
+		return "", "", "", nil, err
+	}
+	if err := os.Rename(tempFolder, finalFolder); err != nil {
+		return "", "", "", nil, err
+	}
+
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.RemoveAll(finalFolder)
+		}
+	}()
+
+	if err := s.python.CreateVenv(ctx, venvPath); err != nil {
+		return "", "", "", nil, err
+	}
+
+	requirementsPath := findRequirementsFile(finalFolder)
+	if requirementsPath != "" {
+		if err := s.python.InstallRequirements(ctx, venvPath, requirementsPath); err != nil {
+			return "", "", "", nil, err
+		}
+	}
+
+	schema, err := s.python.SchemaFile(ctx, finalFolder, mainFile, venvPath)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+
+	cleanup = false
+	return finalFolder, venvPath, requirementsPath, schema, nil
+}
+
 func newScriptID() string {
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -565,6 +1005,66 @@ func newScriptID() string {
 	return base64.RawURLEncoding.EncodeToString(raw[:])
 }
 
+func (s *Service) recordHistory(ctx context.Context, previous domain.DownloadedScript, current domain.DownloadedScript, action string, previousFolder string, currentFolder string, explicitSummary []string) error {
+	historyID := newScriptID()
+	summary := make([]string, 0)
+
+	if explicitSummary != nil {
+		summary = append(summary, explicitSummary...)
+	} else {
+		summary = append(summary, metadataDiffSummary(previous, current)...)
+		previousFiles, err := listBundleFiles(previousFolder)
+		if err != nil {
+			return err
+		}
+		nextFiles, err := listBundleFiles(currentFolder)
+		if err != nil {
+			return err
+		}
+		switch action {
+		case ScriptHistoryActionInstalled:
+			if len(nextFiles) > 0 {
+				summary = append(summary, fmt.Sprintf("Bundle instalado com %d arquivo(s)", len(nextFiles)))
+			}
+		case ScriptHistoryActionBundleUpdated:
+			summary = append(summary, filesDiffSummary(previousFiles, nextFiles)...)
+		}
+	}
+
+	if len(summary) == 0 {
+		summary = append(summary, "Sem diferenças resumidas detectadas")
+	}
+
+	archivePath, err := createBundleArchive(current.ID, historyID, resolveHomePath(current.LocalPath))
+	if err != nil {
+		return err
+	}
+
+	_, err = s.scripts.CreateHistoryEntry(ctx, sqlite.CreateScriptHistoryParams{
+		ID:               historyID,
+		ScriptID:         current.ID,
+		Action:           action,
+		Name:             current.Name,
+		Description:      current.Description,
+		Author:           current.Author,
+		Version:          current.Version,
+		MainFile:         current.MainFile,
+		RequirementsFile: current.RequirementsFile,
+		Tags:             current.Tags,
+		SchemaConfig:     current.SchemaConfig,
+		ChangeSummary:    summary,
+		BundlePath:       archivePath,
+	})
+	return err
+}
+
 func timeNowUnixNano() int64 {
 	return time.Now().UTC().UnixNano()
+}
+
+func minInt(left int, right int) int {
+	if left < right {
+		return left
+	}
+	return right
 }

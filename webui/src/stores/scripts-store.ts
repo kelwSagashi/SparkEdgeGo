@@ -9,6 +9,7 @@ type ScriptsState = {
   fetchAll: () => Promise<void>;
   fetchSamples: () => Promise<void>;
   createScript: (data: Partial<DownloadedScriptUpsertValues>) => Promise<any>;
+  upsertScript: (script: DownloadedScriptReturningValues) => void;
   deleteScript: (id: string) => Promise<void>;
 };
 
@@ -30,6 +31,17 @@ export const useScriptsStore = create<ScriptsState>((set) => ({
       return res.data;
     }
     return null;
+  },
+  upsertScript: (script) => {
+    set((state) => {
+      const index = state.scripts.findIndex((item) => item.id === script.id);
+      if (index === -1) {
+        return { scripts: [...state.scripts, script] };
+      }
+      const next = [...state.scripts];
+      next[index] = script;
+      return { scripts: next };
+    });
   },
   deleteScript: async (id) => {
     await scriptsApi.delete(id);

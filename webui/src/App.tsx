@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense, lazy, useEffect } from 'react'
 import './App.css'
 import { SidebarInset, SidebarProvider } from './components/ui/sidebar';
 import SideBar from './components/sidebar';
@@ -6,31 +6,48 @@ import { Routes, Route, Navigate, } from 'react-router-dom'
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ProtectedRoute from './components/ProtectedRoute';
-import { useEffect } from 'react';
 import { useAuthStore } from './stores/auth-store';
-import InstancesPage from './pages/Instances';
-import InstanceCreatePage from './pages/InstanceCreatePage';
-import ExecutionHistoryPage from './pages/ExecutionHistory';
-import LocalDataPage from './pages/LocalData';
 import { Toaster } from 'sonner';
-import ScriptHubPage from './pages/ScriptHub';
-import ScriptDetailsPage from './pages/ScriptDetailsPage';
-import ScriptEditPage from './pages/ScriptEditPage';
-import ServersPage from './pages/Servers';
-import ServerCreatePage from './pages/ServerCreatePage';
-import ServerEditPage from './pages/ServerEditPage';
-import DevicesPage from './pages/Devices';
-import SettingsPage from './pages/Settings';
-import ProjectsPage from './pages/Projects';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import CredentialsPage from './pages/Credentials';
-import DeviceCreationPage from './pages/DeviceCreatePage';
-import DeviceEditPage from './pages/DeviceEditPage';
-import InstanceEditPage from './pages/InstanceEditPage';
-import InstanceLogsPage from './pages/InstanceLogsPage';
-import CloudSettingsPage from './pages/CloudSettings';
-import AdvancedSettingsPage from './pages/AdvancedSettings';
+
+const InstancesPage = lazy(() => import('./pages/Instances'));
+const InstanceCreatePage = lazy(() => import('./pages/InstanceCreatePage'));
+const ExecutionHistoryPage = lazy(() => import('./pages/ExecutionHistory'));
+const LocalDataPage = lazy(() => import('./pages/LocalData'));
+const ScriptHubPage = lazy(() => import('./pages/ScriptHub'));
+const ScriptDetailsPage = lazy(() => import('./pages/ScriptDetailsPage'));
+const ScriptEditPage = lazy(() => import('./pages/ScriptEditPage'));
+const ServersPage = lazy(() => import('./pages/Servers'));
+const ServerCreatePage = lazy(() => import('./pages/ServerCreatePage'));
+const ServerEditPage = lazy(() => import('./pages/ServerEditPage'));
+const DevicesPage = lazy(() => import('./pages/Devices'));
+const SettingsPage = lazy(() => import('./pages/Settings'));
+const ProjectsPage = lazy(() => import('./pages/Projects'));
+const CredentialsPage = lazy(() => import('./pages/Credentials'));
+const DeviceCreationPage = lazy(() => import('./pages/DeviceCreatePage'));
+const DeviceEditPage = lazy(() => import('./pages/DeviceEditPage'));
+const InstanceEditPage = lazy(() => import('./pages/InstanceEditPage'));
+const InstanceLogsPage = lazy(() => import('./pages/InstanceLogsPage'));
+const CloudSettingsPage = lazy(() => import('./pages/CloudSettings'));
+const AdvancedSettingsPage = lazy(() => import('./pages/AdvancedSettings'));
+const UpdateSettingsPage = lazy(() => import('./pages/UpdateSettings'));
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[320px] items-center justify-center text-zinc-500">
+      <div className="text-sm">Carregando pagina...</div>
+    </div>
+  );
+}
+
+function ProtectedPage({ children }: { children: React.ReactNode }) {
+  return (
+    <ProtectedRoute>
+      <Suspense fallback={<RouteFallback />}>{children}</Suspense>
+    </ProtectedRoute>
+  );
+}
 
 function App() {
   const loadMe = useAuthStore((s) => s.loadMe);
@@ -79,36 +96,37 @@ function App() {
             <Routes>
               {/* Instances */}
               <Route path="/" element={<Navigate to="/instances" replace />} />
-              <Route path="/instances" element={<ProtectedRoute><InstancesPage /></ProtectedRoute>} />
-              <Route path="/instances/new" element={<ProtectedRoute><InstanceCreatePage /></ProtectedRoute>} />
-              <Route path="/instances/:id" element={<ProtectedRoute><InstanceLogsPage /></ProtectedRoute>} />
-              <Route path="/instances/:id/edit" element={<ProtectedRoute><InstanceEditPage /></ProtectedRoute>} />
+              <Route path="/instances" element={<ProtectedPage><InstancesPage /></ProtectedPage>} />
+              <Route path="/instances/new" element={<ProtectedPage><InstanceCreatePage /></ProtectedPage>} />
+              <Route path="/instances/:id" element={<ProtectedPage><InstanceLogsPage /></ProtectedPage>} />
+              <Route path="/instances/:id/edit" element={<ProtectedPage><InstanceEditPage /></ProtectedPage>} />
 
               {/* Script Hub */}
-              <Route path="/script-hub" element={<ProtectedRoute><ScriptHubPage /></ProtectedRoute>} />
-              <Route path="/script-hub/:id" element={<ProtectedRoute><ScriptDetailsPage /></ProtectedRoute>} />
-              <Route path="/script-hub/:id/edit" element={<ProtectedRoute><ScriptEditPage /></ProtectedRoute>} />
+              <Route path="/script-hub" element={<ProtectedPage><ScriptHubPage /></ProtectedPage>} />
+              <Route path="/script-hub/:id" element={<ProtectedPage><ScriptDetailsPage /></ProtectedPage>} />
+              <Route path="/script-hub/:id/edit" element={<ProtectedPage><ScriptEditPage /></ProtectedPage>} />
 
               {/* Local Data */}
-              <Route path="/data" element={<ProtectedRoute><LocalDataPage /></ProtectedRoute>} />
+              <Route path="/data" element={<ProtectedPage><LocalDataPage /></ProtectedPage>} />
 
               {/* Execution History */}
-              <Route path="/history" element={<ProtectedRoute><ExecutionHistoryPage /></ProtectedRoute>} />
+              <Route path="/history" element={<ProtectedPage><ExecutionHistoryPage /></ProtectedPage>} />
 
               {/* Management */}
-              <Route path="/servers" element={<ProtectedRoute><ServersPage /></ProtectedRoute>} />
-              <Route path="/servers/new" element={<ProtectedRoute><ServerCreatePage /></ProtectedRoute>} />
-              <Route path="/servers/:id" element={<ProtectedRoute><ServerEditPage /></ProtectedRoute>} />
-              <Route path="/credentials" element={<ProtectedRoute><CredentialsPage /></ProtectedRoute>} />
-              <Route path="/devices" element={<ProtectedRoute><DevicesPage /></ProtectedRoute>} />
-              <Route path="/devices/new" element={<ProtectedRoute><DeviceCreationPage /></ProtectedRoute>} />
-              <Route path="/devices/:id" element={<ProtectedRoute><DeviceEditPage /></ProtectedRoute>} />
-              <Route path="/projects" element={<ProtectedRoute><ProjectsPage /></ProtectedRoute>} />
+              <Route path="/servers" element={<ProtectedPage><ServersPage /></ProtectedPage>} />
+              <Route path="/servers/new" element={<ProtectedPage><ServerCreatePage /></ProtectedPage>} />
+              <Route path="/servers/:id" element={<ProtectedPage><ServerEditPage /></ProtectedPage>} />
+              <Route path="/credentials" element={<ProtectedPage><CredentialsPage /></ProtectedPage>} />
+              <Route path="/devices" element={<ProtectedPage><DevicesPage /></ProtectedPage>} />
+              <Route path="/devices/new" element={<ProtectedPage><DeviceCreationPage /></ProtectedPage>} />
+              <Route path="/devices/:id" element={<ProtectedPage><DeviceEditPage /></ProtectedPage>} />
+              <Route path="/projects" element={<ProtectedPage><ProjectsPage /></ProtectedPage>} />
 
               {/* Settings */}
-              <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-              <Route path="/settings/cloud" element={<ProtectedRoute><CloudSettingsPage /></ProtectedRoute>} />
-              <Route path="/settings/advanced" element={<ProtectedRoute><AdvancedSettingsPage /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedPage><SettingsPage /></ProtectedPage>} />
+              <Route path="/settings/cloud" element={<ProtectedPage><CloudSettingsPage /></ProtectedPage>} />
+              <Route path="/settings/advanced" element={<ProtectedPage><AdvancedSettingsPage /></ProtectedPage>} />
+              <Route path="/settings/update" element={<ProtectedPage><UpdateSettingsPage /></ProtectedPage>} />
 
               {/* Legacy redirect */}
               <Route path="/workflow" element={<Navigate to="/instances" replace />} />

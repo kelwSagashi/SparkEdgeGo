@@ -44,3 +44,20 @@ type DownloadedScript struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
+
+type ScriptHistoryEntry struct {
+	ID               string
+	ScriptID         string
+	Action           string
+	Name             string
+	Description      string
+	Author           string
+	Version          string
+	MainFile         string
+	RequirementsFile string
+	Tags             []string
+	SchemaConfig     map[string]any
+	ChangeSummary    []string
+	BundlePath       string
+	CreatedAt        time.Time
+}

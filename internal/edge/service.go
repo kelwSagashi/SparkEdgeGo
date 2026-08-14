@@ -66,7 +66,7 @@ func (s *Service) GetOnboarding(ctx context.Context) (domain.EdgeConfig, bool, e
 	if err != nil {
 		return domain.EdgeConfig{}, false, err
 	}
-	return config, config.EdgeName != "" && config.Lat != "" && config.Lng != "", nil
+	return config, strings.TrimSpace(config.EdgeName) != "", nil
 }
 
 func (s *Service) SaveOnboarding(ctx context.Context, req OnboardingRequest) (domain.EdgeConfig, error) {
@@ -74,7 +74,10 @@ func (s *Service) SaveOnboarding(ctx context.Context, req OnboardingRequest) (do
 	if name == "" {
 		return domain.EdgeConfig{}, ErrInvalidOnboarding
 	}
-	locationSource := "manual"
+	locationSource := ""
+	if strings.TrimSpace(req.Lat) != "" && strings.TrimSpace(req.Lng) != "" {
+		locationSource = "manual"
+	}
 	return s.repo.UpsertEdgeConfig(ctx, sqlite.UpsertEdgeConfigParams{
 		EdgeName:       &name,
 		Description:    nullablePtr(req.Description),
@@ -239,7 +242,11 @@ func (s *Service) Reconnect(ctx context.Context) error {
 	if err := s.mqtt.Connect(ctx, mqtt.Config{EdgeID: edge.EdgeID, BrokerURL: edge.MQTT.URL, Username: edge.MQTT.Username, Password: edge.MQTT.Password}); err != nil {
 		return err
 	}
+	config, _, _ := s.GetOnboarding(ctx)
+	_ = s.mqtt.PublishMeta(ctx, metadataEnvelope(edge.EdgeID, edge.EdgeName, config))
+	_ = s.mqtt.PublishStats(ctx)
 	s.mqtt.StartHeartbeat(0)
+	s.mqtt.StartStats(0)
 	_ = s.mqtt.RetryQueue(ctx, 5)
 	return nil
 }
@@ -274,6 +281,14 @@ func metadataFromConfig(config domain.EdgeConfig) map[string]any {
 		"hardware":     envOrDefault("SPARKEDGE_HARDWARE", runtime.GOARCH),
 		"environment":  envOrDefault("SPARKEDGE_ENV", "production"),
 	}
+	return metadata
+}
+
+func metadataEnvelope(edgeID string, edgeName string, config domain.EdgeConfig) map[string]any {
+	metadata := metadataFromConfig(config)
+	metadata["edge_id"] = edgeID
+	metadata["edge_name"] = edgeName
+	metadata["location_source"] = emptyAsNil(config.LocationSource)
 	return metadata
 }
 

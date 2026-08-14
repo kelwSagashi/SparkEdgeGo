@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
+	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 	"github.com/kelwSagashi/sparkedge-go/internal/executions"
 	"github.com/kelwSagashi/sparkedge-go/internal/instances"
@@ -20,26 +22,32 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/serverinfra"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
 	"github.com/kelwSagashi/sparkedge-go/internal/tags"
+	"github.com/kelwSagashi/sparkedge-go/internal/updater"
 	"github.com/kelwSagashi/sparkedge-go/internal/users"
 )
 
 type Dependencies struct {
-	DB          *sqlite.Store
-	Auth        *auth.Service
-	Users       *users.Service
-	Projects    *projects.Service
-	Scripts     *scripts.Service
-	Devices     *devices.Service
-	Edge        *edge.Service
-	Tags        *tags.Service
-	Instances   *instances.Service
-	Executions  *executions.Service
-	MQTT        *mqtt.Client
-	Providers   *providers.Registry
-	Runtime     *runtime.Runner
-	ServerInfra *serverinfra.Service
-	Config      *config.Manager
-	RuntimeCfg  config.Runtime
+	DB                  *sqlite.Store
+	Auth                *auth.Service
+	Users               *users.Service
+	Projects            *projects.Service
+	Scripts             *scripts.Service
+	Devices             *devices.Service
+	Edge                *edge.Service
+	Tags                *tags.Service
+	Instances           *instances.Service
+	Executions          *executions.Service
+	MQTT                *mqtt.Client
+	Providers           *providers.Registry
+	Runtime             *runtime.Runner
+	TriggerInstance     func(context.Context, string, map[string]any, domain.TriggerType) (domain.InstanceExecution, runtime.TriggerResult, error)
+	DispatchEvent       func(context.Context, string, map[string]any) (any, error)
+	DispatchStateChange func(context.Context, map[string]any) (any, error)
+	ServerInfra         *serverinfra.Service
+	Updater             *updater.Service
+	CloudSync           *cloudsync.Service
+	Config              *config.Manager
+	RuntimeCfg          config.Runtime
 }
 
 type Server struct {
@@ -108,8 +116,22 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/cli/mqtt-config", Adapt(s.handleCliMQTTConfigGet))
 	mux.HandleFunc("GET /api/cli/config", Adapt(s.handleCliConfigGet))
 	mux.HandleFunc("PUT /api/cli/config", Adapt(s.handleCliConfigUpdate))
+	mux.HandleFunc("GET /api/cli/operational-summary", Adapt(s.handleCliOperationalSummary))
+	mux.HandleFunc("GET /api/update/check", Adapt(s.handleUpdateCheck))
+	mux.HandleFunc("GET /api/update/status", Adapt(s.handleUpdateStatus))
+	mux.HandleFunc("POST /api/update/download", Adapt(s.handleUpdateDownload))
+	mux.HandleFunc("POST /api/update/apply", Adapt(s.handleUpdateApply))
+	mux.HandleFunc("POST /api/update/rollback", Adapt(s.handleUpdateRollback))
+	mux.HandleFunc("POST /api/update/restart", Adapt(s.handleUpdateRestart))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
 	mux.HandleFunc("POST /api/spark-cloud/edges/register", Adapt(s.handleSparkCloudEdgeRegister))
+	mux.HandleFunc("GET /api/cloud-sync", Adapt(s.handleCloudSyncList))
+	mux.HandleFunc("GET /api/cloud-sync/stats", Adapt(s.handleCloudSyncStats))
+	mux.HandleFunc("POST /api/cloud-sync/flush", Adapt(s.handleCloudSyncFlush))
+	mux.HandleFunc("POST /api/cloud-sync/{id}/retry", Adapt(s.handleCloudSyncRetry))
+	mux.HandleFunc("DELETE /api/cloud-sync/{id}", Adapt(s.handleCloudSyncDelete))
+	mux.HandleFunc("POST /api/events/dispatch", Adapt(s.handleEventDispatch))
+	mux.HandleFunc("POST /api/state/dispatch", Adapt(s.handleStateDispatch))
 
 	mux.HandleFunc("GET /api/users", Adapt(s.handleUsersList))
 	mux.HandleFunc("POST /api/users", Adapt(s.handleUserCreate))
@@ -161,6 +183,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/scripts/upload/finalize", Adapt(s.handleScriptUploadFinalize))
 	mux.HandleFunc("POST /api/scripts/playground/run", Adapt(s.handleScriptPlaygroundRun))
 	mux.HandleFunc("GET /api/scripts/", s.routeScripts)
+	mux.HandleFunc("POST /api/scripts/", s.routeScripts)
 	mux.HandleFunc("PUT /api/scripts/", s.routeScripts)
 	mux.HandleFunc("DELETE /api/scripts/", s.routeScripts)
 

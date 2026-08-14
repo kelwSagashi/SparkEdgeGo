@@ -3,6 +3,7 @@ package instances
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -42,11 +43,16 @@ type DataMappingRepository interface {
 	DeleteByInstanceDestination(ctx context.Context, instanceDestinationID string) error
 }
 
+type CircuitBreakerRepository interface {
+	ListByDestinationIDs(ctx context.Context, destinationIDs []string) ([]domain.CircuitBreakerState, error)
+}
+
 type Service struct {
 	instances    Repository
 	tags         TagsService
 	destinations DestinationRepository
 	mappings     DataMappingRepository
+	breakers     CircuitBreakerRepository
 }
 
 type Payload struct {
@@ -72,6 +78,12 @@ type Payload struct {
 	TriggerTypeCamel             domain.TriggerType      `json:"triggerType"`
 	TriggerConfig                map[string]any          `json:"trigger_config"`
 	TriggerConfigCamel           map[string]any          `json:"triggerConfig"`
+	DependsOn                    []string                `json:"depends_on"`
+	DependsOnCamel               []string                `json:"dependsOn"`
+	ExecutionMode                domain.ExecutionMode    `json:"execution_mode"`
+	ExecutionModeCamel           domain.ExecutionMode    `json:"executionMode"`
+	OrchestrationConfig          map[string]any          `json:"orchestration_config"`
+	OrchestrationConfigCamel     map[string]any          `json:"orchestrationConfig"`
 	FallbackEnabled              *bool                   `json:"fallback_enabled"`
 	FallbackStrategy             domain.FallbackStrategy `json:"fallback_strategy"`
 	FallbackRetryIntervalSeconds int                     `json:"fallback_retry_interval_seconds"`
@@ -132,6 +144,8 @@ func NewService(instances Repository, tags TagsService, repos ...any) *Service {
 			service.destinations = typed
 		case DataMappingRepository:
 			service.mappings = typed
+		case CircuitBreakerRepository:
+			service.breakers = typed
 		}
 	}
 	return service
@@ -176,6 +190,9 @@ func (s *Service) Create(ctx context.Context, payload Payload) (domain.Instance,
 	if err != nil {
 		return domain.Instance{}, err
 	}
+	if err := s.validateDependencies(ctx, "", params.DependsOn); err != nil {
+		return domain.Instance{}, err
+	}
 	instance, err := s.instances.Create(ctx, params)
 	if err != nil {
 		return domain.Instance{}, err
@@ -199,6 +216,9 @@ func (s *Service) Update(ctx context.Context, id string, payload Payload) (domai
 		if err != nil {
 			return domain.Instance{}, err
 		}
+		if err := s.validateDependencies(ctx, id, params.DependsOn); err != nil {
+			return domain.Instance{}, err
+		}
 		instance, err := s.instances.Upsert(ctx, params)
 		if err != nil {
 			return domain.Instance{}, err
@@ -213,6 +233,11 @@ func (s *Service) Update(ctx context.Context, id string, payload Payload) (domai
 	}
 
 	update := normalizePartialUpdate(payload)
+	if update.DependsOn != nil {
+		if err := s.validateDependencies(ctx, id, *update.DependsOn); err != nil {
+			return domain.Instance{}, err
+		}
+	}
 	instance, err := s.instances.Update(ctx, id, update)
 	if err != nil {
 		return domain.Instance{}, err
@@ -319,6 +344,80 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.instances.Delete(ctx, id)
 }
 
+func (s *Service) validateDependencies(ctx context.Context, instanceID string, dependsOn []string) error {
+	if len(dependsOn) == 0 {
+		return nil
+	}
+
+	allInstances, err := s.instances.ListAll(ctx)
+	if err != nil {
+		return err
+	}
+
+	graph := make(map[string][]string, len(allInstances)+1)
+	known := make(map[string]struct{}, len(allInstances))
+	for _, item := range allInstances {
+		graph[item.ID] = append([]string{}, item.DependsOn...)
+		known[item.ID] = struct{}{}
+	}
+
+	normalized := make([]string, 0, len(dependsOn))
+	seen := map[string]struct{}{}
+	for _, dependency := range dependsOn {
+		dependency = strings.TrimSpace(dependency)
+		if dependency == "" {
+			continue
+		}
+		if dependency == instanceID && instanceID != "" {
+			return fmt.Errorf("%w: instancia nao pode depender dela mesma", ErrInvalidInstance)
+		}
+		if _, ok := known[dependency]; !ok {
+			return fmt.Errorf("%w: dependencia %s nao existe", ErrInvalidInstance, dependency)
+		}
+		if _, ok := seen[dependency]; ok {
+			continue
+		}
+		seen[dependency] = struct{}{}
+		normalized = append(normalized, dependency)
+	}
+
+	if instanceID == "" {
+		return nil
+	}
+
+	graph[instanceID] = normalized
+	if hasDependencyCycle(instanceID, graph) {
+		return fmt.Errorf("%w: dependencias geram ciclo na orquestracao", ErrInvalidInstance)
+	}
+	return nil
+}
+
+func hasDependencyCycle(root string, graph map[string][]string) bool {
+	visited := map[string]bool{}
+	active := map[string]bool{}
+
+	var visit func(string) bool
+	visit = func(node string) bool {
+		if active[node] {
+			return true
+		}
+		if visited[node] {
+			return false
+		}
+		visited[node] = true
+		active[node] = true
+		for _, dependency := range graph[node] {
+			if visit(dependency) {
+				return true
+			}
+		}
+		delete(active, node)
+		return false
+	}
+
+	return visit(root)
+}
+
 func (s *Service) syncNamedTags(ctx context.Context, instanceID string, names []string, projectID string) error {
 	if s.tags == nil || names == nil {
 		return nil
@@ -341,6 +440,20 @@ func (s *Service) destinationsWithMappings(ctx context.Context, instanceID strin
 	}
 
 	result := make([]domain.InstanceDestinationWithMapping, 0, len(destinations))
+	breakerByDestination := map[string]domain.CircuitBreakerState{}
+	if s.breakers != nil {
+		ids := make([]string, 0, len(destinations))
+		for _, destination := range destinations {
+			ids = append(ids, destination.ID)
+		}
+		states, err := s.breakers.ListByDestinationIDs(ctx, ids)
+		if err != nil {
+			return nil, err
+		}
+		for _, state := range states {
+			breakerByDestination[state.DestinationID] = state
+		}
+	}
 	for _, destination := range destinations {
 		item := domain.InstanceDestinationWithMapping{Destination: destination}
 		if s.mappings != nil {
@@ -350,6 +463,10 @@ func (s *Service) destinationsWithMappings(ctx context.Context, instanceID strin
 			} else if !errors.Is(err, sqlite.ErrNotFound) {
 				return nil, err
 			}
+		}
+		if state, ok := breakerByDestination[destination.ID]; ok {
+			stateCopy := state
+			item.BreakerState = &stateCopy
 		}
 		result = append(result, item)
 	}
@@ -418,8 +535,13 @@ func destinationParams(instanceID string, payload DestinationPayload) sqlite.Ups
 		Enabled:             firstBool(true, enabled),
 		Priority:            priority,
 		RetryPolicy: domain.RetryPolicy{
-			MaxRetries:    intFromMap(retryPolicy, "max_retries", "maxRetries", 3),
-			RetryInterval: intFromMap(retryPolicy, "retry_interval", "retryInterval", 60),
+			MaxRetries:                    intFromMap(retryPolicy, "max_retries", "maxRetries", 3),
+			RetryInterval:                 intFromMap(retryPolicy, "retry_interval", "retryInterval", 60),
+			TimeoutSeconds:                intFromMap(retryPolicy, "timeout_seconds", "timeoutSeconds", 30),
+			ContinueOnError:               boolFromMap(retryPolicy, "continue_on_error", "continueOnError", false),
+			IsolationMode:                 stringFromMap(retryPolicy, "isolation_mode", "isolationMode", "isolate"),
+			CircuitBreakerThreshold:       intFromMap(retryPolicy, "circuit_breaker_threshold", "circuitBreakerThreshold", 0),
+			CircuitBreakerCooldownSeconds: intFromMap(retryPolicy, "circuit_breaker_cooldown_seconds", "circuitBreakerCooldownSeconds", 0),
 		},
 	}
 }
@@ -444,6 +566,9 @@ func normalizePayload(payload Payload) (sqlite.UpsertInstanceParams, error) {
 	includeDeviceData := firstBool(false, payload.IncludeDeviceData, payload.IncludeDeviceDataCamel)
 	triggerType := firstTrigger(payload.TriggerType, payload.TriggerTypeCamel)
 	triggerConfig := firstMap(payload.TriggerConfig, payload.TriggerConfigCamel)
+	dependsOn := firstStrings(payload.DependsOn, payload.DependsOnCamel)
+	executionMode := firstExecutionMode(payload.ExecutionMode, payload.ExecutionModeCamel)
+	orchestrationConfig := firstMap(payload.OrchestrationConfig, payload.OrchestrationConfigCamel)
 	scriptParameters := normalizeScriptParameters(payload)
 	fallbackEnabled, fallbackStrategy, retrySeconds := normalizeFallback(payload)
 	onErrorAction, onErrorConfig := normalizeErrorConfig(payload)
@@ -462,6 +587,9 @@ func normalizePayload(payload Payload) (sqlite.UpsertInstanceParams, error) {
 		ScriptParameters:             scriptParameters,
 		TriggerType:                  triggerType,
 		TriggerConfig:                triggerConfig,
+		DependsOn:                    dependsOn,
+		ExecutionMode:                executionMode,
+		OrchestrationConfig:          orchestrationConfig,
 		FallbackEnabled:              fallbackEnabled,
 		FallbackStrategy:             fallbackStrategy,
 		FallbackRetryIntervalSeconds: retrySeconds,
@@ -510,6 +638,18 @@ func normalizePartialUpdate(payload Payload) sqlite.UpdateInstanceParams {
 	if payload.TriggerConfig != nil || payload.TriggerConfigCamel != nil {
 		config := firstMap(payload.TriggerConfig, payload.TriggerConfigCamel)
 		update.TriggerConfig = &config
+	}
+	if payload.DependsOn != nil || payload.DependsOnCamel != nil {
+		dependsOn := firstStrings(payload.DependsOn, payload.DependsOnCamel)
+		update.DependsOn = &dependsOn
+	}
+	if payload.ExecutionMode != "" || payload.ExecutionModeCamel != "" {
+		mode := firstExecutionMode(payload.ExecutionMode, payload.ExecutionModeCamel)
+		update.ExecutionMode = &mode
+	}
+	if payload.OrchestrationConfig != nil || payload.OrchestrationConfigCamel != nil {
+		config := firstMap(payload.OrchestrationConfig, payload.OrchestrationConfigCamel)
+		update.OrchestrationConfig = &config
 	}
 	if payload.FallbackEnabled != nil || payload.FallbackConfig != nil || payload.FallbackConfigCamel != nil {
 		enabled, strategy, retry := normalizeFallback(payload)
@@ -656,6 +796,24 @@ func firstTrigger(values ...domain.TriggerType) domain.TriggerType {
 	return domain.TriggerInterval
 }
 
+func firstExecutionMode(values ...domain.ExecutionMode) domain.ExecutionMode {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return domain.ExecutionModeSequential
+}
+
+func firstStrings(values ...[]string) []string {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return []string{}
+}
+
 func defaultStatus(status domain.InstanceStatus) domain.InstanceStatus {
 	if status == "" {
 		return domain.InstanceStatusIdle
@@ -669,6 +827,24 @@ func intFromMap(config map[string]any, snake string, camel string, fallback int)
 		case float64:
 			return int(value)
 		case int:
+			return value
+		}
+	}
+	return fallback
+}
+
+func boolFromMap(config map[string]any, snake string, camel string, fallback bool) bool {
+	for _, key := range []string{snake, camel} {
+		if value, ok := config[key].(bool); ok {
+			return value
+		}
+	}
+	return fallback
+}
+
+func stringFromMap(config map[string]any, snake string, camel string, fallback string) string {
+	for _, key := range []string{snake, camel} {
+		if value, ok := config[key].(string); ok && strings.TrimSpace(value) != "" {
 			return value
 		}
 	}

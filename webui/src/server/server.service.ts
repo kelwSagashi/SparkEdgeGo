@@ -44,6 +44,156 @@ const adapterMetadataFallbacks: Record<
   string,
   Pick<AdapterMetadata, "resourceFields" | "operationFields">
 > = {
+  no_auth: {
+    resourceFields: [
+      {
+        key: "baseUrl",
+        label: "Base URL",
+        type: "text",
+        placeholder: "https://api.example.com",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "GET", value: "GET" },
+          { label: "POST", value: "POST" },
+          { label: "PUT", value: "PUT" },
+          { label: "PATCH", value: "PATCH" },
+          { label: "DELETE", value: "DELETE" },
+        ],
+      },
+      {
+        key: "path",
+        label: "Path",
+        type: "text",
+        placeholder: "/resource",
+      },
+    ],
+  },
+  api_key: {
+    resourceFields: [
+      {
+        key: "baseUrl",
+        label: "Base URL",
+        type: "text",
+        placeholder: "https://api.example.com",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "GET", value: "GET" },
+          { label: "POST", value: "POST" },
+          { label: "PUT", value: "PUT" },
+          { label: "PATCH", value: "PATCH" },
+          { label: "DELETE", value: "DELETE" },
+        ],
+      },
+      {
+        key: "path",
+        label: "Path",
+        type: "text",
+        placeholder: "/resource",
+      },
+    ],
+  },
+  basic_auth: {
+    resourceFields: [
+      {
+        key: "baseUrl",
+        label: "Base URL",
+        type: "text",
+        placeholder: "https://api.example.com",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "GET", value: "GET" },
+          { label: "POST", value: "POST" },
+          { label: "PUT", value: "PUT" },
+          { label: "PATCH", value: "PATCH" },
+          { label: "DELETE", value: "DELETE" },
+        ],
+      },
+      {
+        key: "path",
+        label: "Path",
+        type: "text",
+        placeholder: "/resource",
+      },
+    ],
+  },
+  bearer_token: {
+    resourceFields: [
+      {
+        key: "baseUrl",
+        label: "Base URL",
+        type: "text",
+        placeholder: "https://api.example.com",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "GET", value: "GET" },
+          { label: "POST", value: "POST" },
+          { label: "PUT", value: "PUT" },
+          { label: "PATCH", value: "PATCH" },
+          { label: "DELETE", value: "DELETE" },
+        ],
+      },
+      {
+        key: "path",
+        label: "Path",
+        type: "text",
+        placeholder: "/resource",
+      },
+    ],
+  },
+  http: {
+    resourceFields: [
+      {
+        key: "baseUrl",
+        label: "Base URL",
+        type: "text",
+        placeholder: "https://api.example.com",
+      },
+    ],
+    operationFields: [
+      {
+        key: "method",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "GET", value: "GET" },
+          { label: "POST", value: "POST" },
+          { label: "PUT", value: "PUT" },
+          { label: "PATCH", value: "PATCH" },
+          { label: "DELETE", value: "DELETE" },
+        ],
+      },
+      {
+        key: "path",
+        label: "Path",
+        type: "text",
+        placeholder: "/resource",
+      },
+    ],
+  },
   supabase: {
     resourceFields: [
       {
@@ -86,6 +236,135 @@ const adapterMetadataFallbacks: Record<
           { label: "Insert One", value: "insertOne" },
           { label: "Update One", value: "updateOne" },
           { label: "Delete One", value: "deleteOne" },
+        ],
+      },
+    ],
+  },
+  firebase: {
+    resourceFields: [
+      {
+        key: "collection",
+        label: "Colecao",
+        type: "text",
+        placeholder: "events",
+      },
+    ],
+    operationFields: [
+      {
+        key: "operation",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "Add", value: "add" },
+          { label: "Set", value: "set" },
+        ],
+      },
+      {
+        key: "docId",
+        label: "Document ID",
+        type: "text",
+        placeholder: "opcional para set",
+      },
+    ],
+  },
+  googledrive: {
+    resourceFields: [
+      {
+        key: "folderId",
+        label: "Folder ID",
+        type: "text",
+        placeholder: "pasta de destino",
+      },
+    ],
+    operationFields: [
+      {
+        key: "fileName",
+        label: "Nome do arquivo",
+        type: "text",
+        placeholder: "export.json",
+      },
+    ],
+  },
+  googlespreadsheet: {
+    resourceFields: [
+      {
+        key: "spreadsheetId",
+        label: "Spreadsheet ID",
+        type: "text",
+        placeholder: "planilha do Google Sheets",
+      },
+    ],
+    operationFields: [
+      {
+        key: "action",
+        label: "Acao",
+        type: "select",
+        options: [
+          { label: "Append", value: "append" },
+          { label: "Update", value: "update" },
+        ],
+      },
+      {
+        key: "range",
+        label: "Range",
+        type: "text",
+        placeholder: "Sheet1!A1",
+      },
+    ],
+  },
+  mqtt: {
+    resourceFields: [
+      {
+        key: "topic",
+        label: "Topico",
+        type: "text",
+        placeholder: "devices/telemetry",
+      },
+    ],
+    operationFields: [
+      {
+        key: "qos",
+        label: "QoS",
+        type: "select",
+        options: [
+          { label: "0", value: 0 },
+          { label: "1", value: 1 },
+          { label: "2", value: 2 },
+        ],
+      },
+      {
+        key: "retained",
+        label: "Retained",
+        type: "boolean",
+      },
+    ],
+  },
+  jsonfile: {
+    resourceFields: [
+      {
+        key: "fileName",
+        label: "Arquivo",
+        type: "text",
+        placeholder: "telemetry/output.ndjson",
+      },
+    ],
+    operationFields: [
+      {
+        key: "format",
+        label: "Formato",
+        type: "select",
+        options: [
+          { label: "NDJSON", value: "ndjson" },
+          { label: "JSON Array", value: "json_array" },
+        ],
+      },
+      {
+        key: "mode",
+        label: "Modo de escrita",
+        type: "select",
+        options: [
+          { label: "Append", value: "append" },
+          { label: "Overwrite", value: "overwrite" },
         ],
       },
     ],
@@ -310,6 +589,19 @@ export class API {
       `/instances/${id}/trigger`,
       {},
     );
+  }
+
+  async dispatchEvent(event_name: string, payload: Record<string, unknown>) {
+    return axios_api_instance.post<ReturningQueries<any>>("/events/dispatch", {
+      event_name,
+      payload,
+    });
+  }
+
+  async dispatchStateChange(payload: Record<string, unknown>) {
+    return axios_api_instance.post<ReturningQueries<any>>("/state/dispatch", {
+      payload,
+    });
   }
 
   // ─── Scripts ──────────────────────────────────────────────────────────

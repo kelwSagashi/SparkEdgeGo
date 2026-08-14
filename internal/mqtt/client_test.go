@@ -57,15 +57,34 @@ func TestHandleCommandPublishesDoneResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(broker.published) != 1 || broker.published[0].Topic != ResponseTopic("edge-1") {
+	if len(broker.published) != 3 {
 		t.Fatalf("unexpected response publish %#v", broker.published)
 	}
-	var response map[string]any
-	if err := json.Unmarshal(broker.published[0].Payload, &response); err != nil {
+	for _, message := range broker.published {
+		if message.Topic != ResponseTopic("edge-1") {
+			t.Fatalf("unexpected response topic %#v", broker.published)
+		}
+	}
+	var received map[string]any
+	if err := json.Unmarshal(broker.published[0].Payload, &received); err != nil {
 		t.Fatal(err)
 	}
-	if response["command_id"] != "cmd-1" || response["status"] != "done" {
-		t.Fatalf("unexpected response %#v", response)
+	if received["command_id"] != "cmd-1" || received["status"] != "received" {
+		t.Fatalf("unexpected received response %#v", received)
+	}
+	var running map[string]any
+	if err := json.Unmarshal(broker.published[1].Payload, &running); err != nil {
+		t.Fatal(err)
+	}
+	if running["status"] != "running" {
+		t.Fatalf("unexpected running response %#v", running)
+	}
+	var done map[string]any
+	if err := json.Unmarshal(broker.published[2].Payload, &done); err != nil {
+		t.Fatal(err)
+	}
+	if done["status"] != "done" {
+		t.Fatalf("unexpected done response %#v", done)
 	}
 }
 
@@ -83,7 +102,7 @@ func TestHandleCommandIgnoresDuplicateCommandID(t *testing.T) {
 	if err := client.HandleCommand(context.Background(), raw); err != nil {
 		t.Fatal(err)
 	}
-	if len(broker.published) != 1 {
+	if len(broker.published) != 3 {
 		t.Fatalf("expected one response for duplicate command, got %#v", broker.published)
 	}
 }
@@ -101,7 +120,7 @@ func TestHandleCommandPersistsLifecycleInStore(t *testing.T) {
 	if err := client.HandleCommand(context.Background(), []byte(`{"command_id":"cmd-1","type":"ping","payload":{}}`)); err != nil {
 		t.Fatal(err)
 	}
-	if commands.saved != 1 || commands.statuses[0] != domain.MqttCommandRunning || commands.statuses[1] != domain.MqttCommandDone {
+	if commands.saved != 1 || commands.statuses[0] != domain.MqttCommandReceived || commands.statuses[1] != domain.MqttCommandRunning || commands.statuses[2] != domain.MqttCommandDone {
 		t.Fatalf("unexpected command store %#v", commands)
 	}
 }
@@ -168,6 +187,9 @@ func TestPublishContextUsesExpectedTopicAndPayload(t *testing.T) {
 	if payload["edge_id"] != "edge-1" {
 		t.Fatalf("unexpected edge_id in context payload %#v", payload)
 	}
+	if payload["schema_version"] != edgeCloudSchemaVersion || payload["type"] != "context" {
+		t.Fatalf("unexpected envelope in context payload %#v", payload)
+	}
 	localUser, ok := payload["local_user"].(map[string]any)
 	if !ok || localUser["id"] != "user-1" || localUser["email"] != "edge@example.com" {
 		t.Fatalf("unexpected local_user payload %#v", payload)
@@ -194,6 +216,37 @@ func TestPublishHeartbeatUsesExpectedTopic(t *testing.T) {
 	}
 	if payload["edge_id"] != "edge-1" {
 		t.Fatalf("unexpected heartbeat payload %#v", payload)
+	}
+	if payload["schema_version"] != edgeCloudSchemaVersion || payload["type"] != "heartbeat" || payload["status"] != "online" {
+		t.Fatalf("unexpected heartbeat envelope %#v", payload)
+	}
+	runtimePayload, ok := payload["runtime"].(map[string]any)
+	if !ok || runtimePayload["uptime_seconds"] == nil {
+		t.Fatalf("expected runtime payload in heartbeat %#v", payload)
+	}
+}
+
+func TestPublishStatsUsesExpectedTopicAndPayload(t *testing.T) {
+	broker := &fakeBroker{connected: true}
+	client := NewClientWithBroker(broker)
+	client.config = Config{EdgeID: "edge-1"}
+
+	if err := client.PublishStats(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(broker.published) != 1 || broker.published[0].Topic != StatsTopic("edge-1") {
+		t.Fatalf("unexpected stats publish %#v", broker.published)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(broker.published[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["schema_version"] != edgeCloudSchemaVersion || payload["type"] != "stats" {
+		t.Fatalf("unexpected stats payload %#v", payload)
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok || data["memory_mb"] == nil || data["uptime_seconds"] == nil {
+		t.Fatalf("unexpected stats data %#v", payload)
 	}
 }
 
@@ -262,6 +315,7 @@ type fakeBroker struct {
 	config          Config
 	connected       bool
 	subscribedTopic string
+	subscribed      []string
 	published       []Message
 	handler         func(string, []byte)
 	publishErr      error
@@ -294,7 +348,36 @@ func (b *fakeBroker) Subscribe(ctx context.Context, topic string, qos byte) erro
 		return err
 	}
 	b.subscribedTopic = topic
+	b.subscribed = append(b.subscribed, topic)
 	return nil
+}
+
+func TestSyncTopicHandlersSubscribesAndRoutesWildcardTopics(t *testing.T) {
+	broker := &fakeBroker{}
+	client := NewClientWithBroker(broker)
+	if err := client.Connect(context.Background(), Config{EdgeID: "edge-1", BrokerURL: "mqtt://localhost:1883"}); err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedTopic string
+	var receivedPayload string
+	if err := client.SyncTopicHandlers(context.Background(), map[string]TopicHandler{
+		"spark/custom/+/events": func(_ context.Context, topic string, payload []byte) {
+			receivedTopic = topic
+			receivedPayload = string(payload)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(broker.subscribed) < 2 {
+		t.Fatalf("expected command and custom topic subscriptions, got %#v", broker.subscribed)
+	}
+
+	broker.handler("spark/custom/device-1/events", []byte(`{"ok":true}`))
+	if receivedTopic != "spark/custom/device-1/events" || receivedPayload != `{"ok":true}` {
+		t.Fatalf("unexpected routed message topic=%q payload=%q", receivedTopic, receivedPayload)
+	}
 }
 
 func (b *fakeBroker) IsConnected() bool {

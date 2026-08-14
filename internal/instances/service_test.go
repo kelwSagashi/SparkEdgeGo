@@ -136,3 +136,53 @@ func TestInstancesServiceLifecycle(t *testing.T) {
 		t.Fatalf("expected no instances after delete, got %d", len(items))
 	}
 }
+
+func TestInstancesServiceRejectsInvalidDependenciesAndCycles(t *testing.T) {
+	ctx := context.Background()
+	store := sqlite.NewStore()
+	store.Path = filepath.Join(t.TempDir(), "sparkedge-deps-test.db")
+	if err := store.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	tagService := tags.NewService(store.Tags, store.InstanceTags)
+	service := NewService(store.Instances, tagService, store.Destinations, store.DataMappings)
+
+	first, err := service.Create(ctx, Payload{
+		Name:      "Collector A",
+		ProjectID: "project-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := service.Create(ctx, Payload{
+		Name:      "Collector B",
+		ProjectID: "project-1",
+		DependsOn: []string{first.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.Create(ctx, Payload{
+		Name:      "Collector C",
+		ProjectID: "project-1",
+		DependsOn: []string{"missing-instance"},
+	}); err == nil {
+		t.Fatalf("expected missing dependency validation error")
+	}
+
+	if _, err := service.Update(ctx, first.ID, Payload{
+		DependsOn: []string{second.ID},
+	}); err == nil {
+		t.Fatalf("expected cycle validation error")
+	}
+
+	if _, err := service.Update(ctx, first.ID, Payload{
+		DependsOn: []string{first.ID},
+	}); err == nil {
+		t.Fatalf("expected self dependency validation error")
+	}
+}

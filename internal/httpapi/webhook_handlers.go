@@ -34,6 +34,29 @@ func (s *Server) handleWebhookReceive(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
 	}
+	if s.deps.TriggerInstance != nil {
+		execution, result, err := s.deps.TriggerInstance(r.Context(), instance.ID, input, domain.TriggerWebhook)
+		if err != nil && result.Error == "" {
+			result.Error = err.Error()
+		}
+		response := map[string]any{
+			"data": map[string]any{
+				"triggered": true,
+				"execution": publicExecution(execution),
+				"result": map[string]any{
+					"status":              result.Status,
+					"output":              result.Output,
+					"mapped_payloads":     result.MappedPayloads,
+					"destination_details": result.DestinationDetails,
+				},
+			},
+			"error": nil,
+		}
+		if err != nil || result.Status != domain.ExecutionSuccess {
+			response["error"] = result.Error
+		}
+		return response, nil
+	}
 	script, err := s.deps.Scripts.FindByID(r.Context(), instance.ScriptID)
 	if err != nil {
 		return scriptError(err)
