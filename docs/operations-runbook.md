@@ -132,6 +132,44 @@ Se quiser rodar em background:
 nohup ./sparkedge > sparkedge.log 2>&1 &
 ```
 
+Para descobrir o PID:
+
+```bash
+pgrep -af sparkedge
+```
+
+Para acompanhar o log:
+
+```bash
+tail -f sparkedge.log
+```
+
+Para parar:
+
+```bash
+pkill -f sparkedge
+```
+
+Ou, de forma mais controlada:
+
+```bash
+ps aux | grep sparkedge
+kill <PID>
+```
+
+Se o processo nao encerrar:
+
+```bash
+kill -9 <PID>
+```
+
+Para producao em Raspberry, o caminho recomendado e usar `systemd` em vez de `nohup`, porque isso facilita:
+
+- restart automatico;
+- subida no boot;
+- leitura de logs com `journalctl`;
+- operacao padronizada com `systemctl start|stop|restart|status`.
+
 ## 6. Operacao offline e baixa conectividade
 
 Na operacao de campo, considerar:

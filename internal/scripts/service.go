@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/appfs"
@@ -22,6 +23,7 @@ import (
 var (
 	ErrInvalidScript      = errors.New("invalid script")
 	ErrScriptFileNotFound = errors.New("script file not found")
+	renamePath            = os.Rename
 )
 
 type Repository interface {
@@ -339,7 +341,7 @@ func (s *Service) replaceUpload(ctx context.Context, scriptID string, req Finali
 	_ = os.RemoveAll(backupFolder)
 
 	if _, err := os.Stat(finalFolder); err == nil {
-		if err := os.Rename(finalFolder, backupFolder); err != nil {
+		if err := movePath(finalFolder, backupFolder); err != nil {
 			return FinalizeResult{}, err
 		}
 	}
@@ -349,12 +351,12 @@ func (s *Service) replaceUpload(ctx context.Context, scriptID string, req Finali
 		if restoreBackup {
 			_ = os.RemoveAll(finalFolder)
 			if _, err := os.Stat(backupFolder); err == nil {
-				_ = os.Rename(backupFolder, finalFolder)
+				_ = movePath(backupFolder, finalFolder)
 			}
 		}
 	}()
 
-	if err := os.Rename(replacementFolder, finalFolder); err != nil {
+	if err := movePath(replacementFolder, finalFolder); err != nil {
 		return FinalizeResult{}, err
 	}
 
@@ -966,7 +968,7 @@ func (s *Service) prepareScriptFolder(ctx context.Context, tempFolder string, fo
 	if err := os.RemoveAll(finalFolder); err != nil {
 		return "", "", "", nil, err
 	}
-	if err := os.Rename(tempFolder, finalFolder); err != nil {
+	if err := movePath(tempFolder, finalFolder); err != nil {
 		return "", "", "", nil, err
 	}
 
@@ -1056,6 +1058,82 @@ func (s *Service) recordHistory(ctx context.Context, previous domain.DownloadedS
 		BundlePath:       archivePath,
 	})
 	return err
+}
+
+func movePath(source string, target string) error {
+	if err := renamePath(source, target); err == nil {
+		return nil
+	} else if !isCrossDeviceError(err) {
+		return err
+	}
+
+	info, err := os.Stat(source)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		if err := copyDirectory(source, target); err != nil {
+			return err
+		}
+	} else {
+		if err := copyFile(source, target, info.Mode()); err != nil {
+			return err
+		}
+	}
+
+	return os.RemoveAll(source)
+}
+
+func isCrossDeviceError(err error) bool {
+	return errors.Is(err, syscall.EXDEV) || strings.Contains(strings.ToLower(err.Error()), "cross-device link")
+}
+
+func copyDirectory(source string, target string) error {
+	return filepath.Walk(source, func(current string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		relativePath, err := filepath.Rel(source, current)
+		if err != nil {
+			return err
+		}
+
+		if relativePath == "." {
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		destination := filepath.Join(target, relativePath)
+		if info.IsDir() {
+			return os.MkdirAll(destination, info.Mode())
+		}
+		return copyFile(current, destination, info.Mode())
+	})
+}
+
+func copyFile(source string, target string, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	output, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		return err
+	}
+
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 func timeNowUnixNano() int64 {

@@ -3,8 +3,10 @@ package scripts
 import (
 	"archive/zip"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
@@ -339,6 +341,44 @@ func TestReplaceUploadPreservesScriptIDAndRefreshesBundle(t *testing.T) {
 	}
 	if history[0].Action != ScriptHistoryActionRestored {
 		t.Fatalf("expected latest history action %q, got %#v", ScriptHistoryActionRestored, history[0])
+	}
+}
+
+func TestMovePathFallsBackWhenRenameCrossesFilesystems(t *testing.T) {
+	sourceRoot := t.TempDir()
+	targetRoot := t.TempDir()
+	sourceDir := filepath.Join(sourceRoot, "bundle")
+	targetDir := filepath.Join(targetRoot, "bundle")
+
+	if err := os.MkdirAll(filepath.Join(sourceDir, "nested"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceDir, "nested", "main.py"), []byte("print('ok')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	originalRename := renamePath
+	renamePath = func(oldPath string, newPath string) error {
+		return fmt.Errorf("rename %s %s: %w", oldPath, newPath, syscall.EXDEV)
+	}
+	defer func() {
+		renamePath = originalRename
+	}()
+
+	if err := movePath(sourceDir, targetDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(sourceDir); !os.IsNotExist(err) {
+		t.Fatalf("expected source directory to be removed, got err=%v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(targetDir, "nested", "main.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "print('ok')" {
+		t.Fatalf("unexpected copied content %q", string(content))
 	}
 }
 

@@ -53,6 +53,38 @@ O runbook operacional de release, instalacao em campo, Raspberry e update assist
 
 Baixe um binario compativel com a sua maquina, descompacte, inicie o executavel e abra a webui do SparkEdge em http://localhost:3009
 
+## Raspberry Pi 3
+
+Para Raspberry Pi 3 com sistema 32 bits, use o pacote `linux-armv7`.
+
+Passo rapido:
+
+1. baixar a release `linux-armv7`;
+2. extrair o `.zip` no Raspberry;
+3. entrar na pasta `sparkEdge`;
+4. dar permissao de execucao ao binario;
+5. iniciar o SparkEdge de dentro dessa pasta.
+
+Comandos:
+
+```bash
+cd ~/sparkEdge
+chmod +x sparkedge
+./sparkedge
+```
+
+Depois, abrir:
+
+- `http://localhost:3009/` no proprio Raspberry;
+- ou `http://IP_DO_RASPBERRY:3009/` a partir de outra maquina da rede.
+
+Lembrete importante:
+
+- rode o binario dentro da pasta `sparkEdge`;
+- mantenha `config.yml` ao lado do executavel;
+- mantenha `webui/dist` ao lado do executavel;
+- o `sparkedge.db` sera criado ou reutilizado nesse mesmo local.
+
 
 # O que significa SparkEdge?
 O nome SparkEdge simboliza o "faísca" (spark) da energia e o foco no processamento de dados na "borda" (edge) da rede, refletindo o foco da plataforma em processamento local e monitoramento eficiente de sistemas de energia, principalmente em regiões onde tenha baixa conexão.
