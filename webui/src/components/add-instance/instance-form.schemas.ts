@@ -59,6 +59,95 @@ export const InstanceTriggerSchema = z.object({
   dependsOn: z.array(z.string()).optional(),
   executionMode: z.enum(["sequential", "parallel"]),
   orchestrationConfig: OrchestrationConfigSchema,
+}).superRefine((value, ctx) => {
+  const intervalTypes = new Set(["interval", "interval_and_webhook"]);
+  const webhookTypes = new Set(["webhook", "interval_and_webhook"]);
+  const dependsOn = Array.from(
+    new Set((value.dependsOn || []).map((item) => item.trim()).filter(Boolean)),
+  );
+
+  if (intervalTypes.has(value.triggerType)) {
+    const seconds = value.triggerConfig.interval_seconds;
+    if (seconds == null || Number.isNaN(seconds)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "interval_seconds"],
+        message: "Informe o intervalo em segundos.",
+      });
+    } else if (seconds < 10) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "interval_seconds"],
+        message: "Use pelo menos 10 segundos para evitar execucoes excessivas.",
+      });
+    }
+  }
+
+  if (webhookTypes.has(value.triggerType)) {
+    const path = value.triggerConfig.webhook_path?.trim();
+    if (!path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "webhook_path"],
+        message: "Informe o caminho do webhook.",
+      });
+    } else if (!path.startsWith("/")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "webhook_path"],
+        message: "O caminho do webhook deve comecar com '/'.",
+      });
+    }
+  }
+
+  if (value.triggerType === "event" && !value.triggerConfig.event_name?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["triggerConfig", "event_name"],
+      message: "Informe o nome do evento interno.",
+    });
+  }
+
+  if (value.triggerType === "mqtt" && !value.triggerConfig.mqtt_topic?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["triggerConfig", "mqtt_topic"],
+      message: "Informe o topico MQTT.",
+    });
+  }
+
+  if (value.triggerType === "state_change") {
+    if (!value.triggerConfig.state_field?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "state_field"],
+        message: "Informe o campo monitorado.",
+      });
+    }
+    if (!value.triggerConfig.state_equals?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["triggerConfig", "state_equals"],
+        message: "Informe o valor esperado para o disparo.",
+      });
+    }
+  }
+
+  if ((value.orchestrationConfig.debounce_seconds ?? 0) < 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["orchestrationConfig", "debounce_seconds"],
+      message: "O debounce nao pode ser negativo.",
+    });
+  }
+
+  if (dependsOn.length !== (value.dependsOn || []).length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["dependsOn"],
+      message: "Revise as dependencias: remova itens vazios ou duplicados.",
+    });
+  }
 });
 
 export const RetryPolicySchema = z.object({

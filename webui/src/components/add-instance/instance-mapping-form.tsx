@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useFormContext } from "react-hook-form";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,6 +14,7 @@ import type {
 } from "@/types/db";
 import type { InstanceFormValues } from "./instance-form.schemas";
 import { buildInstanceRuntimePreview } from "@/lib/instance-mapping";
+import { resolveTemplatePreview } from "@/lib/template-preview";
 
 interface InstanceMappingFormProps {
   allOperations: ResourceOperationReturningValues[];
@@ -160,14 +161,66 @@ export function InstanceMappingForm({
     });
   }, [allOperations, destinations, setValue]);
 
-  const combinedPayload: Record<string, unknown> = {};
-  destinations.forEach((destination, index) => {
-    const operation = allOperations.find(
-      (item) => String(item.id) === String(destination.resourceOperationId),
-    );
-    const key = `${index + 1}. ${operation?.name || "Destino"}`;
-    combinedPayload[key] = destination.dataMapping?.payloadTemplate || {};
-  });
+  const combinedPayload = useMemo(() => {
+    const payload: Record<string, unknown> = {};
+    destinations.forEach((destination, index) => {
+      const operation = allOperations.find(
+        (item) => String(item.id) === String(destination.resourceOperationId),
+      );
+      const key = `${index + 1}. ${operation?.name || "Destino"}`;
+      payload[key] = destination.dataMapping?.payloadTemplate || {};
+    });
+    return payload;
+  }, [allOperations, destinations]);
+
+  const resolvedPayload = useMemo(() => {
+    return resolveTemplatePreview(combinedPayload, sourceData as Record<string, unknown>);
+  }, [combinedPayload, sourceData]);
+
+  const mappingStats = useMemo(() => {
+    const visit = (input: unknown): { placeholders: number; textTemplates: number; objects: number } => {
+      if (typeof input === "string") {
+        const placeholders = (input.match(/\{\{/g) || []).length;
+        return {
+          placeholders,
+          textTemplates: placeholders > 0 && input.trim() !== "" ? 1 : 0,
+          objects: 0,
+        };
+      }
+
+      if (Array.isArray(input)) {
+        return input.reduce(
+          (acc, item) => {
+            const nested = visit(item);
+            return {
+              placeholders: acc.placeholders + nested.placeholders,
+              textTemplates: acc.textTemplates + nested.textTemplates,
+              objects: acc.objects + nested.objects,
+            };
+          },
+          { placeholders: 0, textTemplates: 0, objects: 0 },
+        );
+      }
+
+      if (input && typeof input === "object") {
+        return Object.values(input as Record<string, unknown>).reduce(
+          (acc, item) => {
+            const nested = visit(item);
+            return {
+              placeholders: acc.placeholders + nested.placeholders,
+              textTemplates: acc.textTemplates + nested.textTemplates,
+              objects: acc.objects + nested.objects + 1,
+            };
+          },
+          { placeholders: 0, textTemplates: 0, objects: 0 },
+        );
+      }
+
+      return { placeholders: 0, textTemplates: 0, objects: 0 };
+    };
+
+    return visit(combinedPayload);
+  }, [combinedPayload]);
 
   const getDestinationIndex = (path: string) => {
     const match = path.match(/^(\d+)\./);
@@ -255,7 +308,37 @@ export function InstanceMappingForm({
           </Card>
         ) : (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 gap-4 h-[500px]">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Card className="p-3 bg-muted/30 border-border">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                  Destinos
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-primary">{destinations.length}</p>
+                <p className="text-[11px] text-secondary">
+                  payloads configurados na instancia
+                </p>
+              </Card>
+              <Card className="p-3 bg-muted/30 border-border">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                  Placeholders
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-primary">{mappingStats.placeholders}</p>
+                <p className="text-[11px] text-secondary">
+                  referencias e expressoes detectadas
+                </p>
+              </Card>
+              <Card className="p-3 bg-muted/30 border-border">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-secondary">
+                  Estruturas
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-primary">{mappingStats.objects}</p>
+                <p className="text-[11px] text-secondary">
+                  objetos/layers no template de payload
+                </p>
+              </Card>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 h-[720px]">
               <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
                 <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
@@ -387,6 +470,34 @@ export function InstanceMappingForm({
                         { shouldValidate: true, shouldDirty: true },
                       );
                     }}
+                    draggableValue={false}
+                    pProps={{
+                      className: "bg-transparent border-none text-xs text-primary",
+                    }}
+                  />
+                </div>
+              </Card>
+
+              <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+                <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
+                    Preview Resolvido
+                  </span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                    Runtime View
+                  </span>
+                </div>
+                <div className="px-3 py-2 border-b border-border bg-black/20 space-y-1">
+                  <p className="text-[11px] text-primary">
+                    O preview usa o mesmo contexto exibido na coluna da esquerda.
+                  </p>
+                  <p className="text-[10px] text-secondary">
+                    Misture texto com variaveis, solte objetos inteiros e confira o resultado final antes de salvar.
+                  </p>
+                </div>
+                <div className="flex-1 overflow-auto p-2">
+                  <JsonViewMain
+                    data={resolvedPayload}
                     draggableValue={false}
                     pProps={{
                       className: "bg-transparent border-none text-xs text-primary",

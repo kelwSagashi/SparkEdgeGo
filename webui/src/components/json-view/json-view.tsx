@@ -79,6 +79,14 @@ type ActiveTemplateContext =
     | { type: 'function'; name: string; supported: boolean; signature?: string; description?: string }
     | { type: 'placeholder'; message: string }
     | null;
+type InputSelection = {
+    start: number;
+    end: number;
+};
+type OutputDragItem = {
+    value: string;
+    data?: unknown;
+};
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -158,6 +166,18 @@ function coercePrimitiveValue(rawValue: string, originalValue: unknown) {
     }
 
     return rawValue;
+}
+
+function cloneDroppedData<T>(value: T): T {
+    if (value === undefined) {
+        return value;
+    }
+
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch {
+        return value;
+    }
 }
 
 function extractTemplateReferences(input: string, suggestions: TemplateSuggestion[]): TemplateReferenceStatus[] {
@@ -284,6 +304,7 @@ function TemplateValueInput({
     inputProps?: React.ComponentProps<'input'>;
 }) {
     const inputRef = useRef<HTMLInputElement | null>(null);
+    const lastSelectionRef = useRef<InputSelection>({ start: value.length, end: value.length });
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
@@ -317,6 +338,17 @@ function TemplateValueInput({
     const hasSupportedFunctions = decorations.functions.some((item) => item.supported);
     const hasSyntaxWarning = decorations.incompletePlaceholder || decorations.unbalancedClosers;
 
+    const updateSelectionSnapshot = React.useCallback((target: HTMLInputElement | null) => {
+        if (!target) {
+            return;
+        }
+
+        const start = target.selectionStart ?? target.value.length;
+        const end = target.selectionEnd ?? start;
+        lastSelectionRef.current = { start, end };
+        setCursorPosition(start);
+    }, []);
+
     const syncAutocomplete = React.useCallback((nextValue: string, cursor: number, forceOpen = false) => {
         const context = getTemplateContext(nextValue, cursor);
         if (!context) {
@@ -324,6 +356,7 @@ function TemplateValueInput({
                 setOpen(true);
                 setQuery('');
                 setContextRange(null);
+                setSelectedIndex(0);
                 return;
             }
             setOpen(false);
@@ -336,7 +369,7 @@ function TemplateValueInput({
         setQuery(context.query);
         setContextRange({ start: context.start, end: context.end, mode: context.mode });
         setSelectedIndex(0);
-        setOpen(forceOpen || context.query.length > 0);
+        setOpen(forceOpen || manualMode || context.query.length > 0);
     }, [manualMode]);
 
     React.useEffect(() => {
@@ -354,26 +387,27 @@ function TemplateValueInput({
             return;
         }
 
-        const selectionStart = input.selectionStart ?? value.length;
+        const selectionStart = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const selectionEnd = input.selectionEnd ?? lastSelectionRef.current.end ?? selectionStart;
         const currentContext = contextRange ?? getTemplateContext(value, selectionStart);
         let nextValue = value;
-        let cursorPosition = selectionStart;
+        let nextCursorPosition = selectionStart;
 
         if (currentContext?.mode === 'placeholder') {
             const before = value.slice(0, currentContext.start);
             const after = value.slice(currentContext.end);
             nextValue = `${before}{{${suggestion.path}}}${after}`;
-            cursorPosition = before.length + suggestion.path.length + 4;
+            nextCursorPosition = before.length + suggestion.path.length + 4;
         } else if (currentContext?.mode === 'path') {
             const before = value.slice(0, currentContext.start);
             const after = value.slice(currentContext.end);
             nextValue = `${before}${suggestion.path}${after}`;
-            cursorPosition = before.length + suggestion.path.length;
+            nextCursorPosition = before.length + suggestion.path.length;
         } else {
             const before = value.slice(0, selectionStart);
-            const after = value.slice(input.selectionEnd ?? selectionStart);
+            const after = value.slice(selectionEnd);
             nextValue = `${before}{{${suggestion.path}}}${after}`;
-            cursorPosition = before.length + suggestion.path.length + 4;
+            nextCursorPosition = before.length + suggestion.path.length + 4;
         }
 
         onValueChange(coercePrimitiveValue(nextValue, originalValue));
@@ -384,7 +418,8 @@ function TemplateValueInput({
 
         requestAnimationFrame(() => {
             input.focus();
-            input.setSelectionRange(cursorPosition, cursorPosition);
+            input.setSelectionRange(nextCursorPosition, nextCursorPosition);
+            lastSelectionRef.current = { start: nextCursorPosition, end: nextCursorPosition };
         });
     }, [contextRange, onValueChange, originalValue, value]);
 
@@ -395,8 +430,8 @@ function TemplateValueInput({
             return;
         }
 
-        const start = input.selectionStart ?? value.length;
-        const end = input.selectionEnd ?? value.length;
+        const start = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const end = input.selectionEnd ?? lastSelectionRef.current.end ?? value.length;
         const before = value.slice(0, start);
         const after = value.slice(end);
         const nextValue = `${before}{{${templatePath}}}${after}`;
@@ -406,8 +441,10 @@ function TemplateValueInput({
         requestAnimationFrame(() => {
             input.focus();
             input.setSelectionRange(cursorPosition, cursorPosition);
+            lastSelectionRef.current = { start: cursorPosition, end: cursorPosition };
+            syncAutocomplete(nextValue, cursorPosition);
         });
-    }, [onValueChange, originalValue, value]);
+    }, [onValueChange, originalValue, syncAutocomplete, value]);
 
     const insertAutocompletePlaceholder = React.useCallback(() => {
         const input = inputRef.current;
@@ -415,8 +452,8 @@ function TemplateValueInput({
             return;
         }
 
-        const start = input.selectionStart ?? value.length;
-        const end = input.selectionEnd ?? value.length;
+        const start = input.selectionStart ?? lastSelectionRef.current.start ?? value.length;
+        const end = input.selectionEnd ?? lastSelectionRef.current.end ?? value.length;
         const currentContext = getTemplateContext(value, start);
         if (currentContext) {
             setManualMode(true);
@@ -434,13 +471,14 @@ function TemplateValueInput({
         requestAnimationFrame(() => {
             input.focus();
             input.setSelectionRange(cursorPosition, cursorPosition);
+            lastSelectionRef.current = { start: cursorPosition, end: cursorPosition };
             syncAutocomplete(nextValue, cursorPosition, true);
         });
     }, [onValueChange, originalValue, syncAutocomplete, value]);
 
     const [{ isOver }, drop] = useDrop(() => ({
         accept: ItemTypes.OUTPUT_VALUE,
-        drop: (item: { value: string }) => {
+        drop: (item: OutputDragItem) => {
             insertTemplateAtCursor(item.value);
         },
         collect: (monitor) => ({
@@ -449,7 +487,15 @@ function TemplateValueInput({
     }), [insertTemplateAtCursor]);
 
     return (
-        <Popover open={open && filteredSuggestions.length > 0} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(nextOpen) => {
+                setOpen(nextOpen);
+                if (!nextOpen) {
+                    setManualMode(false);
+                }
+            }}
+        >
             <div
                 ref={drop as any}
                 className={cn(
@@ -464,18 +510,24 @@ function TemplateValueInput({
                             value={value}
                             onChange={(e) => {
                                 const nextValue = e.target.value;
-                                setCursorPosition(e.target.selectionStart ?? nextValue.length);
+                                updateSelectionSnapshot(e.target);
                                 onValueChange(coercePrimitiveValue(nextValue, originalValue));
                                 syncAutocomplete(nextValue, e.target.selectionStart ?? nextValue.length);
                             }}
                             onClick={(e) => {
                                 const selectionStart = (e.target as HTMLInputElement).selectionStart ?? 0;
-                                setCursorPosition(selectionStart);
+                                updateSelectionSnapshot(e.target as HTMLInputElement);
                                 syncAutocomplete((e.target as HTMLInputElement).value, selectionStart);
+                            }}
+                            onFocus={(e) => {
+                                updateSelectionSnapshot(e.target);
+                            }}
+                            onSelect={(e) => {
+                                updateSelectionSnapshot(e.target as HTMLInputElement);
                             }}
                             onKeyUp={(e) => {
                                 const target = e.currentTarget;
-                                setCursorPosition(target.selectionStart ?? target.value.length);
+                                updateSelectionSnapshot(target);
                                 syncAutocomplete(target.value, target.selectionStart ?? target.value.length);
                             }}
                             onBlur={() => {
@@ -584,6 +636,32 @@ function TemplateValueInput({
                                 )}
                             </div>
                         )}
+                        <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-zinc-400">
+                            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono">
+                                Ctrl+Space
+                            </span>
+                            <span>abre o autocomplete no cursor atual</span>
+                            {hasValidReferences && (
+                                <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300">
+                                    {detectedReferences.filter((item) => item.valid).length} valida(s)
+                                </span>
+                            )}
+                            {hasInvalidReferences && (
+                                <span className="rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-red-300">
+                                    {detectedReferences.filter((item) => !item.valid).length} invalida(s)
+                                </span>
+                            )}
+                            {hasSupportedFunctions && (
+                                <span className="rounded border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">
+                                    {decorations.functions.filter((item) => item.supported).length} funcao(oes)
+                                </span>
+                            )}
+                            {hasUnsupportedFunctions && (
+                                <span className="rounded border border-orange-500/20 bg-orange-500/10 px-1.5 py-0.5 text-orange-300">
+                                    revisar funcao desconhecida
+                                </span>
+                            )}
+                        </div>
                         {activeContext && (
                             <div className={cn(
                                 "rounded-md border px-2 py-1.5 text-[10px]",
@@ -650,7 +728,14 @@ function TemplateValueInput({
             >
                 <Command className="bg-transparent">
                     <CommandList>
-                        <CommandEmpty>Nenhuma variavel encontrada.</CommandEmpty>
+                        <CommandEmpty>
+                            <div className="space-y-1 px-3 py-2 text-left">
+                                <p className="text-[11px] text-zinc-200">Nenhuma variavel encontrada.</p>
+                                <p className="text-[10px] text-zinc-500">
+                                    Continue digitando ou referencie o contexto com <span className="font-mono">{'{{$.path}}'}</span>.
+                                </p>
+                            </div>
+                        </CommandEmpty>
                         <CommandGroup heading="Variaveis disponiveis">
                             {filteredSuggestions.map((suggestion, index) => (
                                 <CommandItem
@@ -887,30 +972,37 @@ export function JsonView({
     const isObject = typeof value === "object" && value !== null;
     const [open, setOpen] = React.useState(forceExpand ? forceExpand : level < defaultExpandLevel);
 
+    const handleDropValue = React.useCallback((item: OutputDragItem) => {
+        if (!onParamChange) {
+            return;
+        }
+
+        const parentPath = path.split('.').slice(0, -1).join('.');
+        const droppedData = item.data;
+        const canAssignStructuredValue =
+            droppedData !== null &&
+            droppedData !== undefined &&
+            typeof droppedData === 'object' &&
+            isObject;
+
+        if (canAssignStructuredValue) {
+            onParamChange(parentPath, name, cloneDroppedData(droppedData));
+            setOpen(true);
+            return;
+        }
+
+        onParamChange(parentPath, name, `{{${item.value}}}`);
+    }, [isObject, name, onParamChange, path]);
+
     const [{ isOver }, drop] = useDrop(() => ({
         accept: ItemTypes.OUTPUT_VALUE,
-        drop: (item: { value: string, data?: any }) => {
-            if (onParamChange) {
-                const parentPath = path.split('.').slice(0, -1).join('.');
-                if (isObject) {
-                    if (item.data && typeof item.data === 'object') {
-                        onParamChange(parentPath, name, item.data);
-                    } else {
-                        onParamChange(parentPath, name, `{{${item.value}}}`);
-                    }
-                } else {
-                    if (item.data && typeof item.data === 'object' && value !== null && value !== undefined && typeof value !== 'string') {
-                        onParamChange(parentPath, name, item.data);
-                    } else {
-                        onParamChange(parentPath, name, `{{${item.value}}}`);
-                    }
-                }
-            }
+        drop: (item: OutputDragItem) => {
+            handleDropValue(item);
         },
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
-    }), [name, path, onParamChange, isObject, value]);
+    }), [handleDropValue]);
 
     const handleSetExpand = React.useCallback((value: boolean) => {
         setExpandOnce(false);

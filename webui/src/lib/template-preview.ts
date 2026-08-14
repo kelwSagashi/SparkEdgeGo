@@ -1,5 +1,14 @@
 const templatePattern = /\{\{([^}]+)\}\}/g;
 
+function simpleHash(value: string): string {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16);
+}
+
 function getPathValue(context: Record<string, unknown>, path: string): unknown {
   const normalized = path.trim().replace(/^\$\./, "");
   if (!normalized) {
@@ -82,10 +91,43 @@ function evaluateFunction(
       return values[0] ? values[1] : values[2];
     case "add":
       return values.reduce((sum, current) => sum + Number(current ?? 0), 0);
+    case "sub":
+      return values.slice(1).reduce((total, current) => total - Number(current ?? 0), Number(values[0] ?? 0));
+    case "mul":
+      return values.reduce((total, current) => total * Number(current ?? 1), 1);
+    case "div":
+      return values.slice(1).reduce((total, current) => total / Number(current ?? 1), Number(values[0] ?? 0));
+    case "hash":
+      return simpleHash(JSON.stringify(values[0] ?? ""));
+    case "parse": {
+      const raw = values[0];
+      if (typeof raw !== "string") {
+        return raw;
+      }
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return undefined;
+      }
+    }
     case "string":
       return `${values[0] ?? ""}`;
     case "number":
       return Number(values[0] ?? 0);
+    case "date": {
+      const raw = values[0];
+      if (raw === undefined || raw === null || raw === "") {
+        return "";
+      }
+      const date = raw instanceof Date ? raw : new Date(`${raw}`);
+      return Number.isNaN(date.getTime()) ? `${raw}` : date.toISOString();
+    }
+    case "now":
+      return new Date().toISOString();
+    case "replace":
+      return `${values[0] ?? ""}`.replaceAll(`${values[1] ?? ""}`, `${values[2] ?? ""}`);
+    case "join":
+      return Array.isArray(values[0]) ? values[0].join(`${values[1] ?? ","}`) : `${values[0] ?? ""}`;
     case "bool":
       return Boolean(values[0]);
     default:
@@ -142,6 +184,9 @@ export function resolveTemplatePreview(
 ): unknown {
   if (typeof input === "string") {
     const trimmed = input.trim();
+    if (trimmed.startsWith("{{...") && trimmed.endsWith("}}")) {
+      return evaluateExpression(trimmed.slice(5, -2), context);
+    }
     if (trimmed.startsWith("{{") && trimmed.endsWith("}}")) {
       return evaluateExpression(trimmed.slice(2, -2), context);
     }
