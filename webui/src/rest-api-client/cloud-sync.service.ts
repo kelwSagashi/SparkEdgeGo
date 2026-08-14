@@ -22,6 +22,38 @@ export interface CloudSyncStats {
   failed?: number;
   sent?: number;
   total?: number;
+  ready?: number;
+  oldest_pending_age_seconds?: number;
+  retention?: {
+    sent_retention_hours?: number;
+    failed_retention_hours?: number;
+    keep_sent_items?: number;
+    keep_failed_items?: number;
+  };
+  usage?: {
+    pending_total_pct_of_failed_window?: number;
+    sent_pct_of_sent_window?: number;
+  };
+  mqtt_queue?: {
+    total?: number;
+    oldest_pending_age_seconds?: number;
+    usage_pct?: number;
+    retention?: {
+      max_items?: number;
+      max_age_hours?: number;
+      max_age_seconds?: number;
+    };
+  };
+  connectivity?: {
+    mode?: string;
+    status?: string;
+    reasons?: string[];
+    heartbeat_interval_seconds?: number;
+    stats_interval_seconds?: number;
+    cloud_sync_configured?: boolean;
+    mqtt_connected?: boolean;
+    policy?: Record<string, number>;
+  };
 }
 
 export const cloudSyncService = {

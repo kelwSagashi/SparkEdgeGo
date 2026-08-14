@@ -1,28 +1,13 @@
 import { useEffect, useState } from 'react';
 import {
   FileText, HardDrive, RefreshCw, Clock, CheckCircle2,
-  XCircle, AlertTriangle, Trash2, Search, ExternalLink,
-  Table as TableIcon, Database, ArrowRight
+  XCircle, AlertTriangle, Trash2, Search,
+  Table as TableIcon, Database, ArrowRight, ShieldAlert, Activity, Layers3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useFallbackStore } from '@/stores/fallback-store';
-
-interface FallbackItem {
-  id: string;
-  instance_id: string;
-  destination_id: string | null;
-  execution_id: string | null;
-  status: 'pending' | 'sending' | 'sent' | 'failed';
-  payload: string;
-  filepath: string | null;
-  retry_count: number;
-  last_retry_at: string | null;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-}
 
 const statusConfig: Record<string, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   pending: { icon: Clock,         color: 'text-amber-400',   bg: 'bg-amber-500/10',   label: 'Pendente' },
@@ -31,8 +16,67 @@ const statusConfig: Record<string, { icon: React.ElementType; color: string; bg:
   failed:  { icon: XCircle,       color: 'text-red-400',     bg: 'bg-red-500/10',     label: 'Falhado' },
 };
 
+function severityFromPercent(value: number) {
+  if (value >= 85) {
+    return {
+      label: 'critical',
+      card: 'border-red-500/30 bg-red-500/[0.06]',
+      text: 'text-red-300',
+      badge: 'bg-red-500/15 text-red-200 border border-red-500/30',
+    };
+  }
+  if (value >= 60) {
+    return {
+      label: 'warning',
+      card: 'border-amber-500/30 bg-amber-500/[0.05]',
+      text: 'text-amber-200',
+      badge: 'bg-amber-500/15 text-amber-100 border border-amber-500/30',
+    };
+  }
+  return {
+    label: 'normal',
+    card: 'border-emerald-500/20 bg-emerald-500/[0.04]',
+    text: 'text-emerald-200',
+    badge: 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/20',
+  };
+}
+
+function severityFromAgeSeconds(value: number) {
+  if (value >= 1800) {
+    return {
+      label: 'critical',
+      card: 'border-red-500/30 bg-red-500/[0.06]',
+      text: 'text-red-300',
+      badge: 'bg-red-500/15 text-red-200 border border-red-500/30',
+    };
+  }
+  if (value >= 600) {
+    return {
+      label: 'warning',
+      card: 'border-amber-500/30 bg-amber-500/[0.05]',
+      text: 'text-amber-200',
+      badge: 'bg-amber-500/15 text-amber-100 border border-amber-500/30',
+    };
+  }
+  return {
+    label: 'normal',
+    card: 'border-emerald-500/20 bg-emerald-500/[0.04]',
+    text: 'text-emerald-200',
+    badge: 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/20',
+  };
+}
+
+function formatDuration(seconds: number) {
+  if (!seconds || seconds <= 0) return '-';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+}
+
 export default function LocalDataPage() {
-  const { items, loading, refreshing, fetchItems, flushQueue, retryItem, deleteItem } = useFallbackStore();
+  const { items, stats: fallbackStats, loading, refreshing, fetchItems, flushQueue, retryItem, deleteItem } = useFallbackStore();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | 'all'>('all');
 
@@ -81,6 +125,54 @@ export default function LocalDataPage() {
     sent: items.filter(i => i.status === 'sent').length,
     failed: items.filter(i => i.status === 'failed').length,
   };
+
+  const sentRetentionHours = fallbackStats?.retention?.sent_retention_hours ?? 0;
+  const failedRetentionHours = fallbackStats?.retention?.failed_retention_hours ?? 0;
+  const keepSentItems = fallbackStats?.retention?.keep_sent_items ?? 0;
+  const keepFailedItems = fallbackStats?.retention?.keep_failed_items ?? 0;
+  const sentUsagePct = fallbackStats?.usage?.sent_pct_of_sent_window ?? 0;
+  const failedUsagePct = fallbackStats?.usage?.failed_pct_of_failed_window ?? 0;
+  const oldestPendingAgeSeconds = fallbackStats?.oldest_pending_age_seconds ?? 0;
+  const historyPressurePct = Math.max(sentUsagePct, failedUsagePct);
+  const historyPressureTone = severityFromPercent(historyPressurePct);
+  const pendingAgeTone = severityFromAgeSeconds(oldestPendingAgeSeconds);
+  const retryPressurePct = stats.total > 0 ? Math.round((items.filter((item) => item.retry_count > 0).length / stats.total) * 100) : 0;
+  const retryPressureTone = severityFromPercent(retryPressurePct);
+  const unresolvedPct = stats.total > 0 ? Math.round(((stats.pending + stats.failed) / stats.total) * 100) : 0;
+  const unresolvedTone = severityFromPercent(unresolvedPct);
+  const destinationCoverage = items.filter((item) => item.destination_id).length;
+  const topPendingInstances = Array.from(
+    items
+      .filter((item) => item.status === 'pending' || item.status === 'failed')
+      .reduce((map, item) => {
+        map.set(item.instance_id, (map.get(item.instance_id) ?? 0) + 1);
+        return map;
+      }, new Map<string, number>()),
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
+  const localGuidance = stats.failed > 0
+    ? {
+        title: 'Existem itens com falha terminal',
+        description: 'Revise os erros mais recentes e priorize os destinos com tentativas esgotadas antes que o backlog cresca.',
+        tone: 'border-red-500/30 bg-red-500/[0.06] text-red-100',
+        icon: ShieldAlert,
+      }
+    : stats.pending > 0
+      ? {
+          title: 'Fila local aguardando reenvio',
+          description: 'O Edge esta preservando dados offline. Vale monitorar a idade do item mais antigo e forcar um flush quando a conectividade estabilizar.',
+          tone: 'border-amber-500/30 bg-amber-500/[0.05] text-amber-100',
+          icon: Activity,
+        }
+      : {
+          title: 'Fallback local sob controle',
+          description: 'Nao ha backlog operacional pendente. O historico local esta funcionando mais como trilha de auditoria do que como fila de contingencia.',
+          tone: 'border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-100',
+          icon: CheckCircle2,
+        };
+  const GuidanceIcon = localGuidance.icon;
 
   return (
     <main className="grow px-8 py-6 w-full max-w-[1200px] mx-auto">
@@ -136,6 +228,151 @@ export default function LocalDataPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Retencao fallback</p>
+          <p className="mt-2 text-sm text-white font-medium">
+            Sent: {sentRetentionHours}h | Failed: {failedRetentionHours}h
+          </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Historico terminal mantido localmente antes da limpeza automatica.
+          </p>
+        </div>
+        <div className={`border rounded-2xl p-4 ${historyPressureTone.card}`}>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Ocupacao historico</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className={`text-sm font-medium ${historyPressureTone.text}`}>
+              {historyPressurePct}% de pressao
+            </p>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${historyPressureTone.badge}`}>
+              {historyPressureTone.label}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-white font-medium">
+            Sent {sentUsagePct}% de {keepSentItems} | Failed {failedUsagePct}% de {keepFailedItems}
+          </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Indica pressao sobre as janelas de retencao do armazenamento local.
+          </p>
+        </div>
+        <div className={`border rounded-2xl p-4 ${pendingAgeTone.card}`}>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Fila pendente mais antiga</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className={`text-sm font-medium ${pendingAgeTone.text}`}>
+              {oldestPendingAgeSeconds > 0 ? `${oldestPendingAgeSeconds}s` : '-'}
+            </p>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${pendingAgeTone.badge}`}>
+              {pendingAgeTone.label}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            Quanto mais alto esse valor, maior o risco de backlog operacional.
+          </p>
+        </div>
+      </div>
+
+      <div className={`mb-8 rounded-2xl border px-5 py-4 ${localGuidance.tone}`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <GuidanceIcon size={16} />
+              <p className="text-sm font-semibold">{localGuidance.title}</p>
+            </div>
+            <p className="text-xs leading-relaxed opacity-90">{localGuidance.description}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[10px] uppercase tracking-widest opacity-70">Idade do backlog</p>
+            <p className="mt-1 text-sm font-semibold">{formatDuration(oldestPendingAgeSeconds)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className={`border rounded-2xl p-4 ${retryPressureTone.card}`}>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Pressao de retries</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className={`text-sm font-medium ${retryPressureTone.text}`}>{retryPressurePct}%</p>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${retryPressureTone.badge}`}>
+              {retryPressureTone.label}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            {items.filter((item) => item.retry_count > 0).length} item(ns) ja exigiram reenvio manual ou automatico.
+          </p>
+        </div>
+        <div className={`border rounded-2xl p-4 ${unresolvedTone.card}`}>
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Itens nao resolvidos</p>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <p className={`text-sm font-medium ${unresolvedTone.text}`}>{unresolvedPct}%</p>
+            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${unresolvedTone.badge}`}>
+              {unresolvedTone.label}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-zinc-500">
+            Pendentes + falhos sobre o total persistido localmente.
+          </p>
+        </div>
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Cobertura de destinos</p>
+          <p className="mt-2 text-sm text-white font-medium">
+            {destinationCoverage} / {items.length}
+          </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Itens com `destination_id` conhecido, uteis para diagnostico fino do envio.
+          </p>
+        </div>
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
+          <p className="text-[10px] text-zinc-500 uppercase tracking-widest font-semibold">Janela operacional</p>
+          <p className="mt-2 text-sm text-white font-medium">
+            Sent {sentRetentionHours}h | Failed {failedRetentionHours}h
+          </p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Tempo maximo visivel para auditoria local antes da limpeza automatica.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[1.2fr,0.8fr] gap-4 mb-8">
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers3 size={15} className="text-cyan-300" />
+            <p className="text-sm font-semibold text-white">Instancias com mais backlog local</p>
+          </div>
+          {topPendingInstances.length === 0 ? (
+            <p className="text-sm text-zinc-500">Nenhuma instancia acumula backlog no momento.</p>
+          ) : (
+            <div className="space-y-2">
+              {topPendingInstances.map(([instanceId, count]) => (
+                <div key={instanceId} className="flex items-center justify-between rounded-xl border border-white/[0.05] bg-black/20 px-3 py-3">
+                  <div>
+                    <p className="text-sm text-white font-medium break-all">{instanceId}</p>
+                    <p className="text-[11px] text-zinc-500">Itens pendentes ou falhos aguardando resolucao</p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-200 border border-amber-500/20">
+                    {count}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-4">
+          <p className="text-sm font-semibold text-white mb-3">Leitura rapida</p>
+          <div className="space-y-3 text-xs text-zinc-400">
+            <p>
+              `pending` indica dados preservados localmente aguardando janela de conectividade.
+            </p>
+            <p>
+              `sending` representa envio em progresso ou retentativa sendo processada.
+            </p>
+            <p>
+              `failed` aponta itens que precisam de revisao porque a politica atual nao conseguiu drenar a fila.
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Control Bar */}
