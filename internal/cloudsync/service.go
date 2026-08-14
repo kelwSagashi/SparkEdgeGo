@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -25,10 +26,15 @@ type QueueStore interface {
 }
 
 type Config struct {
-	BaseURL   string
-	EdgeID    string
-	SyncToken string
-	Enabled   bool
+	BaseURL           string
+	EdgeID            string
+	SyncToken         string
+	Enabled           bool
+	SchemaVersion     string
+	MaxAttempts       int
+	MaxBatchSize      int
+	HighPriorityDelay time.Duration
+	LowPriorityDelay  time.Duration
 }
 
 type Service struct {
@@ -38,6 +44,21 @@ type Service struct {
 }
 
 func NewService(queue QueueStore, cfg Config) *Service {
+	if strings.TrimSpace(cfg.SchemaVersion) == "" {
+		cfg.SchemaVersion = "edge-cloud.v1"
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 12
+	}
+	if cfg.MaxBatchSize <= 0 {
+		cfg.MaxBatchSize = 50
+	}
+	if cfg.HighPriorityDelay <= 0 {
+		cfg.HighPriorityDelay = 15 * time.Second
+	}
+	if cfg.LowPriorityDelay <= 0 {
+		cfg.LowPriorityDelay = 45 * time.Second
+	}
 	return &Service{
 		queue:  queue,
 		client: &http.Client{Timeout: 20 * time.Second},
@@ -45,15 +66,44 @@ func NewService(queue QueueStore, cfg Config) *Service {
 	}
 }
 
+func (s *Service) UpdateConfig(cfg Config) {
+	if s == nil {
+		return
+	}
+	if strings.TrimSpace(cfg.SchemaVersion) == "" {
+		cfg.SchemaVersion = "edge-cloud.v1"
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 12
+	}
+	if cfg.MaxBatchSize <= 0 {
+		cfg.MaxBatchSize = 50
+	}
+	if cfg.HighPriorityDelay <= 0 {
+		cfg.HighPriorityDelay = 15 * time.Second
+	}
+	if cfg.LowPriorityDelay <= 0 {
+		cfg.LowPriorityDelay = 45 * time.Second
+	}
+	s.config = cfg
+}
+
 func (s *Service) Configured() bool {
-	return s != nil && s.queue != nil && s.config.Enabled && strings.TrimSpace(s.config.BaseURL) != "" && strings.TrimSpace(s.config.EdgeID) != "" && strings.TrimSpace(s.config.SyncToken) != ""
+	return s != nil && s.queue != nil && s.config.Enabled && strings.TrimSpace(s.config.BaseURL) != "" && strings.TrimSpace(s.config.SyncToken) != ""
 }
 
 func (s *Service) EnqueueEvent(ctx context.Context, eventType string, priority int, payload map[string]any) (domain.CloudSyncItem, error) {
 	if s == nil || s.queue == nil {
 		return domain.CloudSyncItem{}, errors.New("cloud sync queue is not configured")
 	}
-	return s.queue.Enqueue(ctx, eventType, priority, payload)
+	normalized := s.normalizePayload(eventType, payload)
+	if normalized == nil {
+		normalized = map[string]any{}
+	}
+	if priority <= 0 {
+		priority = defaultPriority(eventType)
+	}
+	return s.queue.Enqueue(ctx, eventType, priority, normalized)
 }
 
 func (s *Service) EnqueueInstanceExecution(ctx context.Context, payload map[string]any) (domain.CloudSyncItem, error) {
@@ -68,6 +118,9 @@ func (s *Service) Flush(ctx context.Context, limit int) (map[string]any, error) 
 	if !s.Configured() {
 		return map[string]any{"sent": 0, "failed": 0, "skipped": true}, nil
 	}
+	if limit <= 0 || limit > s.config.MaxBatchSize {
+		limit = s.config.MaxBatchSize
+	}
 	items, err := s.queue.ListPending(ctx, limit)
 	if err != nil {
 		return nil, err
@@ -78,15 +131,24 @@ func (s *Service) Flush(ctx context.Context, limit int) (map[string]any, error) 
 
 	sent := 0
 	failed := 0
-	for _, item := range items {
-		if err := s.sendItem(ctx, item); err != nil {
-			failed++
-			nextRetryAt := time.Now().UTC().Add(backoff(item.Attempts))
-			_ = s.queue.MarkFailed(ctx, item.ID, err.Error(), &nextRetryAt)
+	for _, batch := range s.groupItemsForBatch(items) {
+		sendErr := s.sendBatch(ctx, batch)
+		if sendErr == nil || isConflict(sendErr) {
+			for _, item := range batch {
+				sent++
+				_ = s.queue.MarkSent(ctx, item.ID)
+			}
 			continue
 		}
-		sent++
-		_ = s.queue.MarkSent(ctx, item.ID)
+
+		for _, item := range batch {
+			nextRetryAt := time.Now().UTC().Add(backoff(item.Attempts+1, item.Priority, s.config.HighPriorityDelay, s.config.LowPriorityDelay))
+			if item.Attempts+1 >= s.config.MaxAttempts && !isRetryableError(sendErr) {
+				nextRetryAt = time.Now().UTC().Add(24 * time.Hour)
+			}
+			_ = s.queue.MarkFailed(ctx, item.ID, sendErr.Error(), &nextRetryAt)
+			failed++
+		}
 	}
 	return map[string]any{"sent": sent, "failed": failed, "items": len(items)}, nil
 }
@@ -124,7 +186,7 @@ func (s *Service) RetryItem(ctx context.Context, id string) (map[string]any, err
 		}, nil
 	}
 	if err := s.sendItem(ctx, item); err != nil {
-		nextRetryAt := time.Now().UTC().Add(backoff(item.Attempts))
+		nextRetryAt := time.Now().UTC().Add(backoff(item.Attempts+1, item.Priority, s.config.HighPriorityDelay, s.config.LowPriorityDelay))
 		_ = s.queue.MarkFailed(ctx, item.ID, err.Error(), &nextRetryAt)
 		return map[string]any{
 			"id":         item.ID,
@@ -170,24 +232,36 @@ func (s *Service) Stats(ctx context.Context) (map[string]any, error) {
 }
 
 func (s *Service) sendItem(ctx context.Context, item domain.CloudSyncItem) error {
-	endpoint := strings.TrimRight(s.config.BaseURL, "/") + "/edge-sync/events/batch"
-	edgeID := s.config.EdgeID
-	if edgeID == "" {
-		if value, ok := item.Payload["edge_id"].(string); ok {
-			edgeID = strings.TrimSpace(value)
-		}
+	return s.sendBatch(ctx, []domain.CloudSyncItem{item})
+}
+
+func (s *Service) sendBatch(ctx context.Context, items []domain.CloudSyncItem) error {
+	if len(items) == 0 {
+		return nil
 	}
+	endpoint := strings.TrimRight(s.config.BaseURL, "/") + "/edge-sync/events/batch"
+	edgeID := s.resolveEdgeID(items[0])
 	if edgeID == "" {
 		return errors.New("cloud sync item missing edge_id")
 	}
+	events := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		events = append(events, map[string]any{
+			"message_id": item.Payload["message_id"],
+			"type":       item.EventType,
+			"payload":    item.Payload,
+			"priority":   item.Priority,
+			"attempts":   item.Attempts,
+			"created_at": item.CreatedAt.Format(time.RFC3339),
+		})
+	}
 	payload := map[string]any{
 		"edge_id": edgeID,
-		"events": []map[string]any{
-			{
-				"message_id": item.Payload["message_id"],
-				"type":       item.EventType,
-				"payload":    item.Payload,
-			},
+		"events":  events,
+		"batch": map[string]any{
+			"items":            len(items),
+			"schema_version":   s.config.SchemaVersion,
+			"highest_priority": highestPriority(items),
 		},
 	}
 	data, err := json.Marshal(payload)
@@ -206,20 +280,152 @@ func (s *Service) sendItem(ctx context.Context, item domain.CloudSyncItem) error
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("cloud sync failed with status %d", res.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return &syncHTTPError{
+			StatusCode: res.StatusCode,
+			Body:       strings.TrimSpace(string(body)),
+		}
 	}
 	return nil
 }
 
-func backoff(attempts int) time.Duration {
-	if attempts < 1 {
-		return 30 * time.Second
+func (s *Service) resolveEdgeID(item domain.CloudSyncItem) string {
+	edgeID := strings.TrimSpace(s.config.EdgeID)
+	if edgeID != "" {
+		return edgeID
 	}
-	delay := time.Duration(attempts*attempts) * 30 * time.Second
+	if value, ok := item.Payload["edge_id"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func (s *Service) groupItemsForBatch(items []domain.CloudSyncItem) [][]domain.CloudSyncItem {
+	if len(items) == 0 {
+		return nil
+	}
+	buckets := map[string][]domain.CloudSyncItem{}
+	order := make([]string, 0)
+	for _, item := range items {
+		edgeID := s.resolveEdgeID(item)
+		if edgeID == "" {
+			edgeID = "__missing__"
+		}
+		if _, exists := buckets[edgeID]; !exists {
+			order = append(order, edgeID)
+		}
+		buckets[edgeID] = append(buckets[edgeID], item)
+	}
+	result := make([][]domain.CloudSyncItem, 0, len(order))
+	for _, edgeID := range order {
+		result = append(result, buckets[edgeID])
+	}
+	return result
+}
+
+func backoff(attempts int, priority int, highPriorityDelay time.Duration, lowPriorityDelay time.Duration) time.Duration {
+	if attempts < 1 {
+		attempts = 1
+	}
+	base := lowPriorityDelay
+	if priority >= 80 {
+		base = highPriorityDelay
+	} else if priority >= 50 {
+		base = 25 * time.Second
+	}
+	delay := time.Duration(attempts*attempts) * base
 	if delay > 30*time.Minute {
 		return 30 * time.Minute
 	}
 	return delay
+}
+
+func (s *Service) normalizePayload(eventType string, payload map[string]any) map[string]any {
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	if value, ok := payload["edge_id"].(string); !ok || strings.TrimSpace(value) == "" {
+		payload["edge_id"] = s.config.EdgeID
+	}
+	if value, ok := payload["type"].(string); !ok || strings.TrimSpace(value) == "" {
+		payload["type"] = eventType
+	}
+	if value, ok := payload["schema_version"].(string); !ok || strings.TrimSpace(value) == "" {
+		payload["schema_version"] = s.config.SchemaVersion
+	}
+	occurredAt, ok := payload["occurred_at"].(string)
+	if !ok || strings.TrimSpace(occurredAt) == "" {
+		now := time.Now().UTC().Format(time.RFC3339)
+		payload["occurred_at"] = now
+		if _, exists := payload["timestamp"]; !exists {
+			payload["timestamp"] = now
+		}
+	}
+	messageID, _ := payload["message_id"].(string)
+	if strings.TrimSpace(messageID) == "" {
+		payload["message_id"] = buildMessageID(payload)
+	}
+	return payload
+}
+
+func buildMessageID(payload map[string]any) string {
+	edgeID, _ := payload["edge_id"].(string)
+	eventType, _ := payload["type"].(string)
+	occurredAt, _ := payload["occurred_at"].(string)
+	return fmt.Sprintf("%s:%s:%d:%s", strings.TrimSpace(edgeID), strings.TrimSpace(eventType), time.Now().UTC().UnixNano(), strings.TrimSpace(occurredAt))
+}
+
+func defaultPriority(eventType string) int {
+	switch strings.TrimSpace(strings.ToLower(eventType)) {
+	case "edge_connection", "command_response":
+		return 90
+	case "remote_job":
+		return 80
+	case "instance_execution", "heartbeat", "context":
+		return 60
+	case "stats", "metrics", "telemetry", "meta":
+		return 40
+	default:
+		return 50
+	}
+}
+
+func isRetryableError(err error) bool {
+	var syncErr *syncHTTPError
+	if errors.As(err, &syncErr) {
+		if syncErr.StatusCode == http.StatusRequestTimeout || syncErr.StatusCode == http.StatusTooManyRequests {
+			return true
+		}
+		return syncErr.StatusCode >= 500
+	}
+	return true
+}
+
+func isConflict(err error) bool {
+	var syncErr *syncHTTPError
+	return errors.As(err, &syncErr) && syncErr.StatusCode == http.StatusConflict
+}
+
+func highestPriority(items []domain.CloudSyncItem) int {
+	current := 0
+	for _, item := range items {
+		if item.Priority > current {
+			current = item.Priority
+		}
+	}
+	return current
+}
+
+type syncHTTPError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *syncHTTPError) Error() string {
+	if strings.TrimSpace(e.Body) == "" {
+		return fmt.Sprintf("cloud sync failed with status %d", e.StatusCode)
+	}
+	return fmt.Sprintf("cloud sync failed with status %d: %s", e.StatusCode, e.Body)
 }
 
 func asInt64(value any) int64 {

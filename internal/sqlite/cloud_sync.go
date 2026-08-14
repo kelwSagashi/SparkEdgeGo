@@ -31,6 +31,7 @@ func (r *CloudSyncQueueRepository) Enqueue(ctx context.Context, eventType string
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
 		return domain.CloudSyncItem{}, err
 	}
+	_ = r.prune(ctx)
 	return cloudSyncItemFromModel(model), nil
 }
 
@@ -47,8 +48,10 @@ func (r *CloudSyncQueueRepository) FindByID(ctx context.Context, id string) (dom
 
 func (r *CloudSyncQueueRepository) ListPending(ctx context.Context, limit int) ([]domain.CloudSyncItem, error) {
 	var models []cloudSyncQueueModel
+	now := time.Now().UTC()
 	query := r.db.WithContext(ctx).
 		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
+		Where("next_retry_at IS NULL OR next_retry_at <= ?", now).
 		Order("priority DESC").
 		Order("created_at ASC")
 	if limit > 0 {
@@ -85,6 +88,7 @@ func (r *CloudSyncQueueRepository) MarkSent(ctx context.Context, id string) erro
 	result := r.db.WithContext(ctx).Model(&cloudSyncQueueModel{}).Where("id = ?", id).Updates(map[string]any{
 		"status":          string(domain.CloudSyncSent),
 		"last_attempt_at": &now,
+		"next_retry_at":   nil,
 		"updated_at":      now,
 		"last_error":      "",
 	})
@@ -121,6 +125,14 @@ func (r *CloudSyncQueueRepository) Stats(ctx context.Context) (map[string]any, e
 		Status string
 		Count  int64
 	}
+	type eventTypeRow struct {
+		EventType string
+		Count     int64
+	}
+	type priorityRow struct {
+		Priority int
+		Count    int64
+	}
 	var rows []statRow
 	if err := r.db.WithContext(ctx).Model(&cloudSyncQueueModel{}).
 		Select("status, count(*) as count").
@@ -129,13 +141,52 @@ func (r *CloudSyncQueueRepository) Stats(ctx context.Context) (map[string]any, e
 		return nil, err
 	}
 	stats := map[string]any{
-		"pending": int64(0),
-		"sent":    int64(0),
-		"failed":  int64(0),
+		"pending":       int64(0),
+		"sent":          int64(0),
+		"failed":        int64(0),
+		"ready":         int64(0),
+		"by_status":     map[string]any{},
+		"by_event_type": map[string]any{},
+		"by_priority_band": map[string]any{
+			"critical": int64(0),
+			"high":     int64(0),
+			"normal":   int64(0),
+			"low":      int64(0),
+		},
 	}
+	byStatus := stats["by_status"].(map[string]any)
 	for _, row := range rows {
 		stats[row.Status] = row.Count
+		byStatus[row.Status] = row.Count
 	}
+
+	var eventTypeRows []eventTypeRow
+	if err := r.db.WithContext(ctx).Model(&cloudSyncQueueModel{}).
+		Select("event_type, count(*) as count").
+		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
+		Group("event_type").
+		Scan(&eventTypeRows).Error; err != nil {
+		return nil, err
+	}
+	byEventType := stats["by_event_type"].(map[string]any)
+	for _, row := range eventTypeRows {
+		byEventType[row.EventType] = row.Count
+	}
+
+	var priorityRows []priorityRow
+	if err := r.db.WithContext(ctx).Model(&cloudSyncQueueModel{}).
+		Select("priority, count(*) as count").
+		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
+		Group("priority").
+		Scan(&priorityRows).Error; err != nil {
+		return nil, err
+	}
+	byPriorityBand := stats["by_priority_band"].(map[string]any)
+	for _, row := range priorityRows {
+		band := priorityBand(row.Priority)
+		byPriorityBand[band] = asInt64(byPriorityBand[band]) + row.Count
+	}
+
 	var oldest cloudSyncQueueModel
 	if err := r.db.WithContext(ctx).
 		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
@@ -145,7 +196,45 @@ func (r *CloudSyncQueueRepository) Stats(ctx context.Context) (map[string]any, e
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
+
+	var readyCount int64
+	if err := r.db.WithContext(ctx).
+		Model(&cloudSyncQueueModel{}).
+		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
+		Where("next_retry_at IS NULL OR next_retry_at <= ?", time.Now().UTC()).
+		Count(&readyCount).Error; err != nil {
+		return nil, err
+	}
+	stats["ready"] = readyCount
 	return stats, nil
+}
+
+func priorityBand(priority int) string {
+	switch {
+	case priority >= 80:
+		return "critical"
+	case priority >= 60:
+		return "high"
+	case priority >= 40:
+		return "normal"
+	default:
+		return "low"
+	}
+}
+
+func asInt64(value any) int64 {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int32:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	default:
+		return 0
+	}
 }
 
 func (r *CloudSyncQueueRepository) Delete(ctx context.Context, id string) error {
@@ -157,6 +246,53 @@ func (r *CloudSyncQueueRepository) Delete(ctx context.Context, id string) error 
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *CloudSyncQueueRepository) prune(ctx context.Context) error {
+	policy := currentRetentionPolicy()
+	if err := deleteRowsOlderThan(
+		ctx,
+		r.db,
+		&cloudSyncQueueModel{},
+		"updated_at",
+		time.Now().UTC().Add(-policy.CloudSyncSentRetention),
+		"status = ?",
+		[]any{string(domain.CloudSyncSent)},
+	); err != nil {
+		return err
+	}
+
+	if err := deleteRowsOlderThan(
+		ctx,
+		r.db,
+		&cloudSyncQueueModel{},
+		"updated_at",
+		time.Now().UTC().Add(-policy.CloudSyncFailedRetention),
+		"status = ?",
+		[]any{string(domain.CloudSyncFailed)},
+	); err != nil {
+		return err
+	}
+
+	if err := deleteOldestRows(
+		ctx,
+		r.db,
+		&cloudSyncQueueModel{},
+		"status = ?",
+		[]any{string(domain.CloudSyncSent)},
+		policy.CloudSyncKeepSentItems,
+	); err != nil {
+		return err
+	}
+
+	return deleteOldestRows(
+		ctx,
+		r.db,
+		&cloudSyncQueueModel{},
+		"status = ?",
+		[]any{string(domain.CloudSyncFailed)},
+		policy.CloudSyncKeepFailedItems,
+	)
 }
 
 func cloudSyncItemFromModel(model cloudSyncQueueModel) domain.CloudSyncItem {

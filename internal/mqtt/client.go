@@ -281,12 +281,13 @@ func (c *Client) StartHeartbeat(interval time.Duration) {
 	c.heartbeatStop = stop
 	c.mu.Unlock()
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
 		for {
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 				_ = c.PublishHeartbeat(context.Background())
+				timer.Reset(c.nextHeartbeatInterval(interval))
 			case <-stop:
 				return
 			}
@@ -307,12 +308,13 @@ func (c *Client) StartStats(interval time.Duration) {
 	c.statsStop = stop
 	c.mu.Unlock()
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
+		timer := time.NewTimer(interval)
+		defer timer.Stop()
 		for {
 			select {
-			case <-ticker.C:
+			case <-timer.C:
 				_ = c.PublishStats(context.Background())
+				timer.Reset(c.nextStatsInterval(interval))
 			case <-stop:
 				return
 			}
@@ -475,6 +477,41 @@ func statsStatus(stats map[string]any) string {
 		return strings.TrimSpace(value)
 	}
 	return "online"
+}
+
+func (c *Client) nextHeartbeatInterval(defaultInterval time.Duration) time.Duration {
+	return c.intervalFromConnectivity("heartbeat_interval_seconds", defaultInterval)
+}
+
+func (c *Client) nextStatsInterval(defaultInterval time.Duration) time.Duration {
+	return c.intervalFromConnectivity("stats_interval_seconds", defaultInterval)
+}
+
+func (c *Client) intervalFromConnectivity(key string, defaultInterval time.Duration) time.Duration {
+	stats := c.collectStats(context.Background())
+	connectivityValue, ok := stats["connectivity"].(map[string]any)
+	if !ok {
+		return defaultInterval
+	}
+	raw, ok := connectivityValue[key]
+	if !ok {
+		return defaultInterval
+	}
+	switch typed := raw.(type) {
+	case int:
+		if typed > 0 {
+			return time.Duration(typed) * time.Second
+		}
+	case int64:
+		if typed > 0 {
+			return time.Duration(typed) * time.Second
+		}
+	case float64:
+		if typed > 0 {
+			return time.Duration(int(typed)) * time.Second
+		}
+	}
+	return defaultInterval
 }
 
 func (c *Client) envelope(eventType string, payload map[string]any, now time.Time) map[string]any {

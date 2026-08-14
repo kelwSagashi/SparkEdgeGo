@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/connectivity"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
 )
@@ -45,6 +46,7 @@ func (s *Server) handleCliStatus(r *http.Request) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	status["connectivity"] = cliConnectivitySnapshot(r, s)
 	if identity, ok := CurrentIdentity(r.Context()); ok && identity.Verified && s.deps.MQTT != nil && s.deps.MQTT.IsConnected() {
 		_ = s.deps.MQTT.PublishContext(r.Context(), map[string]any{"id": identity.UserID})
 	}
@@ -156,4 +158,56 @@ func enqueueCloudConnectionEvent(r *http.Request, s *Server, edgeID string, even
 		"occurred_at": now.Format(time.RFC3339),
 		"timestamp":   now.Format(time.RFC3339),
 	})
+}
+
+func cliConnectivitySnapshot(r *http.Request, s *Server) map[string]any {
+	policy := s.deps.RuntimeCfg.Connectivity.Normalize()
+	cloudSyncConfigured := s != nil && s.deps.CloudSync != nil && s.deps.CloudSync.Configured()
+	mqttConnected := s != nil && s.deps.MQTT != nil && s.deps.MQTT.IsConnected()
+	cloudSyncPending := 0
+	cloudSyncFailed := 0
+	oldestPendingAgeSeconds := 0
+
+	if s != nil && s.deps.CloudSync != nil {
+		if stats, err := s.deps.CloudSync.Stats(r.Context()); err == nil {
+			cloudSyncPending = int(toInt64(stats["pending"]) + toInt64(stats["failed"]))
+			cloudSyncFailed = int(toInt64(stats["failed"]))
+			oldestPendingAgeSeconds = int(toInt64(stats["oldest_pending_age_seconds"]))
+		}
+	}
+
+	snapshot := policy.Evaluate(
+		mqttConnected,
+		cloudSyncConfigured,
+		cloudSyncPending,
+		cloudSyncFailed,
+		0,
+		oldestPendingAgeSeconds,
+	)
+
+	return map[string]any{
+		"mode":                       string(snapshot.Mode),
+		"status":                     snapshot.Status,
+		"reasons":                    snapshot.Reasons,
+		"mqtt_connected":             mqttConnected,
+		"cloud_sync_configured":      cloudSyncConfigured,
+		"heartbeat_interval_seconds": snapshot.HeartbeatIntervalSeconds,
+		"stats_interval_seconds":     snapshot.StatsIntervalSeconds,
+		"policy":                     connectivity.Policy(policy),
+	}
+}
+
+func toInt64(value any) int64 {
+	switch typed := value.(type) {
+	case int:
+		return int64(typed)
+	case int32:
+		return int64(typed)
+	case int64:
+		return typed
+	case float64:
+		return int64(typed)
+	default:
+		return 0
+	}
 }

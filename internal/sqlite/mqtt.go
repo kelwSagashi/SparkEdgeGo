@@ -79,6 +79,7 @@ func (r *MqttQueueRepository) Enqueue(ctx context.Context, topic string, payload
 	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
 		return domain.MqttQueueItem{}, err
 	}
+	_ = r.prune(ctx)
 	return mqttQueueFromModel(model), nil
 }
 
@@ -122,6 +123,34 @@ func (r *MqttQueueRepository) IncrementAttempt(ctx context.Context, id string) e
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *MqttQueueRepository) Stats(ctx context.Context) (map[string]any, error) {
+	var total int64
+	if err := r.db.WithContext(ctx).Model(&mqttQueueModel{}).Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	stats := map[string]any{
+		"total": total,
+	}
+
+	var oldest mqttQueueModel
+	if err := r.db.WithContext(ctx).Order("created_at ASC").First(&oldest).Error; err == nil {
+		stats["oldest_pending_created_at"] = oldest.CreatedAt
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	return stats, nil
+}
+
+func (r *MqttQueueRepository) prune(ctx context.Context) error {
+	policy := currentRetentionPolicy()
+	if err := deleteRowsOlderThan(ctx, r.db, &mqttQueueModel{}, "created_at", time.Now().UTC().Add(-policy.MQTTQueueMaxAge), "", nil); err != nil {
+		return err
+	}
+	return deleteOldestRows(ctx, r.db, &mqttQueueModel{}, "1 = 1", nil, policy.MQTTQueueMaxItems)
 }
 
 func mqttCommandFromModel(model mqttCommandModel) domain.MqttCommand {

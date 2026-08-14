@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
@@ -16,13 +17,24 @@ func (s *Server) handleFallbackList(r *http.Request) (any, error) {
 }
 
 func (s *Server) handleFallbackStats(r *http.Request) (any, error) {
-	items, err := s.deps.DB.LocalFallback.ListAll(r.Context())
+	stats, err := s.deps.DB.LocalFallback.Stats(r.Context())
 	if err != nil {
 		return nil, err
 	}
-	stats := map[string]int{"pending": 0, "failed": 0, "sent": 0, "total": len(items)}
-	for _, item := range items {
-		stats[string(item.Status)]++
+	if createdAt, ok := stats["oldest_pending_created_at"].(time.Time); ok && !createdAt.IsZero() {
+		stats["oldest_pending_age_seconds"] = int64(time.Since(createdAt).Seconds())
+	}
+	retention := sqlite.CurrentRetentionSnapshot()
+	stats["retention"] = retention["local_fallback"]
+	stats["usage"] = map[string]any{
+		"sent_pct_of_sent_window": percentOf(
+			toInt64(stats["sent"]),
+			toInt64(retention["local_fallback"].(map[string]any)["keep_sent_items"]),
+		),
+		"failed_pct_of_failed_window": percentOf(
+			toInt64(stats["failed"]),
+			toInt64(retention["local_fallback"].(map[string]any)["keep_failed_items"]),
+		),
 	}
 	return map[string]any{"data": stats, "error": nil}, nil
 }

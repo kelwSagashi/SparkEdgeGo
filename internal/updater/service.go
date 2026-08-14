@@ -116,6 +116,13 @@ func NewService(config Config, client ReleaseClient) *Service {
 	}
 }
 
+func (s *Service) UpdateConfig(config Config) {
+	if s == nil {
+		return
+	}
+	s.config = config
+}
+
 func (s *Service) Check(ctx context.Context) (CheckResult, error) {
 	versionInfo := appmeta.LoadVersionInfo()
 	result := CheckResult{
