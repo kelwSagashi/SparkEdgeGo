@@ -795,6 +795,7 @@ export function JsonViewMain({
     filter,
     draggableValue = true,
     rootPath = '',
+    showRootAddField = true,
     templateContext,
     ...props
 }: React.ComponentProps<"div"> & {
@@ -818,6 +819,7 @@ export function JsonViewMain({
     };
     draggableValue?: boolean;
     rootPath?: string;
+    showRootAddField?: boolean;
     templateContext?: Record<string, unknown>;
 }) {
     const [_expandOnce, setExpandOnce] = React.useState(expandOnce)
@@ -855,7 +857,7 @@ export function JsonViewMain({
                                     templateSuggestions={templateSuggestions}
                                 />
                             ))}
-                            {onAddField && (
+                            {onAddField && showRootAddField && (
                                 <AddFieldRow data={data} isArray={isArray} onAdd={(key, type) => onAddField('', key, type)} />
                             )}
                         </div>
