@@ -1,9 +1,11 @@
-import { useFormContext, Controller } from "react-hook-form";
+import { Controller, useFormContext } from "react-hook-form";
+import { AlertCircle, Database } from "lucide-react";
+
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -12,8 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertCircle, Database, Clock } from "lucide-react";
-// instance-form-styles removed — use design tokens directly
+
 import type { InstanceFormValues } from "./instance-form.schemas";
 
 export function InstanceFallbackForm() {
@@ -31,17 +32,14 @@ export function InstanceFallbackForm() {
   return (
     <ScrollArea className="h-full">
       <div className="pr-4 space-y-6">
-        {/* Fallback Configuration */}
         <div className="space-y-4">
           <h3 className="font-medium text-primary flex items-center gap-2">
-            <Database size={18} /> Configuração de Fallback
+            <Database size={18} /> Configuracao de Fallback
           </h3>
           <p className="text-sm text-secondary">
-            Define o comportamento quando o envio de dados para o servidor
-            falhar.
+            Define o comportamento quando o envio de dados para o servidor falhar.
           </p>
 
-          {/* Habilitar Fallback */}
           <div className="flex items-center space-x-2">
             <Controller
               name="fallbackConfig.enabled"
@@ -64,9 +62,10 @@ export function InstanceFallbackForm() {
 
           {fallbackEnabled && (
             <>
-              {/* Estratégia de Fallback */}
               <div className="space-y-2">
-                <Label htmlFor="fallbackStrategy" className="text-primary font-medium">Estratégia de Fallback</Label>
+                <Label htmlFor="fallbackStrategy" className="text-primary font-medium">
+                  Estrategia de Fallback
+                </Label>
                 <Controller
                   name="fallbackConfig.strategy"
                   control={control}
@@ -78,10 +77,10 @@ export function InstanceFallbackForm() {
                       <SelectContent>
                         <SelectGroup className="text-primary">
                           <SelectItem value="background_job">
-                            Armazenamento Local (Melhor Esforço)
+                            Armazenamento Local (Melhor Esforco)
                           </SelectItem>
                           <SelectItem value="active_queue">
-                            Fila Prioritária (Garantia de Entrega)
+                            Fila Prioritaria (Garantia de Entrega)
                           </SelectItem>
                         </SelectGroup>
                       </SelectContent>
@@ -90,27 +89,22 @@ export function InstanceFallbackForm() {
                 />
               </div>
 
-              {/* Descrição da estratégia */}
               <Card className="p-3 bg-muted border-muted-foreground/20 text-secondary">
                 <p className="text-xs text-secondary">
                   {fallbackStrategy === "background_job" ? (
                     <>
-                      <strong>Melhor Esforço:</strong> Os dados são salvos
-                      localmente e o sistema tentará reenviar periodicamente em
-                      segundo plano. Recomendado para dados não críticos.
+                      <strong>Melhor Esforco:</strong> Os dados sao salvos localmente e o
+                      sistema tentara reenviar periodicamente em segundo plano.
                     </>
                   ) : (
                     <>
-                      <strong>Garantia de Entrega:</strong> Os dados são
-                      colocados em uma fila persistente e ordenada, garantindo
-                      que nada seja perdido mesmo em quedas de energia. Melhor
-                      para dados críticos.
+                      <strong>Garantia de Entrega:</strong> Os dados sao colocados em uma
+                      fila persistente e ordenada para reduzir perda em falhas.
                     </>
                   )}
                 </p>
               </Card>
 
-              {/* Intervalo de Retry */}
               <div className="space-y-2">
                 <Label htmlFor="fallbackRetryInterval" className="text-primary font-medium">
                   Intervalo de Retry (segundos)
@@ -127,15 +121,13 @@ export function InstanceFallbackForm() {
                   className="text-primary"
                 />
                 <p className="text-xs text-secondary">
-                  Tempo de espera entre tentativas de reenvio. Mínimo: 60
-                  segundos.
+                  Tempo de espera entre tentativas de reenvio. Minimo: 60 segundos.
                 </p>
               </div>
 
-              {/* Máximo de Retries */}
               <div className="space-y-2">
                 <Label htmlFor="fallbackMaxRetries" className="text-primary font-medium">
-                  Máximo de Tentativas (opcional)
+                  Maximo de Tentativas (opcional)
                 </Label>
                 <Input
                   id="fallbackMaxRetries"
@@ -143,31 +135,31 @@ export function InstanceFallbackForm() {
                   min="1"
                   placeholder="Deixe vazio para ilimitado"
                   {...register("fallbackConfig.max_retries", {
-                    setValueAs: (v) => (v === "" || isNaN(v) ? null : parseInt(v, 10)),
+                    setValueAs: (value) =>
+                      value === "" || Number.isNaN(value) ? null : parseInt(value, 10),
                   })}
                   className="text-primary"
                 />
                 <p className="text-xs text-secondary">
-                  Número máximo de vezes para tentar reenviar. Deixe vazio para
-                  tentar indefinidamente.
+                  Numero maximo de vezes para tentar reenviar.
                 </p>
               </div>
             </>
           )}
         </div>
 
-        {/* Error Handling Configuration */}
         <div className="border-t pt-6 space-y-4">
           <h3 className="font-bold text-xs uppercase text-primary tracking-widest bg-primary/10 w-fit px-2 py-0.5 rounded flex items-center gap-2">
             <AlertCircle size={14} /> Tratamento de Erros
           </h3>
           <p className="text-sm text-secondary">
-            Define o comportamento quando ocorrem erros durante a execução.
+            Define o comportamento quando ocorrem erros durante a execucao do script.
           </p>
 
-          {/* Ação em Caso de Erro */}
           <div className="space-y-2">
-            <Label htmlFor="errorAction" className="text-primary font-medium">Ação em Caso de Erro</Label>
+            <Label htmlFor="errorAction" className="text-primary font-medium">
+              Acao em Caso de Erro
+            </Label>
             <Controller
               name="errorConfig.action"
               control={control}
@@ -178,14 +170,10 @@ export function InstanceFallbackForm() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="log_only">
-                        Apenas Registrar (Log)
-                      </SelectItem>
+                      <SelectItem value="log_only">Apenas Registrar (Log)</SelectItem>
                       <SelectItem value="retry">Tentar Novamente</SelectItem>
-                      <SelectItem value="notify_webhook">
-                        Notificar via Webhook
-                      </SelectItem>
-                      <SelectItem value="stop">Parar Execução</SelectItem>
+                      <SelectItem value="notify_webhook">Notificar via Webhook</SelectItem>
+                      <SelectItem value="stop">Parar Execucao</SelectItem>
                     </SelectGroup>
                   </SelectContent>
                 </Select>
@@ -193,39 +181,39 @@ export function InstanceFallbackForm() {
             />
           </div>
 
-          {/* Descrição da ação */}
           <Card className="p-3 bg-muted border-muted-foreground/20 text-secondary">
             <p className="text-xs text-secondary">
               {errorAction === "log_only" && (
                 <>
-                  <strong>Log Only:</strong> Registra o erro mas continua a
-                  execução.
+                  <strong>Log Only:</strong> Registra o erro e finaliza a execucao com
+                  falha.
                 </>
               )}
               {errorAction === "retry" && (
                 <>
-                  <strong>Retry:</strong> Tenta executar novamente
-                  automaticamente.
+                  <strong>Retry:</strong> Tenta executar o script novamente de forma
+                  automatica.
                 </>
               )}
               {errorAction === "notify_webhook" && (
                 <>
-                  <strong>Notify Webhook:</strong> Envia notificação para um
-                  webhook externo.
+                  <strong>Notify Webhook:</strong> Envia notificacao para um webhook
+                  externo.
                 </>
               )}
               {errorAction === "stop" && (
                 <>
-                  <strong>Stop:</strong> Para a execução e marca como erro.
+                  <strong>Stop:</strong> Para a execucao e marca como erro.
                 </>
               )}
             </p>
           </Card>
 
-          {/* Webhook de Notificação */}
           {errorAction === "notify_webhook" && (
             <div className="space-y-2">
-              <Label htmlFor="notifyUrl" className="text-primary font-medium">URL do Webhook de Notificação</Label>
+              <Label htmlFor="notifyUrl" className="text-primary font-medium">
+                URL do Webhook de Notificacao
+              </Label>
               <Input
                 id="notifyUrl"
                 type="url"
@@ -241,29 +229,54 @@ export function InstanceFallbackForm() {
             </div>
           )}
 
-          {/* Máximo de Retries em Erro */}
           {errorAction === "retry" && (
-            <div className="space-y-2">
-              <Label htmlFor="errorMaxRetries" className="text-primary font-medium">
-                Máximo de Tentativas em Erro
-              </Label>
-              <Input
-                id="errorMaxRetries"
-                type="number"
-                min="1"
-                placeholder="3"
-                {...register("errorConfig.max_retries", {
-                  setValueAs: (v) => (v === "" || isNaN(v) ? null : parseInt(v, 10)),
-                })}
-                className="text-primary"
-              />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="errorMaxRetries" className="text-primary font-medium">
+                  Maximo de Retries em Erro
+                </Label>
+                <Input
+                  id="errorMaxRetries"
+                  type="number"
+                  min="0"
+                  placeholder="2"
+                  {...register("errorConfig.max_retries", {
+                    setValueAs: (value) =>
+                      value === "" || Number.isNaN(value) ? null : parseInt(value, 10),
+                  })}
+                  className="text-primary"
+                />
+                <p className="text-xs text-secondary">
+                  Quantidade de novas tentativas apos a primeira falha. Exemplo: 2
+                  significa ate 3 execucoes no total.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="errorRetryInterval" className="text-primary font-medium">
+                  Intervalo entre Tentativas (segundos)
+                </Label>
+                <Input
+                  id="errorRetryInterval"
+                  type="number"
+                  min="1"
+                  placeholder="5"
+                  {...register("errorConfig.retry_interval_seconds", {
+                    setValueAs: (value) =>
+                      value === "" || Number.isNaN(value) ? null : parseInt(value, 10),
+                  })}
+                  className="text-primary"
+                />
+                <p className="text-xs text-secondary">
+                  Tempo de espera antes de tentar executar o script novamente.
+                </p>
+              </div>
+            </>
           )}
         </div>
 
-        {/* Status da Instância */}
         <div className="border-t pt-6 space-y-4">
-          <h3 className="font-medium text-primary font-bold">Status da Instância</h3>
+          <h3 className="font-medium text-primary font-bold">Status da Instancia</h3>
 
           <div className="flex items-center space-x-2">
             <Controller
@@ -281,22 +294,21 @@ export function InstanceFallbackForm() {
               htmlFor="instanceActive"
               className="font-medium text-primary cursor-pointer"
             >
-              Instância ativa (habilitada para execução)
+              Instancia ativa (habilitada para execucao)
             </Label>
           </div>
 
           <Card className="p-3 bg-muted/40 border-border">
             <p className="text-xs text-secondary">
-              <strong>💡 Dica:</strong> Desabilite a instância temporariamente
-              se precisar fazer manutenção sem deletá-la.
+              <strong>Dica:</strong> Desabilite a instancia temporariamente se precisar
+              fazer manutencao sem deleta-la.
             </p>
           </Card>
         </div>
 
-        {/* Resumo */}
         <Card className="p-4 bg-muted/40 border-border space-y-2">
           <p className="font-bold text-xs uppercase text-primary tracking-widest">
-            Resumo da Configuração
+            Resumo da Configuracao
           </p>
           <div className="text-xs text-primary space-y-1">
             <div>
@@ -323,4 +335,3 @@ export function InstanceFallbackForm() {
     </ScrollArea>
   );
 }
-

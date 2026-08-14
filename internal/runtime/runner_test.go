@@ -84,6 +84,139 @@ func TestRunnerTriggerSucceedsWithoutDestinations(t *testing.T) {
 	}
 }
 
+func TestRunnerTriggerRetriesScriptAndEventuallySucceeds(t *testing.T) {
+	executor := &fakeSparkitExecutor{
+		results: []domain.ScriptResult{
+			{ExitCode: 1, Stderr: "modbus timeout"},
+			{ExitCode: 0, Stdout: `{"ok":true}`, Data: map[string]any{"ok": true}},
+		},
+	}
+	runner := NewRunner(Dependencies{Sparkit: executor})
+
+	result, err := runner.Trigger(context.Background(), TriggerRequest{
+		Instance: domain.Instance{
+			ID:            "instance-1",
+			OnErrorAction: domain.OnErrorRetry,
+			OnErrorConfig: map[string]any{
+				"max_retries":            2,
+				"retry_interval_seconds": 1,
+			},
+		},
+		Script: domain.DownloadedScript{
+			LocalPath: ".",
+			MainFile:  "main.py",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.ExecutionSuccess {
+		t.Fatalf("expected success after retry, got %#v", result)
+	}
+	if executor.calls != 2 {
+		t.Fatalf("expected 2 attempts, got %d", executor.calls)
+	}
+	if len(result.Logs) < 4 {
+		t.Fatalf("expected retry logs to be recorded, got %#v", result.Logs)
+	}
+	if !hasLogCode(result.Logs, "script_attempt_result") || !hasLogCode(result.Logs, "script_attempt_retry") {
+		t.Fatalf("expected structured retry logs, got %#v", result.Logs)
+	}
+}
+
+func TestRunnerTriggerStopsAfterConfiguredScriptRetries(t *testing.T) {
+	executor := &fakeSparkitExecutor{
+		results: []domain.ScriptResult{
+			{ExitCode: 1, Stderr: "connection refused"},
+			{ExitCode: 1, Stderr: "connection refused"},
+			{ExitCode: 1, Stderr: "connection refused"},
+		},
+	}
+	runner := NewRunner(Dependencies{Sparkit: executor})
+
+	result, err := runner.Trigger(context.Background(), TriggerRequest{
+		Instance: domain.Instance{
+			ID:            "instance-1",
+			OnErrorAction: domain.OnErrorRetry,
+			OnErrorConfig: map[string]any{
+				"max_retries":            2,
+				"retry_interval_seconds": 1,
+			},
+		},
+		Script: domain.DownloadedScript{
+			LocalPath: ".",
+			MainFile:  "main.py",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.ExecutionFailed {
+		t.Fatalf("expected failure after exhausting retries, got %#v", result)
+	}
+	if result.Error != "connection refused" {
+		t.Fatalf("expected final stderr in error, got %#v", result.Error)
+	}
+	if executor.calls != 3 {
+		t.Fatalf("expected 3 attempts, got %d", executor.calls)
+	}
+}
+
+func TestRunnerTriggerDoesNotRetryNonTransientScriptFailures(t *testing.T) {
+	executor := &fakeSparkitExecutor{
+		results: []domain.ScriptResult{
+			{ExitCode: 1, Stderr: "TypeError: invalid payload"},
+			{ExitCode: 0, Stdout: `{"ok":true}`, Data: map[string]any{"ok": true}},
+		},
+	}
+	runner := NewRunner(Dependencies{Sparkit: executor})
+
+	result, err := runner.Trigger(context.Background(), TriggerRequest{
+		Instance: domain.Instance{
+			ID:            "instance-1",
+			OnErrorAction: domain.OnErrorRetry,
+			OnErrorConfig: map[string]any{
+				"max_retries":            3,
+				"retry_interval_seconds": 1,
+			},
+		},
+		Script: domain.DownloadedScript{
+			LocalPath: ".",
+			MainFile:  "main.py",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != domain.ExecutionFailed {
+		t.Fatalf("expected immediate failure for non-transient error, got %#v", result)
+	}
+	if executor.calls != 1 {
+		t.Fatalf("expected a single attempt, got %d", executor.calls)
+	}
+	if !hasLogCode(result.Logs, "script_retry_skipped") {
+		t.Fatalf("expected retry skipped log, got %#v", result.Logs)
+	}
+}
+
+func TestRetryDelaySecondsUsesExponentialBackoffWithCap(t *testing.T) {
+	policy := scriptRetryPolicy{
+		attempts:           4,
+		intervalSeconds:    2,
+		maxIntervalSeconds: 5,
+		retryScope:         "transient",
+	}
+	if retryDelaySeconds(policy, 1) != 2 {
+		t.Fatalf("expected first delay 2s")
+	}
+	if retryDelaySeconds(policy, 2) != 4 {
+		t.Fatalf("expected second delay 4s")
+	}
+	if retryDelaySeconds(policy, 3) != 5 {
+		t.Fatalf("expected capped third delay 5s")
+	}
+}
+
 func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 	runner := NewRunner(Dependencies{
 		Devices: fakeDevicesRepo{
@@ -248,7 +381,10 @@ func TestRunnerResolveScriptInputSupportsTemplates(t *testing.T) {
 }
 
 type fakeSparkitExecutor struct {
-	input map[string]any
+	input   map[string]any
+	results []domain.ScriptResult
+	errors  []error
+	calls   int
 }
 
 func (e *fakeSparkitExecutor) Run(ctx context.Context, scriptPath string, input map[string]any) (domain.ScriptResult, error) {
@@ -257,6 +393,13 @@ func (e *fakeSparkitExecutor) Run(ctx context.Context, scriptPath string, input 
 
 func (e *fakeSparkitExecutor) RunFile(ctx context.Context, scriptFolder string, mainFile string, venvPath string, input map[string]any) (domain.ScriptResult, error) {
 	e.input = input
+	e.calls++
+	if len(e.errors) >= e.calls && e.errors[e.calls-1] != nil {
+		return domain.ScriptResult{}, e.errors[e.calls-1]
+	}
+	if len(e.results) >= e.calls {
+		return e.results[e.calls-1], nil
+	}
 	return domain.ScriptResult{
 		Stdout:   `{"ok":true}`,
 		ExitCode: 0,
@@ -297,4 +440,13 @@ func numericValue(value any) float64 {
 	default:
 		return 0
 	}
+}
+
+func hasLogCode(logs []domain.ExecutionLog, code string) bool {
+	for _, log := range logs {
+		if log.Code == code {
+			return true
+		}
+	}
+	return false
 }

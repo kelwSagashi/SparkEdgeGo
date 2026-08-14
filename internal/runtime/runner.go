@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -127,9 +128,8 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 	input = r.resolveScriptInput(ctx, req, input)
 	result.InputPayload = input
 
-	logs = append(logs, newLog("info", "Running Python script with Sparkit", time.Now().UTC()))
-	scriptResult, err := r.deps.Sparkit.RunFile(ctx, resolvePath(req.Script.LocalPath), req.Script.MainFile, resolvePath(req.Script.VenvPath), input)
-	result.Logs = logs
+	scriptResult, scriptLogs, err := r.runScriptWithPolicy(ctx, req, input)
+	result.Logs = append(logs, scriptLogs...)
 	result.Output = scriptResult.Data
 	result.RawOutput = scriptResult.Stdout
 
@@ -158,6 +158,248 @@ func (r *Runner) Trigger(ctx context.Context, req TriggerRequest) (TriggerResult
 		return finish(result, domain.ExecutionFailed, deliveryErr.Error()), nil
 	}
 	return finish(result, domain.ExecutionSuccess, ""), nil
+}
+
+func (r *Runner) runScriptWithPolicy(ctx context.Context, req TriggerRequest, input map[string]any) (domain.ScriptResult, []domain.ExecutionLog, error) {
+	policy := r.scriptRetryPolicy(req.Instance)
+	logs := []domain.ExecutionLog{}
+	var lastResult domain.ScriptResult
+	var lastErr error
+
+	for attempt := 1; attempt <= policy.attempts; attempt++ {
+		attemptAt := time.Now().UTC()
+		if policy.attempts > 1 {
+			logs = append(logs, newLogWithMeta("info", "script_attempt_start", "Running Python script with Sparkit (attempt "+itoa(attempt)+"/"+itoa(policy.attempts)+")", attemptAt, map[string]any{
+				"attempt":      attempt,
+				"max_attempts": policy.attempts,
+			}))
+		} else {
+			logs = append(logs, newLog("info", "Running Python script with Sparkit", attemptAt))
+		}
+
+		scriptResult, err := r.deps.Sparkit.RunFile(ctx, resolvePath(req.Script.LocalPath), req.Script.MainFile, resolvePath(req.Script.VenvPath), input)
+		lastResult = scriptResult
+		if err == nil && scriptResult.ExitCode == 0 {
+			if policy.attempts > 1 {
+				logs = append(logs, newLogWithMeta("info", "script_attempt_result", "Script attempt "+itoa(attempt)+" completed successfully", time.Now().UTC(), map[string]any{
+					"attempt":      attempt,
+					"max_attempts": policy.attempts,
+					"result":       "success",
+				}))
+			}
+			if attempt > 1 {
+				logs = append(logs, newLog("info", "Script retry succeeded on attempt "+itoa(attempt), time.Now().UTC()))
+			}
+			return scriptResult, logs, nil
+		}
+
+		lastErr = err
+		failureMessage := scriptFailureMessage(scriptResult, err)
+		retryable := scriptFailureIsRetryable(failureMessage, err)
+		if policy.attempts > 1 {
+			logs = append(logs, newLogWithMeta("warning", "script_attempt_result", "Script attempt "+itoa(attempt)+" failed: "+failureMessage, time.Now().UTC(), map[string]any{
+				"attempt":      attempt,
+				"max_attempts": policy.attempts,
+				"result":       "failed",
+				"retryable":    retryable,
+			}))
+		}
+		if attempt >= policy.attempts {
+			break
+		}
+		if policy.retryScope == "transient" && !retryable {
+			logs = append(logs, newLogWithMeta("warning", "script_retry_skipped", "Skipping retry because the failure does not look transient", time.Now().UTC(), map[string]any{
+				"attempt":      attempt,
+				"max_attempts": policy.attempts,
+				"retryable":    false,
+				"retry_scope":  policy.retryScope,
+			}))
+			break
+		}
+
+		delaySeconds := retryDelaySeconds(policy, attempt)
+		logs = append(logs, newLogWithMeta("warning", "script_attempt_retry", "Script attempt "+itoa(attempt)+" failed: "+failureMessage+". Retrying in "+itoa(delaySeconds)+"s", time.Now().UTC(), map[string]any{
+			"attempt":       attempt,
+			"max_attempts":  policy.attempts,
+			"delay_seconds": delaySeconds,
+			"retryable":     retryable,
+			"retry_scope":   policy.retryScope,
+		}))
+		select {
+		case <-ctx.Done():
+			return lastResult, logs, ctx.Err()
+		case <-time.After(time.Duration(delaySeconds) * time.Second):
+		}
+	}
+
+	if lastErr != nil {
+		return lastResult, logs, lastErr
+	}
+	return lastResult, logs, nil
+}
+
+type scriptRetryPolicy struct {
+	attempts           int
+	intervalSeconds    int
+	maxIntervalSeconds int
+	retryScope         string
+}
+
+func (r *Runner) scriptRetryPolicy(instance domain.Instance) scriptRetryPolicy {
+	policy := scriptRetryPolicy{
+		attempts:           1,
+		intervalSeconds:    5,
+		maxIntervalSeconds: 60,
+		retryScope:         "transient",
+	}
+	if instance.OnErrorAction != domain.OnErrorRetry {
+		return policy
+	}
+
+	maxRetries := intFromAny(instance.OnErrorConfig["max_retries"], instance.OnErrorConfig["maxRetries"])
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	intervalSeconds := intFromAny(instance.OnErrorConfig["retry_interval_seconds"], instance.OnErrorConfig["retryIntervalSeconds"])
+	if intervalSeconds <= 0 {
+		intervalSeconds = 5
+	}
+	maxIntervalSeconds := intFromAny(instance.OnErrorConfig["max_retry_interval_seconds"], instance.OnErrorConfig["maxRetryIntervalSeconds"])
+	if maxIntervalSeconds <= 0 {
+		maxIntervalSeconds = 60
+	}
+	retryScope := strings.ToLower(stringFromAny(instance.OnErrorConfig["retry_scope"], instance.OnErrorConfig["retryScope"]))
+	if retryScope == "" {
+		retryScope = "transient"
+	}
+
+	policy.attempts = maxRetries + 1
+	policy.intervalSeconds = intervalSeconds
+	policy.maxIntervalSeconds = maxIntervalSeconds
+	policy.retryScope = retryScope
+	return policy
+}
+
+func retryDelaySeconds(policy scriptRetryPolicy, attempt int) int {
+	delay := policy.intervalSeconds
+	for step := 1; step < attempt; step++ {
+		delay *= 2
+		if policy.maxIntervalSeconds > 0 && delay >= policy.maxIntervalSeconds {
+			return policy.maxIntervalSeconds
+		}
+	}
+	if delay <= 0 {
+		return 1
+	}
+	return delay
+}
+
+func scriptFailureMessage(scriptResult domain.ScriptResult, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	message := strings.TrimSpace(scriptResult.Stderr)
+	if message == "" {
+		message = "script exited with non-zero status"
+	}
+	return message
+}
+
+func scriptFailureIsRetryable(message string, err error) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	if err != nil && text == "" {
+		text = strings.ToLower(strings.TrimSpace(err.Error()))
+	}
+	if text == "" {
+		return false
+	}
+
+	retryableMarkers := []string{
+		"timeout",
+		"timed out",
+		"temporary",
+		"temporarily",
+		"try again",
+		"connection refused",
+		"connection reset",
+		"connection aborted",
+		"connection error",
+		"network is unreachable",
+		"no route to host",
+		"host unreachable",
+		"i/o timeout",
+		"tls handshake timeout",
+		"broken pipe",
+		"eof",
+		"service unavailable",
+		"bad gateway",
+		"gateway timeout",
+		"too many requests",
+		"modbus",
+	}
+	for _, marker := range retryableMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+
+	nonRetryableMarkers := []string{
+		"syntaxerror",
+		"typeerror",
+		"valueerror",
+		"keyerror",
+		"attributeerror",
+		"nameerror",
+		"importerror",
+		"modulenotfounderror",
+		"jsondecodeerror",
+		"permission denied",
+		"file not found",
+		"no such file or directory",
+		"invalid literal",
+		"unexpected keyword argument",
+	}
+	for _, marker := range nonRetryableMarkers {
+		if strings.Contains(text, marker) {
+			return false
+		}
+	}
+
+	return false
+}
+
+func intFromAny(values ...any) int {
+	for _, value := range values {
+		switch typed := value.(type) {
+		case int:
+			return typed
+		case int32:
+			return int(typed)
+		case int64:
+			return int(typed)
+		case float64:
+			return int(typed)
+		case float32:
+			return int(typed)
+		}
+	}
+	return 0
+}
+
+func stringFromAny(values ...any) string {
+	for _, value := range values {
+		if typed, ok := value.(string); ok {
+			trimmed := strings.TrimSpace(typed)
+			if trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+func itoa(value int) string {
+	return strconv.Itoa(value)
 }
 
 type deliveryResult struct {
@@ -796,6 +1038,16 @@ func finish(result TriggerResult, status domain.ExecutionStatus, message string)
 
 func newLog(level string, message string, timestamp time.Time) domain.ExecutionLog {
 	return domain.ExecutionLog{Level: level, Message: message, Timestamp: timestamp}
+}
+
+func newLogWithMeta(level string, code string, message string, timestamp time.Time, meta map[string]any) domain.ExecutionLog {
+	return domain.ExecutionLog{
+		Level:     level,
+		Code:      code,
+		Message:   message,
+		Timestamp: timestamp,
+		Meta:      meta,
+	}
 }
 
 func resolvePath(pathValue string) string {

@@ -29,8 +29,10 @@ export interface InstanceExecution {
   output_payload?: Record<string, unknown> | null;
   logs?: Array<{
     timestamp: string;
-    level: 'info' | 'warn' | 'error';
+    level: 'info' | 'warn' | 'warning' | 'error';
+    code?: string;
     message: string;
+    meta?: Record<string, unknown>;
   }>;
   destination_details?: Array<{
     destination_id: string;
@@ -45,6 +47,17 @@ export interface InstanceExecution {
     timestamp?: string;
   }>;
 }
+
+type ScriptAttemptView = {
+  attempt: number;
+  maxAttempts: number;
+  startedAt?: string;
+  finishedAt?: string;
+  status: 'running' | 'success' | 'failed' | 'skipped';
+  retryable?: boolean;
+  delaySeconds?: number;
+  message?: string;
+};
 
 const statusMap: Record<ExecutionStatus, { icon: React.ElementType; color: string; bg: string; label: string }> = {
   queued: { icon: Clock, color: 'text-zinc-400', bg: 'bg-zinc-500/10', label: 'Na fila' },
@@ -65,10 +78,92 @@ function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function numberFromUnknown(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanFromUnknown(value: unknown) {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function buildScriptAttempts(logs?: InstanceExecution['logs']): ScriptAttemptView[] {
+  if (!logs?.length) return [];
+  const attempts = new Map<number, ScriptAttemptView>();
+
+  for (const log of logs) {
+    const meta = log.meta || {};
+    const attempt = numberFromUnknown(meta.attempt);
+    const maxAttempts = numberFromUnknown(meta.max_attempts);
+    if (!attempt || !maxAttempts) continue;
+
+    const current = attempts.get(attempt) || {
+      attempt,
+      maxAttempts,
+      status: 'running' as const,
+    };
+
+    if (log.code === 'script_attempt_start') {
+      current.startedAt = log.timestamp;
+      current.status = current.status === 'success' || current.status === 'failed' ? current.status : 'running';
+    }
+
+    if (log.code === 'script_attempt_result') {
+      current.finishedAt = log.timestamp;
+      current.message = log.message;
+      current.retryable = booleanFromUnknown(meta.retryable);
+      current.status = meta.result === 'success' ? 'success' : 'failed';
+    }
+
+    if (log.code === 'script_attempt_retry') {
+      current.delaySeconds = numberFromUnknown(meta.delay_seconds);
+      current.retryable = booleanFromUnknown(meta.retryable);
+      current.message = log.message;
+    }
+
+    if (log.code === 'script_retry_skipped') {
+      current.finishedAt = log.timestamp;
+      current.retryable = false;
+      current.status = 'skipped';
+      current.message = log.message;
+    }
+
+    attempts.set(attempt, current);
+  }
+
+  return Array.from(attempts.values()).sort((a, b) => a.attempt - b.attempt);
+}
+
+function attemptTone(status: ScriptAttemptView['status']) {
+  switch (status) {
+    case 'success':
+      return 'border-emerald-500/20 bg-emerald-500/8 text-emerald-300';
+    case 'failed':
+      return 'border-red-500/20 bg-red-500/8 text-red-300';
+    case 'skipped':
+      return 'border-amber-500/20 bg-amber-500/8 text-amber-200';
+    default:
+      return 'border-blue-500/20 bg-blue-500/8 text-blue-300';
+  }
+}
+
+function attemptLabel(status: ScriptAttemptView['status']) {
+  switch (status) {
+    case 'success':
+      return 'sucesso';
+    case 'failed':
+      return 'falha';
+    case 'skipped':
+      return 'retry ignorado';
+    default:
+      return 'executando';
+  }
+}
+
 export function ExecutionRow({ execution }: { execution: InstanceExecution }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = statusMap[execution.status] || statusMap.queued;
   const Icon = cfg.icon;
+  const scriptAttempts = buildScriptAttempts(execution.logs);
 
   const duration = execution.duration_ms
     ? execution.duration_ms >= 1000
@@ -132,6 +227,46 @@ export function ExecutionRow({ execution }: { execution: InstanceExecution }) {
 
               <ExecutionFlow execution={execution} />
 
+              {scriptAttempts.length > 0 && (
+                <div className="rounded-lg bg-white/[0.02] p-3">
+                  <p className="mb-3 text-[10px] uppercase tracking-wider text-zinc-500">
+                    Tentativas do Script ({scriptAttempts.length})
+                  </p>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {scriptAttempts.map((attempt) => (
+                      <div
+                        key={attempt.attempt}
+                        className={`rounded-xl border p-3 ${attemptTone(attempt.status)}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">
+                            Tentativa {attempt.attempt}/{attempt.maxAttempts}
+                          </p>
+                          <span className="text-[10px] uppercase tracking-wider">
+                            {attemptLabel(attempt.status)}
+                          </span>
+                        </div>
+                        <div className="mt-2 space-y-1 text-[11px]">
+                          <p>Inicio: {formatDate(attempt.startedAt)}</p>
+                          <p>Fim: {formatDate(attempt.finishedAt)}</p>
+                          {attempt.delaySeconds != null && (
+                            <p>Backoff: {attempt.delaySeconds}s</p>
+                          )}
+                          {attempt.retryable != null && (
+                            <p>Erro transitorio: {attempt.retryable ? 'sim' : 'nao'}</p>
+                          )}
+                        </div>
+                        {attempt.message && (
+                          <p className="mt-3 whitespace-pre-wrap font-mono text-[11px] text-zinc-200">
+                            {attempt.message}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <div className="rounded-lg bg-white/[0.02] p-3">
                   <p className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">Entrada resolvida</p>
@@ -189,7 +324,7 @@ export function ExecutionRow({ execution }: { execution: InstanceExecution }) {
                         className={`flex items-start gap-2 ${
                           log.level === 'error'
                             ? 'text-red-400'
-                            : log.level === 'warn'
+                            : log.level === 'warn' || log.level === 'warning'
                               ? 'text-amber-400'
                               : 'text-zinc-400'
                         }`}
