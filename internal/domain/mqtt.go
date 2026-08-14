@@ -5,11 +5,12 @@ import "time"
 type MqttCommandStatus string
 
 const (
-	MqttCommandPending MqttCommandStatus = "pending"
-	MqttCommandRunning MqttCommandStatus = "running"
-	MqttCommandDone    MqttCommandStatus = "done"
-	MqttCommandError   MqttCommandStatus = "error"
-	MqttCommandIgnored MqttCommandStatus = "ignored"
+	MqttCommandPending  MqttCommandStatus = "pending"
+	MqttCommandReceived MqttCommandStatus = "received"
+	MqttCommandRunning  MqttCommandStatus = "running"
+	MqttCommandDone     MqttCommandStatus = "done"
+	MqttCommandError    MqttCommandStatus = "error"
+	MqttCommandIgnored  MqttCommandStatus = "ignored"
 )
 
 type MqttCommand struct {

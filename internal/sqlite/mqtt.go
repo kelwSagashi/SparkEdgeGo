@@ -58,7 +58,8 @@ func (r *MqttCommandsRepository) UpdateStatus(ctx context.Context, commandID str
 	updates := map[string]any{"status": string(status)}
 	if status == domain.MqttCommandRunning {
 		updates["started_at"] = &now
-	} else {
+	}
+	if status == domain.MqttCommandDone || status == domain.MqttCommandError || status == domain.MqttCommandIgnored {
 		updates["finished_at"] = &now
 	}
 	if result != nil {

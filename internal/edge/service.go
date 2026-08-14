@@ -239,7 +239,11 @@ func (s *Service) Reconnect(ctx context.Context) error {
 	if err := s.mqtt.Connect(ctx, mqtt.Config{EdgeID: edge.EdgeID, BrokerURL: edge.MQTT.URL, Username: edge.MQTT.Username, Password: edge.MQTT.Password}); err != nil {
 		return err
 	}
+	config, _, _ := s.GetOnboarding(ctx)
+	_ = s.mqtt.PublishMeta(ctx, metadataEnvelope(edge.EdgeID, edge.EdgeName, config))
+	_ = s.mqtt.PublishStats(ctx)
 	s.mqtt.StartHeartbeat(0)
+	s.mqtt.StartStats(0)
 	_ = s.mqtt.RetryQueue(ctx, 5)
 	return nil
 }
@@ -274,6 +278,14 @@ func metadataFromConfig(config domain.EdgeConfig) map[string]any {
 		"hardware":     envOrDefault("SPARKEDGE_HARDWARE", runtime.GOARCH),
 		"environment":  envOrDefault("SPARKEDGE_ENV", "production"),
 	}
+	return metadata
+}
+
+func metadataEnvelope(edgeID string, edgeName string, config domain.EdgeConfig) map[string]any {
+	metadata := metadataFromConfig(config)
+	metadata["edge_id"] = edgeID
+	metadata["edge_name"] = edgeName
+	metadata["location_source"] = emptyAsNil(config.LocationSource)
 	return metadata
 }
 
