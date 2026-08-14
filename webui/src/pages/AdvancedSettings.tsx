@@ -53,6 +53,25 @@ export default function AdvancedSettingsPage() {
   const [dbFile, setDbFile] = useState('');
   const [jwtSecret, setJwtSecret] = useState('');
   const [serverPort, setServerPort] = useState('');
+  const [intermittentPendingAgeSeconds, setIntermittentPendingAgeSeconds] = useState('120');
+  const [degradedPendingAgeSeconds, setDegradedPendingAgeSeconds] = useState('600');
+  const [intermittentCloudSyncQueueDepth, setIntermittentCloudSyncQueueDepth] = useState('5');
+  const [degradedCloudSyncQueueDepth, setDegradedCloudSyncQueueDepth] = useState('25');
+  const [degradedMqttQueueDepth, setDegradedMqttQueueDepth] = useState('10');
+  const [heartbeatHealthySeconds, setHeartbeatHealthySeconds] = useState('30');
+  const [heartbeatDegradedSeconds, setHeartbeatDegradedSeconds] = useState('90');
+  const [statsHealthySeconds, setStatsHealthySeconds] = useState('120');
+  const [statsDegradedSeconds, setStatsDegradedSeconds] = useState('300');
+  const [mqttQueueMaxItems, setMqttQueueMaxItems] = useState('1000');
+  const [mqttQueueMaxAgeHours, setMqttQueueMaxAgeHours] = useState('336');
+  const [cloudSyncSentRetentionHours, setCloudSyncSentRetentionHours] = useState('168');
+  const [cloudSyncFailedRetentionHours, setCloudSyncFailedRetentionHours] = useState('720');
+  const [cloudSyncKeepSentItems, setCloudSyncKeepSentItems] = useState('1000');
+  const [cloudSyncKeepFailedItems, setCloudSyncKeepFailedItems] = useState('1000');
+  const [localFallbackSentRetentionHours, setLocalFallbackSentRetentionHours] = useState('168');
+  const [localFallbackFailedRetentionHours, setLocalFallbackFailedRetentionHours] = useState('720');
+  const [localFallbackKeepSentItems, setLocalFallbackKeepSentItems] = useState('1000');
+  const [localFallbackKeepFailedItems, setLocalFallbackKeepFailedItems] = useState('1000');
 
   const normalizePortValue = (value?: string | number | null) => String(value ?? '').replace(/^:/, '');
 
@@ -60,7 +79,10 @@ export default function AdvancedSettingsPage() {
     setLoading(true);
     try {
       const res = await cloudService.getConfig();
-      const cfg = res.data.data;
+      const cfg = res.data;
+      if (!cfg || !cfg.cloud || !cfg.db || !cfg.auth || !cfg.server || !cfg.connectivity || !cfg.retention) {
+        throw new Error('Resposta de configuracao invalida.');
+      }
       setConfig(cfg);
       setCloudUrl(cfg.cloud.url);
       setMqttUrl(cfg.cloud.mqtt_url);
@@ -68,6 +90,25 @@ export default function AdvancedSettingsPage() {
       setDbFile(cfg.db.file);
       setJwtSecret('');
       setServerPort(normalizePortValue(cfg.server.port));
+      setIntermittentPendingAgeSeconds(String(cfg.connectivity.intermittent_pending_age_seconds));
+      setDegradedPendingAgeSeconds(String(cfg.connectivity.degraded_pending_age_seconds));
+      setIntermittentCloudSyncQueueDepth(String(cfg.connectivity.intermittent_cloud_sync_queue_depth));
+      setDegradedCloudSyncQueueDepth(String(cfg.connectivity.degraded_cloud_sync_queue_depth));
+      setDegradedMqttQueueDepth(String(cfg.connectivity.degraded_mqtt_queue_depth));
+      setHeartbeatHealthySeconds(String(cfg.connectivity.heartbeat_healthy_seconds));
+      setHeartbeatDegradedSeconds(String(cfg.connectivity.heartbeat_degraded_seconds));
+      setStatsHealthySeconds(String(cfg.connectivity.stats_healthy_seconds));
+      setStatsDegradedSeconds(String(cfg.connectivity.stats_degraded_seconds));
+      setMqttQueueMaxItems(String(cfg.retention.mqtt_queue_max_items));
+      setMqttQueueMaxAgeHours(String(cfg.retention.mqtt_queue_max_age_hours));
+      setCloudSyncSentRetentionHours(String(cfg.retention.cloud_sync_sent_retention_hours));
+      setCloudSyncFailedRetentionHours(String(cfg.retention.cloud_sync_failed_retention_hours));
+      setCloudSyncKeepSentItems(String(cfg.retention.cloud_sync_keep_sent_items));
+      setCloudSyncKeepFailedItems(String(cfg.retention.cloud_sync_keep_failed_items));
+      setLocalFallbackSentRetentionHours(String(cfg.retention.local_fallback_sent_retention_hours));
+      setLocalFallbackFailedRetentionHours(String(cfg.retention.local_fallback_failed_retention_hours));
+      setLocalFallbackKeepSentItems(String(cfg.retention.local_fallback_keep_sent_items));
+      setLocalFallbackKeepFailedItems(String(cfg.retention.local_fallback_keep_failed_items));
     } catch (err: any) {
       toast.error(`Nao foi possivel carregar as configuracoes: ${err?.message ?? 'Erro desconhecido'}`);
     } finally {
@@ -112,13 +153,80 @@ export default function AdvancedSettingsPage() {
         updates.server = { port: normalizedNextPort };
       }
 
+      const connectivityUpdates: Record<string, number> = {};
+      if (Number(intermittentPendingAgeSeconds) !== config?.connectivity.intermittent_pending_age_seconds) {
+        connectivityUpdates.intermittent_pending_age_seconds = Number(intermittentPendingAgeSeconds);
+      }
+      if (Number(degradedPendingAgeSeconds) !== config?.connectivity.degraded_pending_age_seconds) {
+        connectivityUpdates.degraded_pending_age_seconds = Number(degradedPendingAgeSeconds);
+      }
+      if (Number(intermittentCloudSyncQueueDepth) !== config?.connectivity.intermittent_cloud_sync_queue_depth) {
+        connectivityUpdates.intermittent_cloud_sync_queue_depth = Number(intermittentCloudSyncQueueDepth);
+      }
+      if (Number(degradedCloudSyncQueueDepth) !== config?.connectivity.degraded_cloud_sync_queue_depth) {
+        connectivityUpdates.degraded_cloud_sync_queue_depth = Number(degradedCloudSyncQueueDepth);
+      }
+      if (Number(degradedMqttQueueDepth) !== config?.connectivity.degraded_mqtt_queue_depth) {
+        connectivityUpdates.degraded_mqtt_queue_depth = Number(degradedMqttQueueDepth);
+      }
+      if (Number(heartbeatHealthySeconds) !== config?.connectivity.heartbeat_healthy_seconds) {
+        connectivityUpdates.heartbeat_healthy_seconds = Number(heartbeatHealthySeconds);
+      }
+      if (Number(heartbeatDegradedSeconds) !== config?.connectivity.heartbeat_degraded_seconds) {
+        connectivityUpdates.heartbeat_degraded_seconds = Number(heartbeatDegradedSeconds);
+      }
+      if (Number(statsHealthySeconds) !== config?.connectivity.stats_healthy_seconds) {
+        connectivityUpdates.stats_healthy_seconds = Number(statsHealthySeconds);
+      }
+      if (Number(statsDegradedSeconds) !== config?.connectivity.stats_degraded_seconds) {
+        connectivityUpdates.stats_degraded_seconds = Number(statsDegradedSeconds);
+      }
+      if (Object.keys(connectivityUpdates).length > 0) {
+        updates.connectivity = connectivityUpdates;
+      }
+
+      const retentionUpdates: Record<string, number> = {};
+      if (Number(mqttQueueMaxItems) !== config?.retention.mqtt_queue_max_items) {
+        retentionUpdates.mqtt_queue_max_items = Number(mqttQueueMaxItems);
+      }
+      if (Number(mqttQueueMaxAgeHours) !== config?.retention.mqtt_queue_max_age_hours) {
+        retentionUpdates.mqtt_queue_max_age_hours = Number(mqttQueueMaxAgeHours);
+      }
+      if (Number(cloudSyncSentRetentionHours) !== config?.retention.cloud_sync_sent_retention_hours) {
+        retentionUpdates.cloud_sync_sent_retention_hours = Number(cloudSyncSentRetentionHours);
+      }
+      if (Number(cloudSyncFailedRetentionHours) !== config?.retention.cloud_sync_failed_retention_hours) {
+        retentionUpdates.cloud_sync_failed_retention_hours = Number(cloudSyncFailedRetentionHours);
+      }
+      if (Number(cloudSyncKeepSentItems) !== config?.retention.cloud_sync_keep_sent_items) {
+        retentionUpdates.cloud_sync_keep_sent_items = Number(cloudSyncKeepSentItems);
+      }
+      if (Number(cloudSyncKeepFailedItems) !== config?.retention.cloud_sync_keep_failed_items) {
+        retentionUpdates.cloud_sync_keep_failed_items = Number(cloudSyncKeepFailedItems);
+      }
+      if (Number(localFallbackSentRetentionHours) !== config?.retention.local_fallback_sent_retention_hours) {
+        retentionUpdates.local_fallback_sent_retention_hours = Number(localFallbackSentRetentionHours);
+      }
+      if (Number(localFallbackFailedRetentionHours) !== config?.retention.local_fallback_failed_retention_hours) {
+        retentionUpdates.local_fallback_failed_retention_hours = Number(localFallbackFailedRetentionHours);
+      }
+      if (Number(localFallbackKeepSentItems) !== config?.retention.local_fallback_keep_sent_items) {
+        retentionUpdates.local_fallback_keep_sent_items = Number(localFallbackKeepSentItems);
+      }
+      if (Number(localFallbackKeepFailedItems) !== config?.retention.local_fallback_keep_failed_items) {
+        retentionUpdates.local_fallback_keep_failed_items = Number(localFallbackKeepFailedItems);
+      }
+      if (Object.keys(retentionUpdates).length > 0) {
+        updates.retention = retentionUpdates;
+      }
+
       if (Object.keys(updates).length === 0) {
         toast.info('Nenhuma alteracao detectada.');
         return;
       }
 
       const res = await cloudService.updateConfig(updates);
-      toast.success(res.data.data.message || 'Configuracoes salvas. Reinicie o servico para aplicar as mudancas.');
+      toast.success(res.data.message || 'Configuracoes salvas. Reinicie o servico para aplicar as mudancas.');
       setSaved(true);
       setJwtSecret('');
       await loadConfig();
@@ -299,6 +407,127 @@ export default function AdvancedSettingsPage() {
               required
             />
           </div>
+        </div>
+
+        <div className={sectionCls}>
+          <SectionHeader
+            icon={<RefreshCw size={16} className="text-sky-400" />}
+            title="Conectividade"
+            description="Politicas para baixa conectividade, degradacao e cadencia de sincronizacao"
+          />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelCls}>Fila Intermittent (cloud sync)</label>
+              <input type="number" value={intermittentCloudSyncQueueDepth} onChange={(e) => setIntermittentCloudSyncQueueDepth(e.target.value)} className={inputCls} min={1} />
+            </div>
+            <div>
+              <label className={labelCls}>Fila Degraded (cloud sync)</label>
+              <input type="number" value={degradedCloudSyncQueueDepth} onChange={(e) => setDegradedCloudSyncQueueDepth(e.target.value)} className={inputCls} min={1} />
+            </div>
+            <div>
+              <label className={labelCls}>Idade Intermittent (s)</label>
+              <input type="number" value={intermittentPendingAgeSeconds} onChange={(e) => setIntermittentPendingAgeSeconds(e.target.value)} className={inputCls} min={1} />
+            </div>
+            <div>
+              <label className={labelCls}>Idade Degraded (s)</label>
+              <input type="number" value={degradedPendingAgeSeconds} onChange={(e) => setDegradedPendingAgeSeconds(e.target.value)} className={inputCls} min={1} />
+            </div>
+            <div>
+              <label className={labelCls}>Fila Degraded (MQTT)</label>
+              <input type="number" value={degradedMqttQueueDepth} onChange={(e) => setDegradedMqttQueueDepth(e.target.value)} className={inputCls} min={1} />
+            </div>
+            <div />
+            <div>
+              <label className={labelCls}>Heartbeat Healthy (s)</label>
+              <input type="number" value={heartbeatHealthySeconds} onChange={(e) => setHeartbeatHealthySeconds(e.target.value)} className={inputCls} min={5} />
+            </div>
+            <div>
+              <label className={labelCls}>Heartbeat Degraded (s)</label>
+              <input type="number" value={heartbeatDegradedSeconds} onChange={(e) => setHeartbeatDegradedSeconds(e.target.value)} className={inputCls} min={5} />
+            </div>
+            <div>
+              <label className={labelCls}>Stats Healthy (s)</label>
+              <input type="number" value={statsHealthySeconds} onChange={(e) => setStatsHealthySeconds(e.target.value)} className={inputCls} min={10} />
+            </div>
+            <div>
+              <label className={labelCls}>Stats Degraded (s)</label>
+              <input type="number" value={statsDegradedSeconds} onChange={(e) => setStatsDegradedSeconds(e.target.value)} className={inputCls} min={10} />
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] text-zinc-600 leading-relaxed">
+            Quando o Edge entrar em modo <span className="text-zinc-400">intermittent</span> ou <span className="text-zinc-400">degraded</span>,
+            ele reduz heartbeat e stats automaticamente e passa a sinalizar isso no snapshot operacional local e no Spark Cloud.
+          </p>
+        </div>
+
+        <div className={sectionCls}>
+          <SectionHeader
+            icon={<Database size={16} className="text-fuchsia-400" />}
+            title="Retencao Local"
+            description="Limites e janelas de limpeza automatica para filas locais e historicos terminais"
+          />
+          <div className="space-y-5">
+            <div>
+              <p className="text-xs font-semibold text-white mb-3">MQTT Queue</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Max itens MQTT</label>
+                  <input type="number" value={mqttQueueMaxItems} onChange={(e) => setMqttQueueMaxItems(e.target.value)} className={inputCls} min={100} />
+                </div>
+                <div>
+                  <label className={labelCls}>Max idade MQTT (h)</label>
+                  <input type="number" value={mqttQueueMaxAgeHours} onChange={(e) => setMqttQueueMaxAgeHours(e.target.value)} className={inputCls} min={1} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-white mb-3">Cloud Sync History</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Sent retention (h)</label>
+                  <input type="number" value={cloudSyncSentRetentionHours} onChange={(e) => setCloudSyncSentRetentionHours(e.target.value)} className={inputCls} min={1} />
+                </div>
+                <div>
+                  <label className={labelCls}>Failed retention (h)</label>
+                  <input type="number" value={cloudSyncFailedRetentionHours} onChange={(e) => setCloudSyncFailedRetentionHours(e.target.value)} className={inputCls} min={1} />
+                </div>
+                <div>
+                  <label className={labelCls}>Keep sent items</label>
+                  <input type="number" value={cloudSyncKeepSentItems} onChange={(e) => setCloudSyncKeepSentItems(e.target.value)} className={inputCls} min={100} />
+                </div>
+                <div>
+                  <label className={labelCls}>Keep failed items</label>
+                  <input type="number" value={cloudSyncKeepFailedItems} onChange={(e) => setCloudSyncKeepFailedItems(e.target.value)} className={inputCls} min={100} />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-white mb-3">Local Fallback History</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelCls}>Sent retention (h)</label>
+                  <input type="number" value={localFallbackSentRetentionHours} onChange={(e) => setLocalFallbackSentRetentionHours(e.target.value)} className={inputCls} min={1} />
+                </div>
+                <div>
+                  <label className={labelCls}>Failed retention (h)</label>
+                  <input type="number" value={localFallbackFailedRetentionHours} onChange={(e) => setLocalFallbackFailedRetentionHours(e.target.value)} className={inputCls} min={1} />
+                </div>
+                <div>
+                  <label className={labelCls}>Keep sent items</label>
+                  <input type="number" value={localFallbackKeepSentItems} onChange={(e) => setLocalFallbackKeepSentItems(e.target.value)} className={inputCls} min={100} />
+                </div>
+                <div>
+                  <label className={labelCls}>Keep failed items</label>
+                  <input type="number" value={localFallbackKeepFailedItems} onChange={(e) => setLocalFallbackKeepFailedItems(e.target.value)} className={inputCls} min={100} />
+                </div>
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-[10px] text-zinc-600 leading-relaxed">
+            Essa secao controla limpeza automatica do historico local. Ela nao descarta silenciosamente itens pendentes de cloud sync ou fallback; atua sobre historico terminal e limite da fila MQTT.
+          </p>
         </div>
 
         <div className="pt-2">

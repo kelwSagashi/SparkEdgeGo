@@ -58,6 +58,65 @@ const labelCls = 'block text-xs font-medium text-zinc-400 uppercase tracking-wid
 
 type Step = 'loading' | 'onboarding' | 'connection' | 'connected';
 
+function severityFromPercent(value: number) {
+  if (value >= 85) {
+    return {
+      label: 'critical',
+      card: 'border-red-500/30 bg-red-500/[0.06]',
+      text: 'text-red-300',
+      badge: 'bg-red-500/15 text-red-200 border border-red-500/30',
+    };
+  }
+  if (value >= 60) {
+    return {
+      label: 'warning',
+      card: 'border-amber-500/30 bg-amber-500/[0.05]',
+      text: 'text-amber-200',
+      badge: 'bg-amber-500/15 text-amber-100 border border-amber-500/30',
+    };
+  }
+  return {
+    label: 'normal',
+    card: 'border-emerald-500/20 bg-emerald-500/[0.04]',
+    text: 'text-emerald-200',
+    badge: 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/20',
+  };
+}
+
+function severityFromAgeSeconds(value: number) {
+  if (value >= 1800) {
+    return {
+      label: 'critical',
+      card: 'border-red-500/30 bg-red-500/[0.06]',
+      text: 'text-red-300',
+      badge: 'bg-red-500/15 text-red-200 border border-red-500/30',
+    };
+  }
+  if (value >= 600) {
+    return {
+      label: 'warning',
+      card: 'border-amber-500/30 bg-amber-500/[0.05]',
+      text: 'text-amber-200',
+      badge: 'bg-amber-500/15 text-amber-100 border border-amber-500/30',
+    };
+  }
+  return {
+    label: 'normal',
+    card: 'border-emerald-500/20 bg-emerald-500/[0.04]',
+    text: 'text-emerald-200',
+    badge: 'bg-emerald-500/15 text-emerald-100 border border-emerald-500/20',
+  };
+}
+
+function formatDuration(seconds?: number | null) {
+  if (!seconds || seconds <= 0) return '-';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+}
+
 function LocationMarker({ position, setPosition }: { position: L.LatLng | null; setPosition: (p: L.LatLng) => void }) {
   useMapEvents({
     click(e) {
@@ -108,6 +167,27 @@ export default function CloudSettingsPage() {
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const unwrapCloudSyncArray = (value: unknown): CloudSyncItem[] => {
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (value && typeof value === 'object' && Array.isArray((value as { data?: unknown }).data)) {
+      return (value as { data: CloudSyncItem[] }).data;
+    }
+    return [];
+  };
+
+  const unwrapCloudSyncObject = (value: unknown): CloudSyncStats | null => {
+    if (value && typeof value === 'object') {
+      if ('data' in (value as Record<string, unknown>)) {
+        const data = (value as { data?: unknown }).data;
+        return data && typeof data === 'object' ? (data as CloudSyncStats) : null;
+      }
+      return value as CloudSyncStats;
+    }
+    return null;
+  };
+
   const fetchStatus = useCallback(async () => {
     try {
       const s = await cloudService.getStatus();
@@ -152,8 +232,8 @@ export default function CloudSettingsPage() {
         cloudSyncService.stats(),
         cloudSyncService.list(),
       ]);
-      setSyncStats(statsRes.data);
-      setSyncItems(listRes.data);
+      setSyncStats(unwrapCloudSyncObject(statsRes));
+      setSyncItems(unwrapCloudSyncArray(listRes));
     } catch {
       // Keep cloud setup flow usable even if sync panel fails.
     } finally {
@@ -173,8 +253,8 @@ export default function CloudSettingsPage() {
           cloudSyncService.list(),
         ]);
         setStatus(statusRes.data);
-        setSyncStats(statsRes.data);
-        setSyncItems(listRes.data);
+        setSyncStats(unwrapCloudSyncObject(statsRes));
+        setSyncItems(unwrapCloudSyncArray(listRes));
       } catch {
         // Ignore background polling errors.
       }
@@ -474,7 +554,10 @@ export default function CloudSettingsPage() {
     }
   };
 
-  const syncEventTypes = Array.from(new Set(syncItems.map((item) => item.event_type).filter(Boolean))).sort();
+  const safeSyncItems = Array.isArray(syncItems) ? syncItems : [];
+  const syncEventTypes = Array.from(
+    new Set(safeSyncItems.map((item) => String(item.event_type ?? '').trim()).filter(Boolean)),
+  ).sort();
 
   const filteredSyncItems = syncItems.filter((item) => {
     if (syncStatusFilter !== 'all' && item.status !== syncStatusFilter) {
@@ -510,6 +593,50 @@ export default function CloudSettingsPage() {
     (currentSyncPage - 1) * syncPageSize,
     currentSyncPage * syncPageSize,
   );
+  const connectivityInfo = status?.connectivity ?? syncStats?.connectivity;
+  const connectivityMode = String(connectivityInfo?.mode || 'unknown').toLowerCase();
+  const cloudPressurePct = Math.max(
+    Number(syncStats?.usage?.pending_total_pct_of_failed_window ?? 0),
+    Number(syncStats?.usage?.sent_pct_of_sent_window ?? 0),
+  );
+  const mqttUsagePct = Number(syncStats?.mqtt_queue?.usage_pct ?? 0);
+  const oldestCloudPendingAgeSeconds = Number(syncStats?.oldest_pending_age_seconds ?? 0);
+  const oldestMqttPendingAgeSeconds = Number(syncStats?.mqtt_queue?.oldest_pending_age_seconds ?? 0);
+  const cloudPressureTone = severityFromPercent(cloudPressurePct);
+  const mqttPressureTone = severityFromPercent(mqttUsagePct);
+  const oldestCloudPendingTone = severityFromAgeSeconds(oldestCloudPendingAgeSeconds);
+  const oldestMqttPendingTone = severityFromAgeSeconds(oldestMqttPendingAgeSeconds);
+  const offlineSignals = [
+    !status?.mqtt.connected ? 'broker mqtt offline' : null,
+    connectivityMode === 'degraded' || connectivityMode === 'offline' ? `modo ${connectivityMode}` : null,
+    (syncStats?.pending ?? 0) > 0 ? `${syncStats?.pending ?? 0} evento(s) aguardando cloud sync` : null,
+    (syncStats?.failed ?? 0) > 0 ? `${syncStats?.failed ?? 0} evento(s) com falha` : null,
+    (syncStats?.mqtt_queue?.total ?? 0) > 0 ? `${syncStats?.mqtt_queue?.total ?? 0} item(ns) na fila mqtt local` : null,
+  ].filter((value): value is string => Boolean(value));
+  const operationalPosture = (syncStats?.failed ?? 0) > 0 || connectivityMode === 'degraded' || connectivityMode === 'offline'
+    ? {
+        title: 'Operacao em contingencia',
+        description: 'O Edge esta preservando ou reprocessando eventos localmente. Vale acompanhar backlog, fila MQTT e causas de degradacao antes de considerar a conexao estabilizada.',
+        tone: 'border-red-500/25 bg-red-500/[0.08] text-red-100',
+      }
+    : (syncStats?.pending ?? 0) > 0 || (syncStats?.mqtt_queue?.total ?? 0) > 0
+      ? {
+          title: 'Sincronizacao em recuperacao',
+          description: 'Existe backlog controlado. O fluxo assistido esta mantendo a entrega eventual, mas ainda ha itens em fila local.',
+          tone: 'border-amber-500/25 bg-amber-500/[0.08] text-amber-100',
+        }
+      : {
+          title: 'Fluxo online saudavel',
+          description: 'Cloud sync, MQTT e filas locais estao em um estado baixo de pressao operacional.',
+          tone: 'border-emerald-500/25 bg-emerald-500/[0.08] text-emerald-100',
+        };
+  const quickQueueLanes = [
+    { key: 'all', label: 'Todos', count: safeSyncItems.length, onClick: () => { setSyncStatusFilter('all'); setSyncTypeFilter('all'); } },
+    { key: 'pending', label: 'Pendentes', count: safeSyncItems.filter((item) => item.status === 'pending').length, onClick: () => setSyncStatusFilter('pending') },
+    { key: 'failed', label: 'Falhas', count: safeSyncItems.filter((item) => item.status === 'failed').length, onClick: () => setSyncStatusFilter('failed') },
+    { key: 'mqtt', label: 'MQTT', count: safeSyncItems.filter((item) => String(item.event_type ?? '').toLowerCase().includes('mqtt')).length, onClick: () => setSyncTypeFilter('mqtt_disconnected') },
+    { key: 'exec', label: 'Execucoes', count: safeSyncItems.filter((item) => item.event_type === 'instance_execution').length, onClick: () => setSyncTypeFilter('instance_execution') },
+  ];
 
   const addTag = () => {
     const value = newTag.trim();
@@ -533,6 +660,24 @@ export default function CloudSettingsPage() {
       {connected ? 'MQTT online' : 'MQTT offline'}
     </span>
   );
+
+  const ConnectivityBadge = () => {
+    const tone =
+      connectivityMode === 'healthy'
+        ? 'bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30'
+        : connectivityMode === 'intermittent'
+          ? 'bg-amber-500/15 text-amber-300 ring-1 ring-amber-500/30'
+          : connectivityMode === 'degraded' || connectivityMode === 'offline'
+            ? 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
+            : 'bg-zinc-700/50 text-zinc-300 ring-1 ring-white/10';
+
+    return (
+      <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-0.5 rounded-full ${tone}`}>
+        <span className="w-1.5 h-1.5 rounded-full bg-current" />
+        {connectivityMode === 'unknown' ? 'Conectividade desconhecida' : `Modo ${connectivityMode}`}
+      </span>
+    );
+  };
 
   if (step === 'loading') {
     return (
@@ -818,6 +963,31 @@ export default function CloudSettingsPage() {
 
       {step === 'connected' && status && (
         <div className="space-y-6 animate-in zoom-in-95 duration-300">
+          <div className={`rounded-2xl border px-5 py-4 ${operationalPosture.tone}`}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold">{operationalPosture.title}</p>
+                <p className="text-xs leading-relaxed opacity-90">{operationalPosture.description}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-widest opacity-70">Backlog cloud</p>
+                <p className="mt-1 text-sm font-semibold">{syncStats?.pending ?? 0} pendente(s)</p>
+              </div>
+            </div>
+            {offlineSignals.length > 0 && (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {offlineSignals.map((signal) => (
+                  <span
+                    key={signal}
+                    className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest bg-black/20 border border-white/10"
+                  >
+                    {signal}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div className="bg-emerald-500/[0.06] border border-emerald-500/20 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl -mr-16 -mt-16 group-hover:bg-emerald-500/10 transition-colors duration-500" />
 
@@ -835,12 +1005,15 @@ export default function CloudSettingsPage() {
                   </div>
                 </div>
               </div>
-              <MqttBadge connected={status.mqtt.connected} />
+              <div className="flex flex-col items-end gap-2">
+                <MqttBadge connected={status.mqtt.connected} />
+                <ConnectivityBadge />
+              </div>
             </div>
 
             <div className="mt-8 pt-5 border-t border-white/[0.04]">
               <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Detalhes da Identidade</p>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
                   <p className="text-[9px] uppercase text-zinc-600 mb-1">Status de Conexao</p>
                   <p className={`text-xs font-medium ${status.mqtt.connected ? 'text-emerald-400' : 'text-zinc-500'}`}>
@@ -851,7 +1024,31 @@ export default function CloudSettingsPage() {
                   <p className="text-[9px] uppercase text-zinc-600 mb-1">Protocolo</p>
                   <p className="text-xs font-medium text-zinc-400">MQTT over TLS</p>
                 </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                  <p className="text-[9px] uppercase text-zinc-600 mb-1">Heartbeat Atual</p>
+                  <p className="text-xs font-medium text-zinc-300">
+                    {connectivityInfo?.heartbeat_interval_seconds ? `${connectivityInfo.heartbeat_interval_seconds}s` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                  <p className="text-[9px] uppercase text-zinc-600 mb-1">Stats Atual</p>
+                  <p className="text-xs font-medium text-zinc-300">
+                    {connectivityInfo?.stats_interval_seconds ? `${connectivityInfo.stats_interval_seconds}s` : '-'}
+                  </p>
+                </div>
               </div>
+              {Array.isArray(connectivityInfo?.reasons) && connectivityInfo.reasons.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {connectivityInfo.reasons.map((reason) => (
+                    <span
+                      key={reason}
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-200 border border-amber-500/20"
+                    >
+                      {reason}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -931,7 +1128,7 @@ export default function CloudSettingsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Configurado</p>
                 <p className={`mt-1 text-sm font-medium ${syncStats?.configured ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -950,9 +1147,111 @@ export default function CloudSettingsPage() {
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Enviados</p>
                 <p className="mt-1 text-sm font-medium text-cyan-300">{syncStats?.sent ?? 0}</p>
               </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Prontos</p>
+                <p className="mt-1 text-sm font-medium text-sky-300">{syncStats?.ready ?? 0}</p>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Retencao cloud sync</p>
+                <p className="mt-1 text-xs font-medium text-zinc-200">
+                  Sent: {syncStats?.retention?.sent_retention_hours ?? '-'}h | Failed: {syncStats?.retention?.failed_retention_hours ?? '-'}h
+                </p>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Keep sent {syncStats?.retention?.keep_sent_items ?? '-'} | keep failed {syncStats?.retention?.keep_failed_items ?? '-'}
+                </p>
+              </div>
+              <div className={`rounded-xl border p-3 ${cloudPressureTone.card}`}>
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Pressao da fila cloud</p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <p className={`text-xs font-medium ${cloudPressureTone.text}`}>
+                    Pico: {cloudPressurePct}%
+                  </p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${cloudPressureTone.badge}`}>
+                    {cloudPressureTone.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Failed window: {syncStats?.usage?.pending_total_pct_of_failed_window ?? 0}% | Sent window: {syncStats?.usage?.sent_pct_of_sent_window ?? 0}%
+                </p>
+              </div>
+              <div className={`rounded-xl border p-3 ${mqttPressureTone.card}`}>
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Fila MQTT local</p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <p className={`text-xs font-medium ${mqttPressureTone.text}`}>
+                    {syncStats?.mqtt_queue?.total ?? 0} item(ns) | {mqttUsagePct}% do limite
+                  </p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${mqttPressureTone.badge}`}>
+                    {mqttPressureTone.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Limite {syncStats?.mqtt_queue?.retention?.max_items ?? '-'} | idade maxima {syncStats?.mqtt_queue?.retention?.max_age_hours ?? '-'}h
+                </p>
+              </div>
+              <div className={`rounded-xl border p-3 ${oldestCloudPendingTone.card}`}>
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Backlog mais antigo</p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <p className={`text-xs font-medium ${oldestCloudPendingTone.text}`}>
+                    {oldestCloudPendingAgeSeconds > 0 ? `${oldestCloudPendingAgeSeconds}s` : '-'}
+                  </p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${oldestCloudPendingTone.badge}`}>
+                    {oldestCloudPendingTone.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Mede ha quanto tempo o evento mais antigo aguarda sincronizacao.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
+              <div className={`rounded-xl border p-3 ${oldestMqttPendingTone.card}`}>
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Item MQTT mais antigo</p>
+                <div className="mt-1 flex items-center justify-between gap-3">
+                  <p className={`text-xs font-medium ${oldestMqttPendingTone.text}`}>
+                    {formatDuration(oldestMqttPendingAgeSeconds)}
+                  </p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${oldestMqttPendingTone.badge}`}>
+                    {oldestMqttPendingTone.label}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Quanto tempo a fila MQTT local segura o item mais antigo.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Eventos MQTT</p>
+                <p className="mt-1 text-sm font-medium text-zinc-100">
+                  {syncItems.filter((item) => item.event_type.toLowerCase().includes('mqtt')).length}
+                </p>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Mudancas de estado do broker preservadas no fluxo de sync.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Execucoes em fila</p>
+                <p className="mt-1 text-sm font-medium text-zinc-100">
+                  {syncItems.filter((item) => item.event_type === 'instance_execution').length}
+                </p>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Resultado de instancias aguardando sincronizacao com o Spark Cloud.
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Falhas acumuladas</p>
+                <p className="mt-1 text-sm font-medium text-amber-200">
+                  {syncItems.filter((item) => item.status === 'failed').length}
+                </p>
+                <p className="mt-2 text-[11px] text-zinc-500">
+                  Itens que merecem revisao manual antes de drenar a fila.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Edge ID</p>
                 <p className="mt-1 text-xs font-mono text-zinc-300 break-all">{syncStats?.edge_id ?? '-'}</p>
@@ -960,6 +1259,28 @@ export default function CloudSettingsPage() {
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Endpoint Cloud</p>
                 <p className="mt-1 text-xs font-mono text-zinc-300 break-all">{syncStats?.base_url ?? '-'}</p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Idade Mais Antiga</p>
+                <p className="mt-1 text-xs font-medium text-zinc-300">
+                  {syncStats?.oldest_pending_age_seconds ? `${syncStats.oldest_pending_age_seconds}s` : '-'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mb-5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+              <div className="flex flex-wrap gap-2">
+                {quickQueueLanes.map((lane) => (
+                  <button
+                    key={lane.key}
+                    type="button"
+                    onClick={lane.onClick}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-black/20 px-3 py-2 text-[11px] font-semibold text-zinc-200 hover:bg-white/[0.05] transition-colors"
+                  >
+                    <span>{lane.label}</span>
+                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] text-zinc-400">{lane.count}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
