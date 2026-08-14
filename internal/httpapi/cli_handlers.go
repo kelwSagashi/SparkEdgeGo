@@ -3,7 +3,9 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
@@ -59,6 +61,7 @@ func (s *Server) handleCliPair(r *http.Request) (any, error) {
 		return cliEdgeError(err)
 	}
 	publishUserContext(r, s)
+	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "paired", "Edge paired with Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil
 }
 
@@ -72,10 +75,14 @@ func (s *Server) handleCliConnect(r *http.Request) (any, error) {
 		return cliEdgeError(err)
 	}
 	publishUserContext(r, s)
+	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "registered", "Edge connected to Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil
 }
 
 func (s *Server) handleCliDisconnect(r *http.Request) (any, error) {
+	if provisioned, err := s.deps.Edge.Load(r.Context()); err == nil && provisioned.EdgeID != "" {
+		enqueueCloudConnectionEvent(r, s, provisioned.EdgeID, "mqtt_disconnected", "Edge disconnected from MQTT broker")
+	}
 	if err := s.deps.Edge.Disconnect(r.Context()); err != nil {
 		return nil, err
 	}
@@ -85,6 +92,9 @@ func (s *Server) handleCliDisconnect(r *http.Request) (any, error) {
 func (s *Server) handleCliReconnect(r *http.Request) (any, error) {
 	if err := s.deps.Edge.Reconnect(r.Context()); err != nil {
 		return cliEdgeError(err)
+	}
+	if provisioned, err := s.deps.Edge.Load(r.Context()); err == nil && provisioned.EdgeID != "" {
+		enqueueCloudConnectionEvent(r, s, provisioned.EdgeID, "mqtt_reconnected", "Edge reconnected to MQTT broker")
 	}
 	return map[string]any{"success": true}, nil
 }
@@ -130,4 +140,20 @@ func publishUserContext(r *http.Request, s *Server) {
 
 func publicProvisionedEdge(edge domain.ProvisionedEdge) map[string]any {
 	return map[string]any{"edge_id": edge.EdgeID, "edge_name": edge.EdgeName, "provisioned": edge.Provisioned}
+}
+
+func enqueueCloudConnectionEvent(r *http.Request, s *Server, edgeID string, eventType string, message string) {
+	if s == nil || s.deps.CloudSync == nil || edgeID == "" {
+		return
+	}
+	now := time.Now().UTC()
+	_, _ = s.deps.CloudSync.EnqueueEvent(r.Context(), "edge_connection", 80, map[string]any{
+		"message_id":  fmt.Sprintf("%s-%d", eventType, now.UnixNano()),
+		"edge_id":     edgeID,
+		"type":        "edge_connection",
+		"event":       eventType,
+		"message":     message,
+		"occurred_at": now.Format(time.RFC3339),
+		"timestamp":   now.Format(time.RFC3339),
+	})
 }

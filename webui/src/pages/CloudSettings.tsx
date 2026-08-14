@@ -1,17 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cloudService, type CloudStatus } from '@/rest-api-client/cloud.service';
+import { cloudSyncService, type CloudSyncItem, type CloudSyncStats } from '@/rest-api-client/cloud-sync.service';
 import { Button } from '@/components/ui/button';
 import {
-  Wifi, WifiOff, Loader2, Unplug, RefreshCw, Mail, Lock, Zap, CheckCircle2,
-  AlertCircle, PlugZap, Building2, MapPin, Tag, ArrowRight, Settings2,
-  Navigation, MousePointer2, Trash2, Key
+  Wifi,
+  Loader2,
+  Unplug,
+  RefreshCw,
+  Mail,
+  Lock,
+  Zap,
+  CheckCircle2,
+  AlertCircle,
+  PlugZap,
+  Building2,
+  MapPin,
+  Tag,
+  ArrowRight,
+  Settings2,
+  Navigation,
+  MousePointer2,
+  Trash2,
+  Key,
+  Database,
+  Send,
+  Clock3,
+  Copy,
+  Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
-// Leaflet imports
 import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 
-// Fix for Leaflet default marker icon in Vite/React
 import markerIcon from 'leaflet/dist/images/marker-icon.png';
 import markerShadow from 'leaflet/dist/images/marker-shadow.png';
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -24,7 +47,7 @@ const DefaultIcon = L.icon({
   iconAnchor: [12, 41],
   popupAnchor: [1, -34],
   tooltipAnchor: [16, -28],
-  shadowSize: [41, 41]
+  shadowSize: [41, 41],
 });
 
 L.Marker.prototype.options.icon = DefaultIcon;
@@ -35,20 +58,16 @@ const labelCls = 'block text-xs font-medium text-zinc-400 uppercase tracking-wid
 
 type Step = 'loading' | 'onboarding' | 'connection' | 'connected';
 
-/** Map helper to handle clicks */
-function LocationMarker({ position, setPosition }: { position: L.LatLng | null, setPosition: (p: L.LatLng) => void }) {
+function LocationMarker({ position, setPosition }: { position: L.LatLng | null; setPosition: (p: L.LatLng) => void }) {
   useMapEvents({
     click(e) {
       setPosition(e.latlng);
     },
   });
 
-  return position === null ? null : (
-    <Marker position={position} />
-  );
+  return position === null ? null : <Marker position={position} />;
 }
 
-/** Map helper to center on position */
 function MapCenter({ position }: { position: L.LatLng | null }) {
   const map = useMap();
   useEffect(() => {
@@ -61,20 +80,29 @@ function MapCenter({ position }: { position: L.LatLng | null }) {
 
 export default function CloudSettingsPage() {
   const [step, setStep] = useState<Step>('loading');
+  const [manualStepOverride, setManualStepOverride] = useState<Step | null>(null);
   const [status, setStatus] = useState<CloudStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [useToken, setUseToken] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [syncStats, setSyncStats] = useState<CloudSyncStats | null>(null);
+  const [syncItems, setSyncItems] = useState<CloudSyncItem[]>([]);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncStatusFilter, setSyncStatusFilter] = useState<'all' | 'pending' | 'failed' | 'sent'>('all');
+  const [syncTypeFilter, setSyncTypeFilter] = useState('all');
+  const [syncSearch, setSyncSearch] = useState('');
+  const [syncPageSize, setSyncPageSize] = useState(5);
+  const [syncPage, setSyncPage] = useState(1);
+  const [expandedPayloads, setExpandedPayloads] = useState<Record<string, boolean>>({});
+  const [itemActionLoading, setItemActionLoading] = useState<Record<string, 'retry' | 'delete' | null>>({});
 
-  // Onboarding state
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState<L.LatLng | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [newTag, setNewTag] = useState('');
 
-  // Connection state
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -88,54 +116,90 @@ export default function CloudSettingsPage() {
 
       if (statusData.connected) {
         setStep('connected');
-      } else {
-        // Check onboarding progress
-        const onb = await cloudService.getOnboarding();
-        if (onb.data.complete) {
-          setStep('connection');
-        } else {
+        setManualStepOverride(null);
+        return;
+      }
+
+      const onb = await cloudService.getOnboarding();
+      if (onb.data.complete) {
+        if (manualStepOverride === 'onboarding') {
           setStep('onboarding');
-          if (onb.data.data) {
-            setName(onb.data.data.name || '');
-            setDescription(onb.data.data.description || '');
-            if (onb.data.data.lat && onb.data.data.lng) {
-              setLocation(new L.LatLng(Number(onb.data.data.lat), Number(onb.data.data.lng)));
-            }
-            setTags(onb.data.data.tags || []);
-          }
+        } else {
+          setStep('connection');
         }
+        return;
+      }
+
+      setStep('onboarding');
+      setManualStepOverride(null);
+      if (onb.data.data) {
+        setName(onb.data.data.name || '');
+        setDescription(onb.data.data.description || '');
+        if (onb.data.data.lat && onb.data.data.lng) {
+          setLocation(new L.LatLng(Number(onb.data.data.lat), Number(onb.data.data.lng)));
+        }
+        setTags(onb.data.data.tags || []);
       }
     } catch {
       setStep('onboarding');
     }
+  }, [manualStepOverride]);
+
+  const fetchSync = useCallback(async () => {
+    setSyncLoading(true);
+    try {
+      const [statsRes, listRes] = await Promise.all([
+        cloudSyncService.stats(),
+        cloudSyncService.list(),
+      ]);
+      setSyncStats(statsRes.data);
+      setSyncItems(listRes.data);
+    } catch {
+      // Keep cloud setup flow usable even if sync panel fails.
+    } finally {
+      setSyncLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    fetchStatus().then(() => {
-        if (step === 'loading') setStep('onboarding');
-    });
+    void fetchStatus();
+    void fetchSync();
+
     pollingRef.current = setInterval(async () => {
-        try {
-            const s = await cloudService.getStatus();
-            setStatus(s.data);
-        } catch { /* ignore silenty during poll */ }
+      try {
+        const [statusRes, statsRes, listRes] = await Promise.all([
+          cloudService.getStatus(),
+          cloudSyncService.stats(),
+          cloudSyncService.list(),
+        ]);
+        setStatus(statusRes.data);
+        setSyncStats(statsRes.data);
+        setSyncItems(listRes.data);
+      } catch {
+        // Ignore background polling errors.
+      }
     }, 8000);
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
-  }, [fetchStatus, step]);
+
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, [fetchStatus, fetchSync]);
 
   const handleSaveOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!location) return;
+
     setError(null);
     setActionLoading(true);
     try {
-      await cloudService.saveOnboarding({ 
-        name, 
+      await cloudService.saveOnboarding({
+        name,
         description,
-        lat: String(location.lat), 
-        lng: String(location.lng), 
-        tags 
+        lat: String(location.lat),
+        lng: String(location.lng),
+        tags,
       });
+      setManualStepOverride(null);
       setStep('connection');
     } catch (err: any) {
       setError(err?.message ?? 'Falha ao salvar dados de onboarding.');
@@ -146,16 +210,16 @@ export default function CloudSettingsPage() {
 
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
-      setError("Geolocalização não suportada pelo navegador.");
+      setError('Geolocalizacao nao suportada pelo navegador.');
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const newPos = new L.LatLng(pos.coords.latitude, pos.coords.longitude);
-        setLocation(newPos);
+        setLocation(new L.LatLng(pos.coords.latitude, pos.coords.longitude));
       },
       () => {
-        setError("Não foi possível obter sua localização. Permita o acesso ao GPS.");
+        setError('Nao foi possivel obter sua localizacao. Permita o acesso ao GPS.');
       }
     );
   };
@@ -204,14 +268,16 @@ export default function CloudSettingsPage() {
   };
 
   const handleRemove = async () => {
-    if (!confirm('AVISO: Isso irá remover completamente a identidade deste Edge e desconectar do Spark Cloud. Deseja continuar?')) return;
-    
+    if (!confirm('AVISO: isso vai remover completamente a identidade deste Edge e desconectar do Spark Cloud. Deseja continuar?')) {
+      return;
+    }
+
     setError(null);
     setActionLoading(true);
     try {
       await cloudService.remove();
-      // Reset local state
       setName('');
+      setDescription('');
       setLocation(null);
       setTags([]);
       setEmail('');
@@ -219,7 +285,7 @@ export default function CloudSettingsPage() {
       setStep('onboarding');
       await fetchStatus();
     } catch (err: any) {
-      setError(err?.message ?? 'Falha ao remover conexão.');
+      setError(err?.message ?? 'Falha ao remover conexao.');
     } finally {
       setActionLoading(false);
     }
@@ -238,14 +304,222 @@ export default function CloudSettingsPage() {
     }
   };
 
+  const handleFlushSync = async () => {
+    setError(null);
+    setActionLoading(true);
+    try {
+      const result = await cloudSyncService.flush();
+      await fetchSync();
+      toast.success(`Fila sincronizada: ${result.data.sent} enviados, ${result.data.failed} falhas.`);
+    } catch (err: any) {
+      setError(err?.message ?? 'Falha ao sincronizar a fila local com o Spark Cloud.');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return '-';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString('pt-BR');
+  };
+
+  const formatPayloadText = (payload?: Record<string, unknown>) => {
+    if (!payload) return '-';
+    try {
+      return JSON.stringify(payload, null, 2);
+    } catch {
+      return '[payload nao serializavel]';
+    }
+  };
+
+  const formatPayloadPreview = (payload?: Record<string, unknown>) => {
+    const serialized = formatPayloadText(payload);
+    return serialized.length > 220 ? `${serialized.slice(0, 220)}...` : serialized;
+  };
+
+  const togglePayloadExpanded = (itemID: string) => {
+    setExpandedPayloads((current) => ({
+      ...current,
+      [itemID]: !current[itemID],
+    }));
+  };
+
+  const handleCopyPayload = async (item: CloudSyncItem) => {
+    try {
+      await navigator.clipboard.writeText(formatPayloadText(item.payload));
+      toast.success(`Payload do evento ${item.event_type} copiado.`);
+    } catch {
+      toast.error('Nao foi possivel copiar o payload.');
+    }
+  };
+
+  const setItemLoading = (id: string, action: 'retry' | 'delete' | null) => {
+    setItemActionLoading((current) => ({ ...current, [id]: action }));
+  };
+
+  const handleRetryItem = async (item: CloudSyncItem) => {
+    setError(null);
+    setItemLoading(item.id, 'retry');
+    try {
+      const result = await cloudSyncService.retry(item.id);
+      await fetchSync();
+      if (result.data.sent) {
+        toast.success(`Evento ${item.event_type} enviado com sucesso.`);
+      } else if (result.data.skipped) {
+        toast.warning(result.data.message ?? 'Sincronizacao cloud nao configurada.');
+      } else {
+        toast.error(result.data.last_error ?? 'Falha ao reenviar evento.');
+      }
+    } catch (err: any) {
+      setError(err?.message ?? 'Falha ao reenviar item da fila cloud.');
+    } finally {
+      setItemLoading(item.id, null);
+    }
+  };
+
+  const handleDeleteItem = async (item: CloudSyncItem) => {
+    if (!confirm(`Remover o evento ${item.event_type} da fila local?`)) {
+      return;
+    }
+    setError(null);
+    setItemLoading(item.id, 'delete');
+    try {
+      await cloudSyncService.remove(item.id);
+      await fetchSync();
+      toast.success(`Evento ${item.event_type} removido da fila.`);
+    } catch (err: any) {
+      setError(err?.message ?? 'Falha ao remover item da fila cloud.');
+    } finally {
+      setItemLoading(item.id, null);
+    }
+  };
+
+  const extractPayloadSummary = (payload?: Record<string, unknown>) => {
+    if (!payload) {
+      return [] as Array<{ label: string; value: string }>;
+    }
+
+    const preferredKeys = [
+      ['message_id', 'Message ID'],
+      ['edge_id', 'Edge ID'],
+      ['execution_id', 'Execution'],
+      ['instance_id', 'Instancia'],
+      ['command_id', 'Comando'],
+      ['type', 'Tipo'],
+      ['status', 'Status payload'],
+      ['topic', 'Topico'],
+    ] as const;
+
+    return preferredKeys
+      .map(([key, label]) => {
+        const value = payload[key];
+        if (value === undefined || value === null || value === '') {
+          return null;
+        }
+        if (typeof value === 'object') {
+          try {
+            return { label, value: JSON.stringify(value) };
+          } catch {
+            return { label, value: '[objeto]' };
+          }
+        }
+        return { label, value: String(value) };
+      })
+      .filter((item): item is { label: string; value: string } => item !== null);
+  };
+
+  const describeEvent = (item: CloudSyncItem) => {
+    const payload = item.payload ?? {};
+    const messageID = typeof payload.message_id === 'string' ? payload.message_id : null;
+    const edgeID = typeof payload.edge_id === 'string' ? payload.edge_id : null;
+    const executionID =
+      typeof payload.execution_id === 'string'
+        ? payload.execution_id
+        : typeof payload.instance_execution_id === 'string'
+          ? payload.instance_execution_id
+          : null;
+    const instanceID = typeof payload.instance_id === 'string' ? payload.instance_id : null;
+    const topic = typeof payload.topic === 'string' ? payload.topic : null;
+    const state = typeof payload.state === 'string' ? payload.state : null;
+    const commandType = typeof payload.command_type === 'string' ? payload.command_type : null;
+
+    const lines: string[] = [];
+    if (messageID) lines.push(`Mensagem ${messageID}`);
+    if (executionID) lines.push(`Execucao ${executionID}`);
+    if (instanceID) lines.push(`Instancia ${instanceID}`);
+    if (edgeID) lines.push(`Edge ${edgeID}`);
+    if (topic) lines.push(`Topico ${topic}`);
+    if (state) lines.push(`Estado ${state}`);
+    if (commandType) lines.push(`Comando ${commandType}`);
+
+    if (lines.length > 0) {
+      return lines;
+    }
+
+    switch (item.event_type) {
+      case 'instance_execution':
+        return ['Execucao de instancia aguardando sincronizacao com o Spark Cloud.'];
+      case 'paired':
+        return ['Pareamento local registrado para envio posterior ao Spark Cloud.'];
+      case 'registered':
+        return ['Registro de edge aguardando confirmacao na nuvem.'];
+      case 'mqtt_disconnected':
+        return ['Desconexao MQTT capturada localmente e pendente de sincronizacao.'];
+      case 'mqtt_reconnected':
+        return ['Reconexao MQTT capturada localmente e pendente de sincronizacao.'];
+      default:
+        return ['Evento local aguardando envio assistido ao Spark Cloud.'];
+    }
+  };
+
+  const syncEventTypes = Array.from(new Set(syncItems.map((item) => item.event_type).filter(Boolean))).sort();
+
+  const filteredSyncItems = syncItems.filter((item) => {
+    if (syncStatusFilter !== 'all' && item.status !== syncStatusFilter) {
+      return false;
+    }
+    if (syncTypeFilter !== 'all' && item.event_type !== syncTypeFilter) {
+      return false;
+    }
+    if (syncSearch.trim() !== '') {
+      const haystack = [
+        item.id,
+        item.event_type,
+        item.status,
+        item.last_error ?? '',
+        formatPayloadText(item.payload),
+      ]
+        .join(' ')
+        .toLowerCase();
+      if (!haystack.includes(syncSearch.trim().toLowerCase())) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  useEffect(() => {
+    setSyncPage(1);
+  }, [syncStatusFilter, syncTypeFilter, syncSearch, syncPageSize]);
+
+  const totalSyncPages = Math.max(1, Math.ceil(filteredSyncItems.length / syncPageSize));
+  const currentSyncPage = Math.min(syncPage, totalSyncPages);
+  const pagedSyncItems = filteredSyncItems.slice(
+    (currentSyncPage - 1) * syncPageSize,
+    currentSyncPage * syncPageSize,
+  );
+
   const addTag = () => {
-    if (newTag.trim() && !tags.includes(newTag.trim())) {
-      setTags([...tags, newTag.trim()]);
+    const value = newTag.trim();
+    if (value && !tags.includes(value)) {
+      setTags([...tags, value]);
       setNewTag('');
     }
   };
 
-  const removeTag = (t: string) => setTags(tags.filter(tag => tag !== t));
+  const removeTag = (tag: string) => setTags(tags.filter((item) => item !== tag));
 
   const MqttBadge = ({ connected }: { connected: boolean }) => (
     <span
@@ -273,7 +547,6 @@ export default function CloudSettingsPage() {
 
   return (
     <main className="grow px-8 py-6 w-full max-w-[600px] mx-auto animate-in fade-in duration-500">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-1">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/20">
@@ -282,20 +555,18 @@ export default function CloudSettingsPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight">Spark Cloud</h1>
         </div>
         <p className="text-sm text-zinc-500 mt-1 ml-11">
-          Gerencie a conexão e identidade deste Edge na nuvem.
+          Gerencie a conexao e a identidade deste Edge na nuvem.
         </p>
       </div>
 
-      {/* Error banner */}
       {error && (
         <div className="flex items-start gap-3 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3 mb-6 text-sm text-red-400 animate-in slide-in-from-top-2">
           <AlertCircle size={16} className="mt-0.5 shrink-0" />
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto hover:text-white">×</button>
+          <button onClick={() => setError(null)} className="ml-auto hover:text-white">x</button>
         </div>
       )}
 
-      {/* ── ONBOARDING STEP ─────────────────────────────── */}
       {step === 'onboarding' && (
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl">
           <div className="flex items-center gap-3 mb-6 pb-5 border-b border-white/[0.06]">
@@ -303,8 +574,8 @@ export default function CloudSettingsPage() {
               <Settings2 size={18} className="text-cyan-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-white">Passo 1: Configuração Local</p>
-              <p className="text-xs text-zinc-500">Identifique este Edge antes de registrá-lo</p>
+              <p className="text-sm font-semibold text-white">Passo 1: Configuracao Local</p>
+              <p className="text-xs text-zinc-500">Identifique este Edge antes de registra-lo</p>
             </div>
           </div>
 
@@ -313,31 +584,31 @@ export default function CloudSettingsPage() {
               <label className={labelCls}><Building2 size={11} className="inline mr-1" /> Nome do Edge</label>
               <input
                 type="text"
-                placeholder="Ex: Edge Laboratório 01"
+                placeholder="Ex: Edge Laboratorio 01"
                 className={inputCls}
                 value={name}
-                onChange={e => setName(e.target.value)}
+                onChange={(e) => setName(e.target.value)}
                 required
                 disabled={actionLoading}
               />
             </div>
 
             <div>
-              <label className={labelCls}>Descrição (Opcional)</label>
+              <label className={labelCls}>Descricao (Opcional)</label>
               <textarea
-                placeholder="Uma breve descrição sobre a finalidade deste dispositivo..."
+                placeholder="Uma breve descricao sobre a finalidade deste dispositivo..."
                 className={`${inputCls} min-h-[80px] py-3 resize-none`}
                 value={description}
-                onChange={e => setDescription(e.target.value)}
+                onChange={(e) => setDescription(e.target.value)}
                 disabled={actionLoading}
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className={labelCls}><MapPin size={11} className="inline mr-1" /> Localização</label>
-                <button 
-                  type="button" 
+                <label className={labelCls}><MapPin size={11} className="inline mr-1" /> Localizacao</label>
+                <button
+                  type="button"
                   onClick={handleLocateMe}
                   className="text-[10px] uppercase font-bold text-cyan-500 hover:text-cyan-400 flex items-center gap-1 transition-colors"
                 >
@@ -345,36 +616,33 @@ export default function CloudSettingsPage() {
                   Usar meu GPS
                 </button>
               </div>
-              
+
               <div className="relative h-[240px] rounded-xl overflow-hidden border border-white/10 group">
-                <MapContainer 
-                  center={[-23.5505, -46.6333]} 
-                  zoom={13} 
+                <MapContainer
+                  center={[-23.5505, -46.6333]}
+                  zoom={13}
                   style={{ height: '100%', width: '100%', filter: 'grayscale(100%) invert(100%) contrast(90%)' }}
                   zoomControl={false}
                 >
-                  <TileLayer
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  />
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                   <LocationMarker position={location} setPosition={setLocation} />
                   <MapCenter position={location} />
                 </MapContainer>
-                
-                {/* Overlay guides */}
+
                 {!location && (
                   <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center p-6 text-center pointer-events-none transition-opacity group-hover:opacity-0">
                     <MousePointer2 size={24} className="text-white/40 mb-2 animate-bounce" />
-                    <p className="text-xs text-white/60 font-medium">Clique no mapa para marcar a posição do Edge</p>
+                    <p className="text-xs text-white/60 font-medium">Clique no mapa para marcar a posicao do Edge</p>
                   </div>
                 )}
-                
+
                 {location && (
-                   <div className="absolute bottom-3 left-3 right-3 bg-zinc-900/90 backdrop-blur-md px-3 py-2 rounded-lg border border-white/10 flex items-center justify-between shadow-2xl">
-                     <span className="text-[10px] font-mono text-zinc-400">
-                       {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
-                     </span>
-                     <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Pin Definido</span>
-                   </div>
+                  <div className="absolute bottom-3 left-3 right-3 bg-zinc-900/90 backdrop-blur-md px-3 py-2 rounded-lg border border-white/10 flex items-center justify-between shadow-2xl">
+                    <span className="text-[10px] font-mono text-zinc-400">
+                      {location.lat.toFixed(5)}, {location.lng.toFixed(5)}
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Pin Definido</span>
+                  </div>
                 )}
               </div>
             </div>
@@ -384,20 +652,20 @@ export default function CloudSettingsPage() {
               <div className="flex gap-2 mb-3">
                 <input
                   type="text"
-                  placeholder="produção, sensores, piape..."
+                  placeholder="producao, sensores, piape..."
                   className={inputCls}
                   value={newTag}
-                  onChange={e => setNewTag(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addTag())}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
                   disabled={actionLoading}
                 />
                 <Button type="button" variant="outline" className="border-white/10" onClick={addTag}>Add</Button>
               </div>
               <div className="flex flex-wrap gap-2">
-                {tags.map(t => (
-                  <span key={t} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-xs text-zinc-300 animate-in zoom-in-90">
-                    {t}
-                    <button type="button" onClick={() => removeTag(t)} className="hover:text-red-400">×</button>
+                {tags.map((tag) => (
+                  <span key={tag} className="flex items-center gap-1.5 px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-xs text-zinc-300 animate-in zoom-in-90">
+                    {tag}
+                    <button type="button" onClick={() => removeTag(tag)} className="hover:text-red-400">x</button>
                   </span>
                 ))}
               </div>
@@ -409,13 +677,12 @@ export default function CloudSettingsPage() {
               disabled={actionLoading || !name || !location}
             >
               {actionLoading ? <Loader2 size={15} className="animate-spin" /> : <ArrowRight size={15} />}
-              Próximo Passo: Conectar Cloud
+              Proximo Passo: Conectar Cloud
             </Button>
           </form>
         </div>
       )}
 
-      {/* ── CONNECTION STEP ─────────────────────────────── */}
       {step === 'connection' && (
         <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl animate-in slide-in-from-right-4 duration-300">
           <div className="flex items-center gap-3 mb-6 pb-5 border-b border-white/[0.06]">
@@ -452,7 +719,7 @@ export default function CloudSettingsPage() {
                   placeholder="Cole o token gerado no dashboard"
                   className={`${inputCls} font-mono uppercase tracking-widest text-center`}
                   value={token}
-                  onChange={e => setToken(e.target.value.toUpperCase())}
+                  onChange={(e) => setToken(e.target.value.toUpperCase())}
                   required
                   disabled={actionLoading}
                 />
@@ -466,7 +733,10 @@ export default function CloudSettingsPage() {
                   type="button"
                   variant="outline"
                   className="flex-1 border-white/5 text-zinc-400 hover:text-white"
-                  onClick={() => setStep('onboarding')}
+                  onClick={() => {
+                    setManualStepOverride('onboarding');
+                    setStep('onboarding');
+                  }}
                   disabled={actionLoading}
                 >
                   Voltar
@@ -490,7 +760,7 @@ export default function CloudSettingsPage() {
                   placeholder="voce@exemplo.com"
                   className={inputCls}
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={actionLoading}
                 />
@@ -500,10 +770,10 @@ export default function CloudSettingsPage() {
                 <label className={labelCls}><Lock size={11} className="inline mr-1" /> Senha</label>
                 <input
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="........"
                   className={inputCls}
                   value={password}
-                  onChange={e => setPassword(e.target.value)}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={actionLoading}
                 />
@@ -514,7 +784,10 @@ export default function CloudSettingsPage() {
                   type="button"
                   variant="outline"
                   className="flex-1 border-white/5 text-zinc-400 hover:text-white"
-                  onClick={() => setStep('onboarding')}
+                  onClick={() => {
+                    setManualStepOverride('onboarding');
+                    setStep('onboarding');
+                  }}
                   disabled={actionLoading}
                 >
                   Voltar
@@ -530,7 +803,7 @@ export default function CloudSettingsPage() {
               </div>
             </form>
           )}
-          
+
           <button
             type="button"
             onClick={handleRemove}
@@ -538,18 +811,16 @@ export default function CloudSettingsPage() {
             className="w-full mt-6 text-[10px] uppercase font-bold text-zinc-600 hover:text-red-400/70 transition-colors flex items-center justify-center gap-1.5"
           >
             <Trash2 size={10} />
-            Resetar Configurações e Voltar ao Início
+            Resetar Configuracoes e Voltar ao Inicio
           </button>
         </div>
       )}
 
-      {/* ── CONNECTED STATE ─────────────────────────────── */}
       {step === 'connected' && status && (
         <div className="space-y-6 animate-in zoom-in-95 duration-300">
-          {/* Status card */}
           <div className="bg-emerald-500/[0.06] border border-emerald-500/20 rounded-2xl p-6 shadow-xl relative overflow-hidden group">
             <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-3xl -mr-16 -mt-16 group-hover:bg-emerald-500/10 transition-colors duration-500" />
-            
+
             <div className="flex items-start justify-between relative">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 flex items-center justify-center shadow-inner">
@@ -568,23 +839,22 @@ export default function CloudSettingsPage() {
             </div>
 
             <div className="mt-8 pt-5 border-t border-white/[0.04]">
-                <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Detalhes da Identidade</p>
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
-                        <p className="text-[9px] uppercase text-zinc-600 mb-1">Status de Conexão</p>
-                        <p className={`text-xs font-medium ${status.mqtt.connected ? 'text-emerald-400' : 'text-zinc-500'}`}>
-                            {status.mqtt.connected ? 'Ativo e Recebendo' : 'Aguardando Broker'}
-                        </p>
-                    </div>
-                    <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
-                        <p className="text-[9px] uppercase text-zinc-600 mb-1">Protocolo</p>
-                        <p className="text-xs font-medium text-zinc-400">MQTT over TLS</p>
-                    </div>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mb-2">Detalhes da Identidade</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                  <p className="text-[9px] uppercase text-zinc-600 mb-1">Status de Conexao</p>
+                  <p className={`text-xs font-medium ${status.mqtt.connected ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                    {status.mqtt.connected ? 'Ativo e Recebendo' : 'Aguardando Broker'}
+                  </p>
                 </div>
+                <div className="bg-white/[0.03] rounded-xl p-3 border border-white/[0.03]">
+                  <p className="text-[9px] uppercase text-zinc-600 mb-1">Protocolo</p>
+                  <p className="text-xs font-medium text-zinc-400">MQTT over TLS</p>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex flex-col gap-3">
             <div className="flex gap-3">
               {status.mqtt.connected ? (
@@ -623,9 +893,289 @@ export default function CloudSettingsPage() {
 
           <div className="p-4 bg-zinc-900/50 border border-white/[0.03] rounded-xl">
             <p className="text-xs text-zinc-500 leading-relaxed italic">
-              "Desconectar irá interromper o tráfego de dados, mas não apagará o registro deste dispositivo. 
-              Você pode reconectar a qualquer momento usando as credenciais já armazenadas."
+              "Desconectar vai interromper o trafego de dados, mas nao vai apagar o registro deste dispositivo.
+              Voce pode reconectar a qualquer momento usando as credenciais ja armazenadas."
             </p>
+          </div>
+
+          <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-6 backdrop-blur-md shadow-xl">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5 pb-5 border-b border-white/[0.06]">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+                  <Database size={18} className="text-cyan-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Fila de Sincronizacao</p>
+                  <p className="text-xs text-zinc-500">Eventos locais aguardando envio assistido ao Spark Cloud</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="h-10 gap-2 border-white/10"
+                  disabled={syncLoading}
+                  onClick={() => void fetchSync()}
+                >
+                  {syncLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  Atualizar
+                </Button>
+                <Button
+                  className="h-10 gap-2 bg-cyan-500 text-zinc-950 hover:bg-cyan-400"
+                  disabled={actionLoading}
+                  onClick={handleFlushSync}
+                >
+                  {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  Sincronizar Agora
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Configurado</p>
+                <p className={`mt-1 text-sm font-medium ${syncStats?.configured ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {syncStats?.configured ? 'Sim' : 'Nao'}
+                </p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Pendentes</p>
+                <p className="mt-1 text-sm font-medium text-white">{syncStats?.pending ?? 0}</p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Falhas</p>
+                <p className="mt-1 text-sm font-medium text-amber-300">{syncStats?.failed ?? 0}</p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Enviados</p>
+                <p className="mt-1 text-sm font-medium text-cyan-300">{syncStats?.sent ?? 0}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Edge ID</p>
+                <p className="mt-1 text-xs font-mono text-zinc-300 break-all">{syncStats?.edge_id ?? '-'}</p>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">Endpoint Cloud</p>
+                <p className="mt-1 text-xs font-mono text-zinc-300 break-all">{syncStats?.base_url ?? '-'}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 md:col-span-2">
+                <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Busca</label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    value={syncSearch}
+                    onChange={(e) => setSyncSearch(e.target.value)}
+                    placeholder="Buscar por id, tipo, status ou conteudo do payload"
+                    className="w-full bg-zinc-950/70 border border-white/[0.08] rounded-lg pl-9 pr-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-500"
+                  />
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Filtro de status</label>
+                <select
+                  value={syncStatusFilter}
+                  onChange={(e) => setSyncStatusFilter(e.target.value as 'all' | 'pending' | 'failed' | 'sent')}
+                  className="w-full bg-zinc-950/70 border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200"
+                >
+                  <option value="all">Todos</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                  <option value="sent">Sent</option>
+                </select>
+              </div>
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                <label className="block text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Filtro de tipo</label>
+                <select
+                  value={syncTypeFilter}
+                  onChange={(e) => setSyncTypeFilter(e.target.value)}
+                  className="w-full bg-zinc-950/70 border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200"
+                >
+                  <option value="all">Todos</option>
+                  {syncEventTypes.map((eventType) => (
+                    <option key={eventType} value={eventType}>
+                      {eventType}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+              <div className="text-xs text-zinc-500">
+                Mostrando <span className="text-zinc-200">{pagedSyncItems.length}</span> de{' '}
+                <span className="text-zinc-200">{filteredSyncItems.length}</span> eventos filtrados.
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase tracking-widest text-zinc-500">Por pagina</label>
+                <select
+                  value={syncPageSize}
+                  onChange={(e) => setSyncPageSize(Number(e.target.value))}
+                  className="bg-zinc-950/70 border border-white/[0.08] rounded-lg px-3 py-2 text-sm text-zinc-200"
+                >
+                  {[5, 10, 20, 50].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {filteredSyncItems.length === 0 && (
+                <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] px-4 py-6 text-center text-sm text-zinc-500">
+                  Nenhum evento encontrado para os filtros atuais.
+                </div>
+              )}
+
+              {pagedSyncItems.map((item) => (
+                <div key={item.id} className="rounded-xl border border-white/[0.06] bg-zinc-950/50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-white">{item.event_type}</p>
+                      <p className="mt-1 text-[11px] font-mono text-zinc-500">{item.id}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCopyPayload(item)}
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest bg-white/[0.04] text-zinc-300 border border-white/[0.08] hover:bg-white/[0.08] transition-colors"
+                      >
+                        <Copy size={10} />
+                        Copiar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRetryItem(item)}
+                        disabled={item.status === 'sent' || itemActionLoading[item.id] !== undefined && itemActionLoading[item.id] !== null}
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest bg-cyan-500/10 text-cyan-200 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {itemActionLoading[item.id] === 'retry' ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
+                        Reenviar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteItem(item)}
+                        disabled={itemActionLoading[item.id] !== undefined && itemActionLoading[item.id] !== null}
+                        className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest bg-red-500/10 text-red-200 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {itemActionLoading[item.id] === 'delete' ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                        Remover
+                      </button>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest ${
+                        item.status === 'sent'
+                          ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                          : item.status === 'failed'
+                            ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                            : 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/20'
+                      }`}>
+                        <Clock3 size={10} />
+                        {item.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                    <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                      <p className="text-zinc-500">Tentativas</p>
+                      <p className="mt-1 text-zinc-200">{item.attempts}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                      <p className="text-zinc-500">Proximo retry</p>
+                      <p className="mt-1 text-zinc-200">{formatDateTime(item.next_retry_at)}</p>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-2">
+                      <p className="text-zinc-500">Ultimo envio</p>
+                      <p className="mt-1 text-zinc-200">{formatDateTime(item.sent_at)}</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Leitura do evento</p>
+                    <div className="space-y-1">
+                      {describeEvent(item).map((line, index) => (
+                        <p key={`${item.id}-description-${index}`} className="text-xs text-zinc-300">
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+
+                  {extractPayloadSummary(item.payload).length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {extractPayloadSummary(item.payload).map((entry) => (
+                        <div
+                          key={`${item.id}-${entry.label}`}
+                          className="rounded-full border border-cyan-500/15 bg-cyan-500/5 px-3 py-1.5 text-[11px] text-cyan-100"
+                        >
+                          <span className="text-cyan-300/70">{entry.label}:</span>{' '}
+                          <span className="font-mono break-all">{entry.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-3 rounded-lg bg-white/[0.02] border border-white/[0.04] px-3 py-3">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <p className="text-zinc-500 text-xs uppercase tracking-widest">Payload</p>
+                      <button
+                        type="button"
+                        onClick={() => togglePayloadExpanded(item.id)}
+                        className="text-xs text-cyan-300 hover:text-cyan-200 transition-colors"
+                      >
+                        {expandedPayloads[item.id] ? 'Recolher' : 'Expandir'}
+                      </button>
+                    </div>
+                    <pre className="text-[11px] text-zinc-300 whitespace-pre-wrap break-words font-mono">
+                      {expandedPayloads[item.id]
+                        ? formatPayloadText(item.payload)
+                        : formatPayloadPreview(item.payload)}
+                    </pre>
+                  </div>
+
+                  {item.last_error && (
+                    <div className="mt-3 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-300">
+                      {item.last_error}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {filteredSyncItems.length > 0 && (
+              <div className="mt-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-3">
+                <div className="text-xs text-zinc-500">
+                  Pagina <span className="text-zinc-200">{currentSyncPage}</span> de{' '}
+                  <span className="text-zinc-200">{totalSyncPages}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-9 gap-2 border-white/10"
+                    disabled={currentSyncPage <= 1}
+                    onClick={() => setSyncPage((current) => Math.max(1, current - 1))}
+                  >
+                    <ChevronLeft size={14} />
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-9 gap-2 border-white/10"
+                    disabled={currentSyncPage >= totalSyncPages}
+                    onClick={() => setSyncPage((current) => Math.min(totalSyncPages, current + 1))}
+                  >
+                    Proxima
+                    <ChevronRight size={14} />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

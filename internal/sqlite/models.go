@@ -341,6 +341,24 @@ func (mqttQueueModel) TableName() string {
 	return "mqtt_queue"
 }
 
+type cloudSyncQueueModel struct {
+	ID            string  `gorm:"primaryKey;type:text"`
+	EventType     string  `gorm:"not null;type:text"`
+	Priority      int     `gorm:"not null;default:0"`
+	Payload       mapJSON `gorm:"not null;type:text"`
+	Status        string  `gorm:"not null;default:pending;type:text"`
+	Attempts      int     `gorm:"not null;default:0"`
+	LastAttemptAt *time.Time
+	NextRetryAt   *time.Time
+	LastError     string `gorm:"type:text"`
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+func (cloudSyncQueueModel) TableName() string {
+	return "cloud_sync_queue"
+}
+
 type edgeConfigModel struct {
 	ID             string          `gorm:"primaryKey;type:text"`
 	EdgeName       string          `gorm:"type:text"`

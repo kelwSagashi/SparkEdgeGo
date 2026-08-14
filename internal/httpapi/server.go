@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/auth"
+	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/devices"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
@@ -42,6 +43,7 @@ type Dependencies struct {
 	DispatchStateChange func(context.Context, map[string]any) (any, error)
 	ServerInfra         *serverinfra.Service
 	Updater             *updater.Service
+	CloudSync           *cloudsync.Service
 	Config              *config.Manager
 	RuntimeCfg          config.Runtime
 }
@@ -120,6 +122,11 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/update/restart", Adapt(s.handleUpdateRestart))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))
 	mux.HandleFunc("POST /api/spark-cloud/edges/register", Adapt(s.handleSparkCloudEdgeRegister))
+	mux.HandleFunc("GET /api/cloud-sync", Adapt(s.handleCloudSyncList))
+	mux.HandleFunc("GET /api/cloud-sync/stats", Adapt(s.handleCloudSyncStats))
+	mux.HandleFunc("POST /api/cloud-sync/flush", Adapt(s.handleCloudSyncFlush))
+	mux.HandleFunc("POST /api/cloud-sync/{id}/retry", Adapt(s.handleCloudSyncRetry))
+	mux.HandleFunc("DELETE /api/cloud-sync/{id}", Adapt(s.handleCloudSyncDelete))
 	mux.HandleFunc("POST /api/events/dispatch", Adapt(s.handleEventDispatch))
 	mux.HandleFunc("POST /api/state/dispatch", Adapt(s.handleStateDispatch))
 

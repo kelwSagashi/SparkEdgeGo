@@ -49,12 +49,12 @@ export default function AdvancedSettingsPage() {
 
   const [cloudUrl, setCloudUrl] = useState('');
   const [mqttUrl, setMqttUrl] = useState('');
+  const [cloudSyncToken, setCloudSyncToken] = useState('');
   const [dbFile, setDbFile] = useState('');
   const [jwtSecret, setJwtSecret] = useState('');
   const [serverPort, setServerPort] = useState('');
 
-  const normalizePortValue = (value?: string | number | null) =>
-    String(value ?? '').replace(/^:/, '');
+  const normalizePortValue = (value?: string | number | null) => String(value ?? '').replace(/^:/, '');
 
   const loadConfig = async () => {
     setLoading(true);
@@ -64,11 +64,12 @@ export default function AdvancedSettingsPage() {
       setConfig(cfg);
       setCloudUrl(cfg.cloud.url);
       setMqttUrl(cfg.cloud.mqtt_url);
+      setCloudSyncToken('');
       setDbFile(cfg.db.file);
       setJwtSecret('');
       setServerPort(normalizePortValue(cfg.server.port));
     } catch (err: any) {
-      toast.error(`Não foi possível carregar as configurações: ${err?.message ?? 'Erro desconhecido'}`);
+      toast.error(`Nao foi possivel carregar as configuracoes: ${err?.message ?? 'Erro desconhecido'}`);
     } finally {
       setLoading(false);
     }
@@ -86,10 +87,15 @@ export default function AdvancedSettingsPage() {
     try {
       const updates: Record<string, any> = {};
 
-      if (cloudUrl !== config?.cloud.url || mqttUrl !== config?.cloud.mqtt_url) {
+      if (
+        cloudUrl !== config?.cloud.url ||
+        mqttUrl !== config?.cloud.mqtt_url ||
+        cloudSyncToken.trim() !== ''
+      ) {
         updates.cloud = {};
         if (cloudUrl !== config?.cloud.url) updates.cloud.url = cloudUrl;
         if (mqttUrl !== config?.cloud.mqtt_url) updates.cloud.mqtt_url = mqttUrl;
+        if (cloudSyncToken.trim() !== '') updates.cloud.sync_token = cloudSyncToken.trim();
       }
 
       if (dbFile !== config?.db.file) {
@@ -107,12 +113,12 @@ export default function AdvancedSettingsPage() {
       }
 
       if (Object.keys(updates).length === 0) {
-        toast.info('Nenhuma alteração detectada.');
+        toast.info('Nenhuma alteracao detectada.');
         return;
       }
 
       const res = await cloudService.updateConfig(updates);
-      toast.success(res.data.data.message || 'Configurações salvas. Reinicie o serviço para aplicar as mudanças.');
+      toast.success(res.data.data.message || 'Configuracoes salvas. Reinicie o servico para aplicar as mudancas.');
       setSaved(true);
       setJwtSecret('');
       await loadConfig();
@@ -128,7 +134,7 @@ export default function AdvancedSettingsPage() {
       <main className="grow px-8 py-6 w-full max-w-[700px] mx-auto">
         <div className="flex items-center gap-2 text-zinc-500 mt-24 justify-center">
           <Loader2 size={18} className="animate-spin" />
-          <span className="text-sm">Carregando configurações...</span>
+          <span className="text-sm">Carregando configuracoes...</span>
         </div>
       </main>
     );
@@ -141,21 +147,21 @@ export default function AdvancedSettingsPage() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
             <Settings2 size={14} className="text-white" />
           </div>
-          <h1 className="text-2xl font-semibold text-white tracking-tight">Configurações Avançadas</h1>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">Configuracoes Avancadas</h1>
         </div>
         <p className="text-sm text-zinc-500 mt-1 ml-11">
-          Configurações de infraestrutura do SparkEdge.
+          Configuracoes de infraestrutura do SparkEdge.
         </p>
       </div>
 
       <div className="flex items-start gap-3 bg-amber-500/[0.08] border border-amber-500/30 rounded-2xl px-5 py-4 mb-8 animate-in slide-in-from-top-2">
         <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-semibold text-amber-300 mb-1">Atenção: Configurações de Infraestrutura</p>
+          <p className="text-sm font-semibold text-amber-300 mb-1">Atencao: Configuracoes de Infraestrutura</p>
           <p className="text-xs text-amber-400/80 leading-relaxed">
-            Alterar essas configurações pode interromper a conexão com o Spark Cloud e o funcionamento do SparkEdge.
-            Após salvar, é necessário reiniciar o serviço para aplicar as mudanças.
-            As configurações são salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">config.yml</code>.
+            Alterar essas configuracoes pode interromper a conexao com o Spark Cloud e o funcionamento do SparkEdge.
+            Apos salvar, e necessario reiniciar o servico para aplicar as mudancas.
+            As configuracoes sao salvas no arquivo <code className="bg-amber-500/10 px-1 rounded font-mono text-amber-300">config.yml</code>.
           </p>
         </div>
       </div>
@@ -164,8 +170,8 @@ export default function AdvancedSettingsPage() {
         <Info size={13} className="text-zinc-500 shrink-0" />
         <p className="text-xs text-zinc-500 font-mono flex-1 truncate">
           Arquivo: <span className="text-zinc-400">{config?.config_file ?? 'config.yml'}</span>
-          <span className="mx-2 text-zinc-700">·</span>
-          Prioridade: <span className="text-zinc-400">yml → .env → padrões</span>
+          <span className="mx-2 text-zinc-700">|</span>
+          Prioridade: <span className="text-zinc-400">yml -&gt; .env -&gt; padroes</span>
         </p>
         <button
           onClick={() => void loadConfig()}
@@ -181,7 +187,7 @@ export default function AdvancedSettingsPage() {
           <SectionHeader
             icon={<Cloud size={16} className="text-cyan-400" />}
             title="Cloud Integration"
-            description="URLs de conexão com o Spark Cloud e broker MQTT"
+            description="URLs de conexao com o Spark Cloud e broker MQTT"
           />
           <div className="space-y-4">
             <div>
@@ -206,6 +212,21 @@ export default function AdvancedSettingsPage() {
                 className={inputCls}
                 required
               />
+            </div>
+
+            <div>
+              <label className={labelCls}>Cloud Sync Token</label>
+              <input
+                type="password"
+                value={cloudSyncToken}
+                onChange={(e) => setCloudSyncToken(e.target.value)}
+                placeholder={config?.cloud.sync_token ? `Atual: ${config.cloud.sync_token}` : 'Token para sincronizar eventos com o Spark Cloud'}
+                className={inputCls}
+                autoComplete="off"
+              />
+              <p className="mt-1.5 text-[10px] text-zinc-600">
+                Deixe em branco para manter o token atual. Esse token autoriza a fila local de sincronizacao com o Spark Cloud.
+              </p>
             </div>
           </div>
         </div>
@@ -232,7 +253,7 @@ export default function AdvancedSettingsPage() {
         <div className={sectionCls}>
           <SectionHeader
             icon={<Lock size={16} className="text-rose-400" />}
-            title="Autenticação"
+            title="Autenticacao"
             description="Chave secreta para assinar tokens JWT locais"
           />
           <div>
@@ -240,7 +261,7 @@ export default function AdvancedSettingsPage() {
               JWT Secret
               {config?.auth.is_default && (
                 <span className="ml-2 normal-case text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full tracking-normal border border-amber-500/20">
-                  Usando valor padrão
+                  Usando valor padrao
                 </span>
               )}
             </label>
@@ -254,7 +275,7 @@ export default function AdvancedSettingsPage() {
               autoComplete="new-password"
             />
             <p className="mt-1.5 text-[10px] text-zinc-600">
-              Mínimo de 8 caracteres. Deixe em branco para manter o valor atual.
+              Minimo de 8 caracteres. Deixe em branco para manter o valor atual.
             </p>
           </div>
         </div>
@@ -263,7 +284,7 @@ export default function AdvancedSettingsPage() {
           <SectionHeader
             icon={<Server size={16} className="text-emerald-400" />}
             title="Servidor"
-            description="Configurações do servidor HTTP local"
+            description="Configuracoes do servidor HTTP local"
           />
           <div>
             <label className={labelCls}>Porta HTTP</label>
@@ -284,7 +305,7 @@ export default function AdvancedSettingsPage() {
           {saved && (
             <div className="flex items-center gap-2 mb-4 text-emerald-400 text-sm animate-in fade-in">
               <CheckCircle2 size={16} />
-              <span>Configurações salvas. Reinicie o serviço para aplicar.</span>
+              <span>Configuracoes salvas. Reinicie o servico para aplicar.</span>
             </div>
           )}
 
@@ -294,7 +315,7 @@ export default function AdvancedSettingsPage() {
             className="w-full h-12 gap-2 bg-amber-500 text-zinc-900 hover:bg-amber-400 font-semibold transition-all active:scale-[0.98] shadow-lg shadow-amber-500/20"
           >
             {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-            {saving ? 'Salvando...' : 'Salvar Configurações'}
+            {saving ? 'Salvando...' : 'Salvar Configuracoes'}
           </Button>
         </div>
       </form>

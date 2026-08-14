@@ -27,6 +27,7 @@ export interface EdgeConfig {
   cloud: {
     url: string;
     mqtt_url: string;
+    sync_token?: string;
   };
   db: {
     file: string;
@@ -42,7 +43,7 @@ export interface EdgeConfig {
 }
 
 export interface EdgeConfigUpdate {
-  cloud?: { url?: string; mqtt_url?: string };
+  cloud?: { url?: string; mqtt_url?: string; sync_token?: string };
   db?: { file?: string };
   auth?: { jwt_secret?: string };
   server?: { port?: string | number };

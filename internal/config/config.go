@@ -39,8 +39,9 @@ type Effective struct {
 }
 
 type CloudSection struct {
-	URL     string `json:"url" yaml:"url"`
-	MQTTURL string `json:"mqtt_url" yaml:"mqtt_url"`
+	URL       string `json:"url" yaml:"url"`
+	MQTTURL   string `json:"mqtt_url" yaml:"mqtt_url"`
+	SyncToken string `json:"sync_token" yaml:"sync_token"`
 }
 
 type DBSection struct {
@@ -92,8 +93,9 @@ type Update struct {
 }
 
 type CloudSectionUpdate struct {
-	URL     *string `json:"url"`
-	MQTTURL *string `json:"mqtt_url"`
+	URL       *string `json:"url"`
+	MQTTURL   *string `json:"mqtt_url"`
+	SyncToken *string `json:"sync_token"`
 }
 
 type DBSectionUpdate struct {
@@ -109,13 +111,14 @@ type ServerSectionUpdate struct {
 }
 
 type Runtime struct {
-	CloudURL   string
-	MQTTURL    string
-	DBFile     string
-	JWTSecret  string
-	HTTPPort   int
-	ConfigFile string
-	Update     UpdateRuntime
+	CloudURL       string
+	MQTTURL        string
+	CloudSyncToken string
+	DBFile         string
+	JWTSecret      string
+	HTTPPort       int
+	ConfigFile     string
+	Update         UpdateRuntime
 }
 
 type UpdateRuntime struct {
@@ -151,12 +154,13 @@ func (m *Manager) Load() (Effective, Runtime, error) {
 	}
 
 	runtimeCfg := Runtime{
-		CloudURL:   defaultCloudURL,
-		MQTTURL:    defaultMQTTURL,
-		DBFile:     defaultDBFile,
-		JWTSecret:  defaultJWTSecret,
-		HTTPPort:   defaultHTTPPort,
-		ConfigFile: m.path,
+		CloudURL:       defaultCloudURL,
+		MQTTURL:        defaultMQTTURL,
+		CloudSyncToken: "",
+		DBFile:         defaultDBFile,
+		JWTSecret:      defaultJWTSecret,
+		HTTPPort:       defaultHTTPPort,
+		ConfigFile:     m.path,
 		Update: UpdateRuntime{
 			Enabled:         true,
 			Provider:        "github",
@@ -171,8 +175,9 @@ func (m *Manager) Load() (Effective, Runtime, error) {
 
 	effective := Effective{
 		Cloud: CloudSection{
-			URL:     runtimeCfg.CloudURL,
-			MQTTURL: runtimeCfg.MQTTURL,
+			URL:       runtimeCfg.CloudURL,
+			MQTTURL:   runtimeCfg.MQTTURL,
+			SyncToken: maskOptionalSecret(runtimeCfg.CloudSyncToken),
 		},
 		DB: DBSection{
 			File: runtimeCfg.DBFile,
@@ -247,6 +252,9 @@ func applyEnv(runtimeCfg *Runtime) {
 	if value := strings.TrimSpace(os.Getenv("MQTT_URL")); value != "" {
 		runtimeCfg.MQTTURL = value
 	}
+	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_CLOUD_SYNC_TOKEN")); value != "" {
+		runtimeCfg.CloudSyncToken = value
+	}
 	if value := strings.TrimSpace(os.Getenv("SPARKEDGE_DB_PATH")); value != "" {
 		runtimeCfg.DBFile = value
 	}
@@ -285,6 +293,9 @@ func applyFile(runtimeCfg *Runtime, fileCfg File) {
 	}
 	if value := strings.TrimSpace(fileCfg.Cloud.MQTTURL); value != "" {
 		runtimeCfg.MQTTURL = value
+	}
+	if value := strings.TrimSpace(fileCfg.Cloud.SyncToken); value != "" {
+		runtimeCfg.CloudSyncToken = value
 	}
 	if value := strings.TrimSpace(fileCfg.DB.File); value != "" {
 		runtimeCfg.DBFile = value
@@ -333,6 +344,9 @@ func applyUpdate(fileCfg *File, update Update) error {
 				return errors.New("cloud.mqtt_url nao pode ser vazio")
 			}
 			fileCfg.Cloud.MQTTURL = value
+		}
+		if update.Cloud.SyncToken != nil {
+			fileCfg.Cloud.SyncToken = strings.TrimSpace(*update.Cloud.SyncToken)
 		}
 	}
 	if update.DB != nil && update.DB.File != nil {
@@ -415,4 +429,11 @@ func envBool(key string) (bool, bool) {
 	default:
 		return false, false
 	}
+}
+
+func maskOptionalSecret(secret string) string {
+	if strings.TrimSpace(secret) == "" {
+		return ""
+	}
+	return maskSecret(secret)
 }
