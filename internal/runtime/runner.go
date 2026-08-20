@@ -563,23 +563,18 @@ func (r *Runner) dispatchDestinations(ctx context.Context, req TriggerRequest, o
 }
 
 func (r *Runner) sendToDestinationWithPolicy(ctx context.Context, destination domain.InstanceDestination, payload map[string]any) error {
-	policy := destination.RetryPolicy
-	if policy.MaxRetries <= 0 {
-		policy.MaxRetries = 1
-	}
-	if policy.RetryInterval <= 0 {
-		policy.RetryInterval = 1
-	}
-	if policy.TimeoutSeconds <= 0 {
-		policy.TimeoutSeconds = 30
-	}
+	policy := normalizeRuntimeRetryPolicy(destination.RetryPolicy)
 	if err := r.beforeSend(destination.ID, policy); err != nil {
 		return err
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= policy.MaxRetries; attempt++ {
-		attemptCtx, cancel := context.WithTimeout(ctx, time.Duration(policy.TimeoutSeconds)*time.Second)
+		attemptCtx := ctx
+		cancel := func() {}
+		if policy.TimeoutSeconds > 0 {
+			attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(policy.TimeoutSeconds)*time.Second)
+		}
 		err := r.sendToDestination(attemptCtx, destination, payload)
 		cancel()
 		if err == nil {
@@ -587,7 +582,7 @@ func (r *Runner) sendToDestinationWithPolicy(ctx context.Context, destination do
 			return nil
 		}
 		lastErr = err
-		if attempt < policy.MaxRetries {
+		if attempt < policy.MaxRetries && policy.RetryInterval > 0 {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -597,6 +592,33 @@ func (r *Runner) sendToDestinationWithPolicy(ctx context.Context, destination do
 	}
 	r.afterSendFailure(destination.ID, policy)
 	return lastErr
+}
+
+func normalizeRuntimeRetryPolicy(policy domain.RetryPolicy) domain.RetryPolicy {
+	if isLegacyDestinationRetryDefault(policy) {
+		policy.MaxRetries = 1
+		policy.RetryInterval = 0
+	}
+	if policy.MaxRetries <= 0 {
+		policy.MaxRetries = 1
+	}
+	if policy.RetryInterval < 0 {
+		policy.RetryInterval = 0
+	}
+	if policy.TimeoutSeconds < 0 {
+		policy.TimeoutSeconds = 0
+	}
+	return policy
+}
+
+func isLegacyDestinationRetryDefault(policy domain.RetryPolicy) bool {
+	return policy.MaxRetries == 3 &&
+		policy.RetryInterval == 60 &&
+		policy.TimeoutSeconds == 0 &&
+		!policy.ContinueOnError &&
+		strings.TrimSpace(policy.IsolationMode) == "" &&
+		policy.CircuitBreakerThreshold == 0 &&
+		policy.CircuitBreakerCooldownSeconds == 0
 }
 
 func (r *Runner) beforeSend(destinationID string, policy domain.RetryPolicy) error {

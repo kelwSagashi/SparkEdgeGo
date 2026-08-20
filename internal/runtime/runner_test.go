@@ -217,6 +217,16 @@ func TestRetryDelaySecondsUsesExponentialBackoffWithCap(t *testing.T) {
 	}
 }
 
+func TestNormalizeRuntimeRetryPolicyKeepsLegacyDefaultFast(t *testing.T) {
+	policy := normalizeRuntimeRetryPolicy(domain.RetryPolicy{
+		MaxRetries:    3,
+		RetryInterval: 60,
+	})
+	if policy.MaxRetries != 1 || policy.RetryInterval != 0 || policy.TimeoutSeconds != 0 {
+		t.Fatalf("expected legacy default retry policy to run once without delay, got %#v", policy)
+	}
+}
+
 func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 	runner := NewRunner(Dependencies{
 		Devices: fakeDevicesRepo{
