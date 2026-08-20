@@ -330,7 +330,7 @@ export function InstanceMappingForm({
               </Card>
             </div>
 
-            <ResizablePanelGroup direction="horizontal" className="h-[760px] rounded-xl border border-border bg-foreground">
+            <ResizablePanelGroup direction="horizontal" className="h-[760px] w-full min-w-0 rounded-xl border border-border bg-foreground">
               <ResizablePanel defaultSize={28} minSize={18} className="min-w-0">
               <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                 <div className="p-2 border-b border-border bg-muted flex items-center justify-between">

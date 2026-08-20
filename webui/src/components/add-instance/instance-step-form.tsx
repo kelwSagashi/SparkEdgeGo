@@ -409,7 +409,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
     <FormProvider {...form}>
       <form
         onSubmit={form.handleSubmit(onSubmit, (formErrors) => console.log(formErrors))}
-        className="space-y-6"
+        className="w-full min-w-0 space-y-6"
       >
         {error && (
           <Card className="p-4 bg-destructive/10 border-destructive/20 text-destructive flex gap-3">
@@ -431,7 +431,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
           </Card>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full min-w-0">
           <TabsList className="grid w-full grid-cols-6 bg-transparent gap-1">
             <TabsTrigger
               value="basic"
@@ -471,12 +471,12 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
             </TabsTrigger>
           </TabsList>
 
-          <div className="mt-6 min-h-[500px]">
-            <TabsContent value="basic">
+          <div className="mt-6 min-h-[500px] w-full min-w-0">
+            <TabsContent value="basic" className="w-full min-w-0">
               <InstanceBasicForm projects={projects} devices={devices} />
             </TabsContent>
 
-            <TabsContent value="script">
+            <TabsContent value="script" className="w-full min-w-0">
               <InstanceScriptForm
                 scripts={scripts}
                 selectedDevice={selectedDevice}
@@ -485,11 +485,11 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               />
             </TabsContent>
 
-            <TabsContent value="trigger">
+            <TabsContent value="trigger" className="w-full min-w-0">
               <InstanceTriggerForm instances={instances} />
             </TabsContent>
 
-            <TabsContent value="destinations">
+            <TabsContent value="destinations" className="w-full min-w-0">
               <InstanceDestinationsForm
                 servers={servers}
                 allOperations={allOperations}
@@ -498,7 +498,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               />
             </TabsContent>
 
-            <TabsContent value="mapping">
+            <TabsContent value="mapping" className="w-full min-w-0">
               <InstanceMappingForm
                 allOperations={allOperations}
                 selectedScript={selectedScript}
@@ -508,7 +508,7 @@ export default function InstanceStepForm({ instanceId, onClose }: Props) {
               />
             </TabsContent>
 
-            <TabsContent value="fallback">
+            <TabsContent value="fallback" className="w-full min-w-0">
               <InstanceFallbackForm />
             </TabsContent>
           </div>

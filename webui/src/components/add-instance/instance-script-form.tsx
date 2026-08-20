@@ -204,7 +204,7 @@ export function InstanceScriptForm({
                 </p>
               </Card>
             ) : (
-              <ResizablePanelGroup direction="horizontal" className="h-[440px] rounded-xl border border-border bg-foreground">
+              <ResizablePanelGroup direction="horizontal" className="h-[440px] w-full min-w-0 rounded-xl border border-border bg-foreground">
                 <ResizablePanel defaultSize={45} minSize={28} className="min-w-0">
                 <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                   <div className="p-2 border-b border-border bg-muted flex items-center justify-between">

@@ -94,7 +94,7 @@ function App() {
       <div className="flex grow overflow-hidden">
         <SideBar />
         <SidebarInset className='flex flex-col grow relative overflow-hidden'>
-          <div className="grow relative overflow-y-auto">
+          <div className="grow relative min-w-0 overflow-auto">
             <Routes>
               {/* Instances */}
               <Route path="/" element={<Navigate to="/instances" replace />} />
