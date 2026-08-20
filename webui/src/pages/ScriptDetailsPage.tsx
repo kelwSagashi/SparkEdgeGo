@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -20,12 +20,9 @@ import {
   User,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import ScriptPlayground from "@/components/ScriptPlayground";
-import { AddScriptDialog } from "@/components/script-hub/add-script-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -95,11 +92,6 @@ export default function ScriptDetailsPage() {
   const [mainCode, setMainCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [playgroundOpen, setPlaygroundOpen] = useState(false);
-  const [playgroundInputs, setPlaygroundInputs] = useState<Record<string, any>>({});
-  const [playgroundOutput, setPlaygroundOutput] = useState<any>(null);
-  const [playgroundLoading, setPlaygroundLoading] = useState(false);
-  const [updateBundleOpen, setUpdateBundleOpen] = useState(false);
   const [history, setHistory] = useState<DownloadedScriptHistoryEntry[]>([]);
   const [restoringHistoryId, setRestoringHistoryId] = useState<string | null>(null);
 
@@ -167,28 +159,6 @@ export default function ScriptDetailsPage() {
     void fetchScriptData();
   }, [id]);
 
-  const handleRunPlayground = async () => {
-    if (!script?.id) {
-      return;
-    }
-
-    setPlaygroundLoading(true);
-    try {
-      const response: any = await scriptsApi.runPlayground({
-        script_id: script.id,
-        inputs: playgroundInputs,
-      });
-      setPlaygroundOutput(response.data);
-    } catch (err: any) {
-      setPlaygroundOutput({
-        stdout: null,
-        stderr: err?.response?.data?.error || err?.message || "Erro ao executar script",
-      });
-    } finally {
-      setPlaygroundLoading(false);
-    }
-  };
-
   const handleRestoreHistory = async (entry: DownloadedScriptHistoryEntry) => {
     if (!script?.id || !entry.id || !entry.can_restore) {
       return;
@@ -212,11 +182,6 @@ export default function ScriptDetailsPage() {
       setRestoringHistoryId(null);
     }
   };
-
-  const schema = useMemo(
-    () => script?.schema_config || { inputs: [], outputs: [] },
-    [script],
-  );
 
   const actionLabel = (action: string) => {
     switch (action) {
@@ -304,10 +269,12 @@ export default function ScriptDetailsPage() {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 variant="outline"
-                onClick={() => setUpdateBundleOpen(true)}
+                asChild
                 className="border-white/[0.1] bg-white/[0.02] hover:bg-white/[0.06] text-white"
               >
-                <Upload className="w-4 h-4 mr-2" /> Atualizar Bundle
+                <Link to={`/script-hub/${script.id}/files/edit`}>
+                  <Upload className="w-4 h-4 mr-2" /> Editar Arquivos
+                </Link>
               </Button>
               <Button
                 variant="outline"
@@ -319,10 +286,12 @@ export default function ScriptDetailsPage() {
                 </Link>
               </Button>
               <Button
-                onClick={() => setPlaygroundOpen(true)}
+                asChild
                 className="bg-violet-600 hover:bg-violet-700 text-white shadow-lg shadow-violet-600/20"
               >
-                <Play className="w-4 h-4 mr-2" /> Playground
+                <Link to={`/script-hub/${script.id}/playground`}>
+                  <Play className="w-4 h-4 mr-2" /> Playground
+                </Link>
               </Button>
             </div>
           </div>
@@ -548,36 +517,6 @@ export default function ScriptDetailsPage() {
         </div>
       </div>
 
-      <Dialog open={playgroundOpen} onOpenChange={setPlaygroundOpen}>
-        <DialogContent className="sm:max-w-[800px] h-[600px] flex flex-col bg-[#09090b] border-white/[0.08] p-0 overflow-hidden">
-          <DialogHeader className="p-4 py-3 border-b border-white/[0.08] bg-white/[0.02]">
-            <DialogTitle className="text-white flex items-center gap-2">
-              <Play className="w-4 h-4 text-violet-400" />
-              Playground: {script.name}
-            </DialogTitle>
-          </DialogHeader>
-          <ScriptPlayground
-            handleRun={handleRunPlayground}
-            setInputs={setPlaygroundInputs}
-            inputs={playgroundInputs}
-            output={playgroundOutput}
-            stdoutCandidate={null}
-            stderrCandidate={null}
-            schema={schema}
-            loading={playgroundLoading}
-          />
-        </DialogContent>
-      </Dialog>
-
-      <AddScriptDialog
-        open={updateBundleOpen}
-        onOpenChange={setUpdateBundleOpen}
-        existingScript={script}
-        onSuccess={() => {
-          setUpdateBundleOpen(false);
-          void fetchScriptData();
-        }}
-      />
     </div>
   );
 }
