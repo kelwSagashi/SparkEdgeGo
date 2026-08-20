@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { useDrop } from 'react-dnd';
 import { Popover, PopoverAnchor, PopoverContent } from '../ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '../ui/command';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
 
 export type JsonFieldType = 'string' | 'number' | 'boolean' | 'object' | 'array';
 type TemplateSuggestion = {
@@ -334,9 +335,9 @@ function TemplateValueInput({
     );
     const hasInvalidReferences = detectedReferences.some((item) => !item.valid);
     const hasValidReferences = detectedReferences.some((item) => item.valid);
-    const hasUnsupportedFunctions = decorations.functions.some((item) => !item.supported);
-    const hasSupportedFunctions = decorations.functions.some((item) => item.supported);
     const hasSyntaxWarning = decorations.incompletePlaceholder || decorations.unbalancedClosers;
+
+    const hasTemplateHints = detectedReferences.length > 0 || decorations.functions.length > 0 || hasSyntaxWarning || !!activeContext;
 
     const updateSelectionSnapshot = React.useCallback((target: HTMLInputElement | null) => {
         if (!target) {
@@ -504,7 +505,10 @@ function TemplateValueInput({
                 )}
             >
                 <PopoverAnchor asChild>
-                    <div className="space-y-1">
+                    <div>
+                        <Tooltip delayDuration={900}>
+                            <TooltipTrigger asChild>
+                                <div>
                         <Input
                             ref={inputRef}
                             value={value}
@@ -586,137 +590,86 @@ function TemplateValueInput({
                             placeholder="Valor ou {{$.path}}"
                             {...inputProps}
                         />
-                        {(detectedReferences.length > 0 || decorations.functions.length > 0 || hasSyntaxWarning) && (
-                            <div className="flex flex-wrap gap-1">
-                                {detectedReferences.map((reference) => (
-                                    <span
-                                        key={`${reference.token}-${reference.path}`}
-                                        className={cn(
-                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
-                                            reference.valid
-                                                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                                                : "border-red-500/30 bg-red-500/10 text-red-300",
-                                        )}
-                                    >
-                                        <span className={cn(
-                                            "size-1.5 rounded-full",
-                                            reference.valid ? "bg-emerald-400" : "bg-red-400",
-                                        )} />
-                                        {reference.path}
-                                    </span>
-                                ))}
-                                {decorations.functions.map((fn) => (
-                                    <span
-                                        key={`${fn.name}-${fn.token}`}
-                                        className={cn(
-                                            "inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[9px]",
-                                            fn.supported
-                                                ? "border-sky-500/30 bg-sky-500/10 text-sky-300"
-                                                : "border-orange-500/30 bg-orange-500/10 text-orange-300",
-                                        )}
-                                    >
-                                        <span className={cn(
-                                            "size-1.5 rounded-full",
-                                            fn.supported ? "bg-sky-400" : "bg-orange-400",
-                                        )} />
-                                        {fn.name}()
-                                    </span>
-                                ))}
-                                {decorations.incompletePlaceholder && (
-                                    <span className="inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[9px] text-amber-300">
-                                        <span className="size-1.5 rounded-full bg-amber-400" />
-                                        placeholder aberto
-                                    </span>
-                                )}
-                                {decorations.unbalancedClosers && (
-                                    <span className="inline-flex items-center gap-1 rounded border border-red-500/30 bg-red-500/10 px-1.5 py-0.5 font-mono text-[9px] text-red-300">
-                                        <span className="size-1.5 rounded-full bg-red-400" />
-                                        fechamento extra
-                                    </span>
-                                )}
-                            </div>
-                        )}
-                        <div className="flex flex-wrap items-center gap-1.5 text-[9px] text-zinc-400">
-                            <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono">
-                                Ctrl+Space
-                            </span>
-                            <span>abre o autocomplete no cursor atual</span>
-                            {hasValidReferences && (
-                                <span className="rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-emerald-300">
-                                    {detectedReferences.filter((item) => item.valid).length} valida(s)
-                                </span>
-                            )}
-                            {hasInvalidReferences && (
-                                <span className="rounded border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 text-red-300">
-                                    {detectedReferences.filter((item) => !item.valid).length} invalida(s)
-                                </span>
-                            )}
-                            {hasSupportedFunctions && (
-                                <span className="rounded border border-sky-500/20 bg-sky-500/10 px-1.5 py-0.5 text-sky-300">
-                                    {decorations.functions.filter((item) => item.supported).length} funcao(oes)
-                                </span>
-                            )}
-                            {hasUnsupportedFunctions && (
-                                <span className="rounded border border-orange-500/20 bg-orange-500/10 px-1.5 py-0.5 text-orange-300">
-                                    revisar funcao desconhecida
-                                </span>
-                            )}
-                        </div>
-                        {activeContext && (
-                            <div className={cn(
-                                "rounded-md border px-2 py-1.5 text-[10px]",
-                                activeContext.type === 'reference' && activeContext.valid && "border-emerald-500/20 bg-emerald-500/5 text-emerald-200",
-                                activeContext.type === 'reference' && !activeContext.valid && "border-red-500/20 bg-red-500/5 text-red-200",
-                                activeContext.type === 'function' && activeContext.supported && "border-sky-500/20 bg-sky-500/5 text-sky-200",
-                                activeContext.type === 'function' && !activeContext.supported && "border-orange-500/20 bg-orange-500/5 text-orange-200",
-                                activeContext.type === 'placeholder' && "border-amber-500/20 bg-amber-500/5 text-amber-200",
-                            )}>
-                                {activeContext.type === 'reference' && (
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="min-w-0">
-                                            <p className="font-mono text-[10px]">{activeContext.path}</p>
-                                            <p className="text-[9px] opacity-80">
-                                                {activeContext.valid
-                                                    ? `Variavel reconhecida${activeContext.kind ? ` como ${activeContext.kind}` : ''}.`
-                                                    : 'Variavel nao encontrada no contexto atual.'}
-                                            </p>
-                                        </div>
-                                        <span className={cn(
-                                            "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
-                                            activeContext.valid ? "bg-emerald-500/15 text-emerald-300" : "bg-red-500/15 text-red-300",
-                                        )}>
-                                            {activeContext.valid ? 'ok' : 'erro'}
-                                        </span>
-                                    </div>
-                                )}
-                                {activeContext.type === 'function' && (
-                                    <div className="space-y-0.5">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <p className="font-mono text-[10px]">
-                                                {activeContext.signature || `${activeContext.name}(...)`}
-                                            </p>
-                                            <span className={cn(
-                                                "shrink-0 rounded px-1.5 py-0.5 text-[8px] uppercase tracking-widest",
-                                                activeContext.supported ? "bg-sky-500/15 text-sky-300" : "bg-orange-500/15 text-orange-300",
-                                            )}>
-                                                {activeContext.supported ? 'funcao' : 'desconhecida'}
-                                            </span>
-                                        </div>
-                                        <p className="text-[9px] opacity-80">
-                                            {activeContext.description || 'Funcao ainda nao mapeada na ajuda visual do editor.'}
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent
+                                side="top"
+                                sideOffset={8}
+                                className="max-w-[360px] border border-border bg-zinc-950 px-3 py-2 text-left text-[10px] text-zinc-300 shadow-xl"
+                            >
+                                <div className="space-y-2">
+                                    {hasTemplateHints ? (
+                                        <>
+                                            {activeContext?.type === 'reference' && (
+                                                <div>
+                                                    <p className="font-mono text-zinc-100">{activeContext.path}</p>
+                                                    <p className={cn(activeContext.valid ? "text-emerald-300" : "text-red-300")}>
+                                                        {activeContext.valid
+                                                            ? `Variavel reconhecida${activeContext.kind ? ` como ${activeContext.kind}` : ''}.`
+                                                            : 'Variavel nao encontrada no contexto atual.'}
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {activeContext?.type === 'function' && (
+                                                <div>
+                                                    <p className="font-mono text-zinc-100">
+                                                        {activeContext.signature || `${activeContext.name}(...)`}
+                                                    </p>
+                                                    <p className={cn(activeContext.supported ? "text-sky-300" : "text-orange-300")}>
+                                                        {activeContext.description || 'Funcao ainda nao mapeada na ajuda visual do editor.'}
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {activeContext?.type === 'placeholder' && (
+                                                <p className="text-amber-300">{activeContext.message}</p>
+                                            )}
+                                            {detectedReferences.length > 0 && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] uppercase tracking-widest text-zinc-500">Variaveis</p>
+                                                    {detectedReferences.map((reference) => (
+                                                        <p
+                                                            key={`${reference.token}-${reference.path}`}
+                                                            className={cn(
+                                                                "font-mono",
+                                                                reference.valid ? "text-emerald-300" : "text-red-300",
+                                                            )}
+                                                        >
+                                                            {reference.valid ? "ok" : "erro"}: {reference.path}
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {decorations.functions.length > 0 && (
+                                                <div className="space-y-1">
+                                                    <p className="text-[9px] uppercase tracking-widest text-zinc-500">Funcoes</p>
+                                                    {decorations.functions.map((fn) => (
+                                                        <p
+                                                            key={`${fn.name}-${fn.token}`}
+                                                            className={cn(
+                                                                "font-mono",
+                                                                fn.supported ? "text-sky-300" : "text-orange-300",
+                                                            )}
+                                                        >
+                                                            {fn.supported ? "ok" : "revisar"}: {fn.name}()
+                                                        </p>
+                                                    ))}
+                                                </div>
+                                            )}
+                                            {decorations.incompletePlaceholder && (
+                                                <p className="text-amber-300">Placeholder aberto.</p>
+                                            )}
+                                            {decorations.unbalancedClosers && (
+                                                <p className="text-red-300">Fechamento extra detectado.</p>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p className="text-zinc-500">
+                                            Use placeholders como <span className="font-mono text-zinc-300">{'{{$.script.stdout}}'}</span>.
                                         </p>
-                                    </div>
-                                )}
-                                {activeContext.type === 'placeholder' && (
-                                    <div className="flex items-center justify-between gap-2">
-                                        <p className="text-[9px] opacity-90">{activeContext.message}</p>
-                                        <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[8px] uppercase tracking-widest text-amber-300">
-                                            editando
-                                        </span>
-                                    </div>
-                                )}
-                            </div>
-                        )}
+                                    )}
+                                </div>
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
                 </PopoverAnchor>
             </div>
