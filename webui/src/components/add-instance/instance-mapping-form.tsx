@@ -3,6 +3,7 @@ import { useFormContext } from "react-hook-form";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowRightLeft, Info } from "lucide-react";
 import { JsonViewMain } from "../json-view/json-view";
@@ -329,8 +330,9 @@ export function InstanceMappingForm({
               </Card>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-3 h-[720px]">
-              <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+            <ResizablePanelGroup direction="horizontal" className="h-[760px] rounded-xl border border-border bg-foreground">
+              <ResizablePanel defaultSize={28} minSize={18} className="min-w-0">
+              <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                 <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                     Fonte de Dados Disponivel
@@ -350,8 +352,11 @@ export function InstanceMappingForm({
                   />
                 </div>
               </Card>
+              </ResizablePanel>
 
-              <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+              <ResizableHandle withHandle className="bg-border" />
+              <ResizablePanel defaultSize={42} minSize={26} className="min-w-0">
+              <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                 <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                     Payload de Todos os Destinos
@@ -440,8 +445,11 @@ export function InstanceMappingForm({
                   </div>
                 </div>
               </Card>
+              </ResizablePanel>
 
-              <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+              <ResizableHandle withHandle className="bg-border" />
+              <ResizablePanel defaultSize={30} minSize={20} className="min-w-0">
+              <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                 <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                   <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                     Preview Resolvido
@@ -468,7 +476,8 @@ export function InstanceMappingForm({
                   />
                 </div>
               </Card>
-            </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
 
             <div className="space-y-4">
               <h4 className="text-[10px] font-bold text-secondary uppercase tracking-widest px-1">
