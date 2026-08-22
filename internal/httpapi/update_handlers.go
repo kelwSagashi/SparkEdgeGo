@@ -106,6 +106,29 @@ func (s *Server) handleUpdateRollback(r *http.Request) (any, error) {
 	}, nil
 }
 
+func (s *Server) handleUpdateExecute(r *http.Request) (any, error) {
+	if s.deps.Updater == nil {
+		return nil, NewHTTPError(http.StatusServiceUnavailable, "update service unavailable")
+	}
+
+	var req struct {
+		DownloadedPath string `json:"downloaded_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	result, err := s.deps.Updater.ExecuteDownloaded(r.Context(), req.DownloadedPath)
+	if err != nil {
+		return nil, wrapUpdateError(err)
+	}
+
+	return map[string]any{
+		"data":  result,
+		"error": nil,
+	}, nil
+}
+
 func (s *Server) handleUpdateRestart(r *http.Request) (any, error) {
 	if s.deps.Updater == nil {
 		return nil, NewHTTPError(http.StatusServiceUnavailable, "update service unavailable")

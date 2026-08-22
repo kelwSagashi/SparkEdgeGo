@@ -177,6 +177,12 @@ export default function CloudSettingsPage() {
     return [];
   };
 
+  const eventTypeOf = (item: Partial<CloudSyncItem> | null | undefined) =>
+    String(item?.event_type ?? '').trim();
+
+  const statusOf = (item: Partial<CloudSyncItem> | null | undefined) =>
+    String(item?.status ?? '').trim();
+
   const unwrapCloudSyncObject = (value: unknown): CloudSyncStats | null => {
     if (value && typeof value === 'object') {
       if ('data' in (value as Record<string, unknown>)) {
@@ -389,7 +395,7 @@ export default function CloudSettingsPage() {
     try {
       const result = await cloudSyncService.flush();
       await fetchSync();
-      toast.success(`Fila sincronizada: ${result.data.sent} enviados, ${result.data.failed} falhas.`);
+      toast.success(`Fila sincronizada: ${result.sent ?? 0} enviados, ${result.failed ?? 0} falhas.`);
     } catch (err: any) {
       setError(err?.message ?? 'Falha ao sincronizar a fila local com o Spark Cloud.');
     } finally {
@@ -444,12 +450,12 @@ export default function CloudSettingsPage() {
     try {
       const result = await cloudSyncService.retry(item.id);
       await fetchSync();
-      if (result.data.sent) {
+      if (result.sent) {
         toast.success(`Evento ${item.event_type} enviado com sucesso.`);
-      } else if (result.data.skipped) {
-        toast.warning(result.data.message ?? 'Sincronizacao cloud nao configurada.');
+      } else if (result.skipped) {
+        toast.warning(result.message ?? 'Sincronizacao cloud nao configurada.');
       } else {
-        toast.error(result.data.last_error ?? 'Falha ao reenviar evento.');
+        toast.error(result.last_error ?? 'Falha ao reenviar evento.');
       }
     } catch (err: any) {
       setError(err?.message ?? 'Falha ao reenviar item da fila cloud.');
@@ -558,18 +564,18 @@ export default function CloudSettingsPage() {
     new Set(safeSyncItems.map((item) => String(item.event_type ?? '').trim()).filter(Boolean)),
   ).sort();
 
-  const filteredSyncItems = syncItems.filter((item) => {
-    if (syncStatusFilter !== 'all' && item.status !== syncStatusFilter) {
+  const filteredSyncItems = safeSyncItems.filter((item) => {
+    if (syncStatusFilter !== 'all' && statusOf(item) !== syncStatusFilter) {
       return false;
     }
-    if (syncTypeFilter !== 'all' && item.event_type !== syncTypeFilter) {
+    if (syncTypeFilter !== 'all' && eventTypeOf(item) !== syncTypeFilter) {
       return false;
     }
     if (syncSearch.trim() !== '') {
       const haystack = [
         item.id,
-        item.event_type,
-        item.status,
+        eventTypeOf(item),
+        statusOf(item),
         item.last_error ?? '',
         formatPayloadText(item.payload),
       ]
@@ -1237,7 +1243,7 @@ export default function CloudSettingsPage() {
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Eventos MQTT</p>
                 <p className="mt-1 text-sm font-medium text-zinc-100">
-                  {syncItems.filter((item) => item.event_type.toLowerCase().includes('mqtt')).length}
+                  {safeSyncItems.filter((item) => eventTypeOf(item).toLowerCase().includes('mqtt')).length}
                 </p>
                 <p className="mt-2 text-[11px] text-zinc-500">
                   Mudancas de estado do broker preservadas no fluxo de sync.
@@ -1246,7 +1252,7 @@ export default function CloudSettingsPage() {
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Execucoes em fila</p>
                 <p className="mt-1 text-sm font-medium text-zinc-100">
-                  {syncItems.filter((item) => item.event_type === 'instance_execution').length}
+                  {safeSyncItems.filter((item) => eventTypeOf(item) === 'instance_execution').length}
                 </p>
                 <p className="mt-2 text-[11px] text-zinc-500">
                   Resultado de instancias aguardando sincronizacao com o Spark Cloud.
@@ -1255,7 +1261,7 @@ export default function CloudSettingsPage() {
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
                 <p className="text-[10px] uppercase tracking-widest text-zinc-500">Falhas acumuladas</p>
                 <p className="mt-1 text-sm font-medium text-amber-200">
-                  {syncItems.filter((item) => item.status === 'failed').length}
+                  {safeSyncItems.filter((item) => statusOf(item) === 'failed').length}
                 </p>
                 <p className="mt-2 text-[11px] text-zinc-500">
                   Itens que merecem revisao manual antes de drenar a fila.

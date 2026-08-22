@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cloudService, type EdgeConfig, type EdgeConfigUpdate } from '@/rest-api-client/cloud.service';
-import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateHistoryEntry, type UpdateRestartResult, type UpdateRollbackResult, type UpdateState } from '@/rest-api-client/update.service';
+import { updateService, type UpdateApplyResult, type UpdateCheckResult, type UpdateDownloadResult, type UpdateExecuteResult, type UpdateHistoryEntry, type UpdateRestartResult, type UpdateRollbackResult, type UpdateState } from '@/rest-api-client/update.service';
 import { AlertTriangle, ArrowRight, CheckCircle2, CheckSquare2, Clock3, Download, GitBranch, History, Loader2, PackageCheck, RefreshCw, Rocket, ShieldCheck, RotateCcw, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -96,6 +96,7 @@ export default function UpdateSettingsPage() {
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
   const [downloadResult, setDownloadResult] = useState<UpdateDownloadResult | null>(null);
   const [applyResult, setApplyResult] = useState<UpdateApplyResult | null>(null);
+  const [executeResult, setExecuteResult] = useState<UpdateExecuteResult | null>(null);
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const [rollbackResult, setRollbackResult] = useState<UpdateRollbackResult | null>(null);
   const [restartResult, setRestartResult] = useState<UpdateRestartResult | null>(null);
@@ -116,6 +117,9 @@ export default function UpdateSettingsPage() {
     }
     if (response.data.data.last_apply_result) {
       setApplyResult(response.data.data.last_apply_result);
+    }
+    if (response.data.data.last_execute_result) {
+      setExecuteResult(response.data.data.last_execute_result);
     }
     if (response.data.data.last_rollback_result) {
       setRollbackResult(response.data.data.last_rollback_result);
@@ -237,6 +241,23 @@ export default function UpdateSettingsPage() {
     }
   };
 
+  const handleExecute = async () => {
+    if (!downloadResult?.downloaded_path) {
+      toast.error('Baixe um pacote compativel antes de atualizar.');
+      return;
+    }
+    setApplying(true);
+    try {
+      const response = await updateService.execute(downloadResult.downloaded_path);
+      setExecuteResult(response.data.data);
+      toast.success('Atualizacao automatica iniciada. O SparkEdge vai reiniciar e concluir a troca sozinho.');
+    } catch (error: any) {
+      toast.error(`Falha ao iniciar atualizacao automatica: ${resolveAPIErrorMessage(error)}`);
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const handleRollback = async () => {
     setRollingBack(true);
     try {
@@ -265,7 +286,7 @@ export default function UpdateSettingsPage() {
     }
   };
 
-  const currentStage: WorkflowStage = applyResult
+  const currentStage: WorkflowStage = executeResult || applyResult
     ? 'restart'
     : downloadResult
       ? 'prepare'
@@ -321,13 +342,17 @@ export default function UpdateSettingsPage() {
             action: 'Use "Preparar aplicacao assistida" antes de qualquer reinicio.',
             tone: 'border-amber-500/20 bg-amber-500/[0.08] text-amber-100',
           }
-        : applyResult && !restartResult?.executed
+      : (executeResult || applyResult) && !restartResult?.executed
           ? {
               title: 'Concluir com reinicio guiado',
-              description: 'O estado persistido ja possui backup, staging e rollback. Falta apenas concluir o reinicio.',
+              description: executeResult
+                ? 'A troca automatica ja foi agendada. O processo atual deve encerrar e a nova versao precisa voltar saudavel.'
+                : 'O estado persistido ja possui backup, staging e rollback. Falta apenas concluir o reinicio.',
               action: restartResult?.manual_required
                 ? 'Revise o plano de reinicio e execute o comando manual indicado.'
-                : 'Quando estiver em uma janela segura, execute o reinicio assistido.',
+                : executeResult
+                  ? 'Aguarde o reinicio automatico e volte para confirmar a nova versao.'
+                  : 'Quando estiver em uma janela segura, execute o reinicio assistido.',
               tone: 'border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-100',
             }
           : {
@@ -632,6 +657,19 @@ export default function UpdateSettingsPage() {
               <div className="grid gap-3">
                 <Button
                   type="button"
+                  onClick={() => void handleExecute()}
+                  disabled={applying || !downloadResult?.downloaded_path}
+                  className="w-full gap-2 bg-emerald-400 text-zinc-950 hover:bg-emerald-300 font-semibold"
+                >
+                  {applying ? <Loader2 size={16} className="animate-spin" /> : <Rocket size={16} />}
+                  {applying ? 'Iniciando atualizacao...' : 'Atualizar agora'}
+                </Button>
+                <p className="text-xs text-zinc-500">
+                  O proprio sistema vai encerrar, aplicar os arquivos, iniciar a nova versao e validar o health check.
+                </p>
+
+                <Button
+                  type="button"
                   onClick={() => void handleApply()}
                   disabled={applying || !downloadResult?.downloaded_path}
                   variant="outline"
@@ -641,9 +679,21 @@ export default function UpdateSettingsPage() {
                   {applying ? 'Preparando aplicacao...' : 'Preparar aplicacao assistida'}
                 </Button>
                 <p className="text-xs text-zinc-500">
-                  Esta etapa cria staging e backup antes de qualquer reinicio.
+                  Modo avancado: apenas prepara staging e backup sem iniciar a troca automatica.
                 </p>
               </div>
+
+              {executeResult && (
+                <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/[0.07] p-4 space-y-2">
+                  <p className="text-sm font-semibold text-cyan-300">Execucao automatica agendada</p>
+                  <p className="text-xs text-cyan-100/80">{executeResult.message}</p>
+                  <p className="text-xs text-cyan-100/80 break-all">Launcher: {executeResult.launcher_path}</p>
+                  <p className="text-xs text-cyan-100/80 break-all">Worker: {executeResult.worker_binary}</p>
+                  {executeResult.health_url && (
+                    <p className="text-xs text-cyan-100/80 break-all">Health check: {executeResult.health_url}</p>
+                  )}
+                </div>
+              )}
 
               {applyResult && (
                 <div className="rounded-xl border border-amber-500/20 bg-amber-500/[0.07] p-4 space-y-2">

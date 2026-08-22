@@ -121,6 +121,7 @@ func (s *Server) registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/update/status", Adapt(s.handleUpdateStatus))
 	mux.HandleFunc("POST /api/update/download", Adapt(s.handleUpdateDownload))
 	mux.HandleFunc("POST /api/update/apply", Adapt(s.handleUpdateApply))
+	mux.HandleFunc("POST /api/update/execute", Adapt(s.handleUpdateExecute))
 	mux.HandleFunc("POST /api/update/rollback", Adapt(s.handleUpdateRollback))
 	mux.HandleFunc("POST /api/update/restart", Adapt(s.handleUpdateRestart))
 	mux.HandleFunc("POST /api/spark-cloud/auth/login", Adapt(s.handleSparkCloudLogin))

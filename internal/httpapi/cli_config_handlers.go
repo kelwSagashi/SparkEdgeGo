@@ -3,9 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
-	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
 	"github.com/kelwSagashi/sparkedge-go/internal/updater"
 )
@@ -46,23 +44,7 @@ func (s *Server) handleCliConfigUpdate(r *http.Request) (any, error) {
 			})
 		}
 		if s.deps.CloudSync != nil {
-			edgeID := ""
-			if s.deps.Edge != nil {
-				if provisioned, edgeErr := s.deps.Edge.Load(r.Context()); edgeErr == nil {
-					edgeID = provisioned.EdgeID
-				}
-			}
-			s.deps.CloudSync.UpdateConfig(cloudsync.Config{
-				BaseURL:           runtimeCfg.CloudURL,
-				EdgeID:            edgeID,
-				SyncToken:         runtimeCfg.CloudSyncToken,
-				Enabled:           true,
-				SchemaVersion:     "edge-cloud.v1",
-				MaxAttempts:       12,
-				MaxBatchSize:      50,
-				HighPriorityDelay: 15 * time.Second,
-				LowPriorityDelay:  45 * time.Second,
-			})
+			refreshCloudSyncConfig(r, s)
 		}
 	}
 

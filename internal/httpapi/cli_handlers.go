@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/cloudsync"
 	"github.com/kelwSagashi/sparkedge-go/internal/connectivity"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/edge"
@@ -62,6 +64,7 @@ func (s *Server) handleCliPair(r *http.Request) (any, error) {
 	if err != nil {
 		return cliEdgeError(err)
 	}
+	refreshCloudSyncConfig(r, s)
 	publishUserContext(r, s)
 	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "paired", "Edge paired with Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil
@@ -76,6 +79,7 @@ func (s *Server) handleCliConnect(r *http.Request) (any, error) {
 	if err != nil {
 		return cliEdgeError(err)
 	}
+	refreshCloudSyncConfig(r, s)
 	publishUserContext(r, s)
 	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "registered", "Edge connected to Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil
@@ -88,6 +92,7 @@ func (s *Server) handleCliDisconnect(r *http.Request) (any, error) {
 	if err := s.deps.Edge.Disconnect(r.Context()); err != nil {
 		return nil, err
 	}
+	refreshCloudSyncConfig(r, s)
 	return map[string]any{"success": true, "message": "Edge desconectado (identidade preservada)."}, nil
 }
 
@@ -95,6 +100,7 @@ func (s *Server) handleCliReconnect(r *http.Request) (any, error) {
 	if err := s.deps.Edge.Reconnect(r.Context()); err != nil {
 		return cliEdgeError(err)
 	}
+	refreshCloudSyncConfig(r, s)
 	if provisioned, err := s.deps.Edge.Load(r.Context()); err == nil && provisioned.EdgeID != "" {
 		enqueueCloudConnectionEvent(r, s, provisioned.EdgeID, "mqtt_reconnected", "Edge reconnected to MQTT broker")
 	}
@@ -105,6 +111,7 @@ func (s *Server) handleCliRemove(r *http.Request) (any, error) {
 	if err := s.deps.Edge.Remove(r.Context()); err != nil {
 		return cliEdgeError(err)
 	}
+	refreshCloudSyncConfig(r, s)
 	return map[string]any{"success": true, "message": "Edge resetado com sucesso (conexao removida)."}, nil
 }
 
@@ -131,7 +138,42 @@ func cliEdgeError(err error) (any, error) {
 	if errors.Is(err, edge.ErrNotProvisioned) {
 		return nil, NewHTTPError(http.StatusBadRequest, "Edge nao provisionado. Conecte-se ao Spark Cloud primeiro.")
 	}
-	return nil, err
+	if isMQTTAuthError(err) {
+		return nil, NewHTTPError(http.StatusUnauthorized, "MQTT broker rejeitou a conexao ou o topico do Edge. Verifique as credenciais provisionadas e os hooks de auth/ACL do EMQX.")
+	}
+	if isMQTTWebSocketHandshakeError(err) {
+		return nil, NewHTTPError(http.StatusBadGateway, "Falha no handshake WebSocket com o broker MQTT. Para EMQX via Cloudflare, use MQTT Broker URL como wss://sparkcloud-mqtt.okelwen.site/mqtt e garanta que o tunnel aponte para http://localhost:8083 sem Cloudflare Access.")
+	}
+	var cloudErr *edge.CloudRequestError
+	if errors.As(err, &cloudErr) {
+		status := cloudErr.StatusCode
+		if status >= 500 {
+			status = http.StatusBadGateway
+		}
+		return nil, NewHTTPError(status, cloudErr.Message)
+	}
+	return nil, NewHTTPError(http.StatusInternalServerError, err.Error())
+}
+
+func isMQTTWebSocketHandshakeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "websocket: bad handshake") ||
+		strings.Contains(message, "malformed websocket") ||
+		strings.Contains(message, "websocket handshake")
+}
+
+func isMQTTAuthError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not authorized") ||
+		strings.Contains(message, "not authorised") ||
+		strings.Contains(message, "bad username or password") ||
+		strings.Contains(message, "not authorized")
 }
 
 func publishUserContext(r *http.Request, s *Server) {
@@ -210,4 +252,28 @@ func toInt64(value any) int64 {
 	default:
 		return 0
 	}
+}
+
+func refreshCloudSyncConfig(r *http.Request, s *Server) {
+	if s == nil || s.deps.CloudSync == nil {
+		return
+	}
+	cfg := cloudsync.Config{
+		BaseURL:           s.deps.RuntimeCfg.CloudURL,
+		SyncToken:         s.deps.RuntimeCfg.CloudSyncToken,
+		Enabled:           true,
+		SchemaVersion:     "edge-cloud.v1",
+		MaxAttempts:       12,
+		MaxBatchSize:      50,
+		HighPriorityDelay: 15 * time.Second,
+		LowPriorityDelay:  45 * time.Second,
+	}
+	if s.deps.Edge != nil {
+		if provisioned, err := s.deps.Edge.Load(r.Context()); err == nil {
+			cfg.EdgeID = provisioned.EdgeID
+			cfg.EdgeUsername = provisioned.MQTT.Username
+			cfg.EdgePassword = provisioned.MQTT.Password
+		}
+	}
+	s.deps.CloudSync.UpdateConfig(cfg)
 }

@@ -4,13 +4,22 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/app"
 	"github.com/kelwSagashi/sparkedge-go/internal/config"
+	"github.com/kelwSagashi/sparkedge-go/internal/updater"
 )
 
 func main() {
+	if handled, err := updater.RunInternalWorker(os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	ctx := context.Background()
 	configManager := config.NewManager("")
 	_, runtimeCfg, err := configManager.Load()

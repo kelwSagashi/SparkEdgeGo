@@ -38,6 +38,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 			LastPreparedTarget:    state.LastPreparedTarget,
 			LastApplyResult:       state.LastApplyResult,
 			LastDownloadResult:    state.LastDownloadResult,
+			LastExecuteResult:     state.LastExecuteResult,
 			LastRollbackResult:    state.LastRollbackResult,
 			LastRestartResult:     &result,
 		}, HistoryEntry{
@@ -61,6 +62,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 			LastPreparedTarget:    state.LastPreparedTarget,
 			LastApplyResult:       state.LastApplyResult,
 			LastDownloadResult:    state.LastDownloadResult,
+			LastExecuteResult:     state.LastExecuteResult,
 			LastRollbackResult:    state.LastRollbackResult,
 			LastRestartResult:     &result,
 		}, HistoryEntry{
@@ -86,6 +88,7 @@ func (s *Service) Restart(_ context.Context, execute bool) (RestartResult, error
 		LastPreparedTarget:    state.LastPreparedTarget,
 		LastApplyResult:       state.LastApplyResult,
 		LastDownloadResult:    state.LastDownloadResult,
+		LastExecuteResult:     state.LastExecuteResult,
 		LastRollbackResult:    state.LastRollbackResult,
 		LastRestartResult:     &result,
 	}, HistoryEntry{

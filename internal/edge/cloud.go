@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -13,15 +14,36 @@ import (
 )
 
 type CloudClient interface {
-	Login(ctx context.Context, email string, password string) (string, error)
-	Register(ctx context.Context, token string, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error)
+	Login(ctx context.Context, email string, password string) (CloudLoginResult, error)
+	Register(ctx context.Context, login CloudLoginResult, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error)
 	Pair(ctx context.Context, token string, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error)
-	Unpair(ctx context.Context, edgeID string) error
+	Unpair(ctx context.Context, edge domain.ProvisionedEdge) error
 }
 
 type HTTPCloudClient struct {
 	BaseURL string
 	Client  *http.Client
+}
+
+type CloudRequestError struct {
+	StatusCode int
+	Path       string
+	Message    string
+}
+
+type CloudLoginResult struct {
+	Token          string
+	OrganizationID string
+}
+
+func (e *CloudRequestError) Error() string {
+	if e == nil {
+		return "cloud request failed"
+	}
+	if strings.TrimSpace(e.Message) != "" {
+		return fmt.Sprintf("cloud request failed (%d): %s", e.StatusCode, e.Message)
+	}
+	return fmt.Sprintf("cloud request failed (%d)", e.StatusCode)
 }
 
 func NewHTTPCloudClient(baseURL string) *HTTPCloudClient {
@@ -34,26 +56,47 @@ func NewHTTPCloudClient(baseURL string) *HTTPCloudClient {
 	}
 }
 
-func (c *HTTPCloudClient) Login(ctx context.Context, email string, password string) (string, error) {
+func (c *HTTPCloudClient) Login(ctx context.Context, email string, password string) (CloudLoginResult, error) {
 	var response struct {
 		Token string `json:"token"`
+		User  struct {
+			Organizations []struct {
+				ID string `json:"id"`
+			} `json:"organizations"`
+		} `json:"user"`
 	}
-	if err := c.postJSON(ctx, "/auth/login", "", map[string]any{"email": email, "password": password}, &response); err != nil {
-		return "", err
+	if err := c.postJSON(ctx, "/auth/login", "", nil, map[string]any{"email": email, "password": password}, &response); err != nil {
+		return CloudLoginResult{}, err
 	}
 	if response.Token == "" {
-		return "", fmt.Errorf("cloud login response missing token")
+		return CloudLoginResult{}, fmt.Errorf("cloud login response missing token")
 	}
-	return response.Token, nil
+	organizationID := ""
+	if len(response.User.Organizations) > 0 {
+		organizationID = strings.TrimSpace(response.User.Organizations[0].ID)
+	}
+	if organizationID == "" {
+		return CloudLoginResult{}, fmt.Errorf("cloud login response missing organization")
+	}
+	return CloudLoginResult{
+		Token:          response.Token,
+		OrganizationID: organizationID,
+	}, nil
 }
 
-func (c *HTTPCloudClient) Register(ctx context.Context, token string, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error) {
-	payload := map[string]any{"name": edgeName, "user_token": token}
+func (c *HTTPCloudClient) Register(ctx context.Context, login CloudLoginResult, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error) {
+	payload := map[string]any{
+		"name":            edgeName,
+		"user_token":      login.Token,
+		"organizationId":  login.OrganizationID,
+		"organization_id": login.OrganizationID,
+	}
 	for key, value := range metadata {
 		payload[key] = value
 	}
 	var response domain.ProvisionedEdge
-	if err := c.postJSON(ctx, "/edges/register", token, payload, &response); err != nil {
+	headers := map[string]string{"X-Organization-ID": login.OrganizationID}
+	if err := c.postJSON(ctx, "/edges/register", login.Token, headers, payload, &response); err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
 	return validateRegistration(response)
@@ -61,17 +104,21 @@ func (c *HTTPCloudClient) Register(ctx context.Context, token string, edgeName s
 
 func (c *HTTPCloudClient) Pair(ctx context.Context, token string, edgeName string, metadata map[string]any) (domain.ProvisionedEdge, error) {
 	var response domain.ProvisionedEdge
-	if err := c.postJSON(ctx, "/edges/pair", "", map[string]any{"token": token, "edge_name": edgeName, "name": edgeName, "metadata": metadata}, &response); err != nil {
+	if err := c.postJSON(ctx, "/edges/pair", "", nil, map[string]any{"token": token, "edge_name": edgeName, "name": edgeName, "metadata": metadata}, &response); err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
 	return validateRegistration(response)
 }
 
-func (c *HTTPCloudClient) Unpair(ctx context.Context, edgeID string) error {
-	return c.postJSON(ctx, "/edges/unpair", "", map[string]any{"edgeId": edgeID}, nil)
+func (c *HTTPCloudClient) Unpair(ctx context.Context, edge domain.ProvisionedEdge) error {
+	return c.postJSON(ctx, "/edges/unpair-self", "", map[string]string{
+		"x-edge-id":       edge.EdgeID,
+		"x-edge-username": edge.MQTT.Username,
+		"x-edge-password": edge.MQTT.Password,
+	}, map[string]any{"edgeId": edge.EdgeID}, nil)
 }
 
-func (c *HTTPCloudClient) postJSON(ctx context.Context, path string, bearer string, payload any, target any) error {
+func (c *HTTPCloudClient) postJSON(ctx context.Context, path string, bearer string, extraHeaders map[string]string, payload any, target any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -84,18 +131,23 @@ func (c *HTTPCloudClient) postJSON(ctx context.Context, path string, bearer stri
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
+	for key, value := range extraHeaders {
+		if strings.TrimSpace(key) != "" && strings.TrimSpace(value) != "" {
+			req.Header.Set(key, value)
+		}
+	}
 	res, err := c.Client.Do(req)
 	if err != nil {
 		return fmt.Errorf("cloud request failed: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		var body map[string]any
-		_ = json.NewDecoder(res.Body).Decode(&body)
-		if message, ok := body["message"].(string); ok && message != "" {
-			return fmt.Errorf("cloud request failed (%d): %s", res.StatusCode, message)
+		bodyBytes, _ := io.ReadAll(res.Body)
+		return &CloudRequestError{
+			StatusCode: res.StatusCode,
+			Path:       path,
+			Message:    cloudErrorMessage(bodyBytes, res.Status),
 		}
-		return fmt.Errorf("cloud request failed (%d): %s", res.StatusCode, res.Status)
 	}
 	if target != nil {
 		if err := json.NewDecoder(res.Body).Decode(target); err != nil {
@@ -111,4 +163,20 @@ func validateRegistration(edge domain.ProvisionedEdge) (domain.ProvisionedEdge, 
 	}
 	edge.Provisioned = true
 	return edge, nil
+}
+
+func cloudErrorMessage(body []byte, fallback string) string {
+	trimmed := strings.TrimSpace(string(body))
+	if trimmed == "" {
+		return fallback
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err == nil {
+		for _, key := range []string{"message", "error", "detail"} {
+			if value, ok := payload[key].(string); ok && strings.TrimSpace(value) != "" {
+				return value
+			}
+		}
+	}
+	return trimmed
 }

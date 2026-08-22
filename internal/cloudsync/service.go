@@ -29,6 +29,8 @@ type Config struct {
 	BaseURL           string
 	EdgeID            string
 	SyncToken         string
+	EdgeUsername      string
+	EdgePassword      string
 	Enabled           bool
 	SchemaVersion     string
 	MaxAttempts       int
@@ -89,7 +91,11 @@ func (s *Service) UpdateConfig(cfg Config) {
 }
 
 func (s *Service) Configured() bool {
-	return s != nil && s.queue != nil && s.config.Enabled && strings.TrimSpace(s.config.BaseURL) != "" && strings.TrimSpace(s.config.SyncToken) != ""
+	return s != nil &&
+		s.queue != nil &&
+		s.config.Enabled &&
+		strings.TrimSpace(s.config.BaseURL) != "" &&
+		(strings.TrimSpace(s.config.SyncToken) != "" || s.hasEdgeCredentials())
 }
 
 func (s *Service) EnqueueEvent(ctx context.Context, eventType string, priority int, payload map[string]any) (domain.CloudSyncItem, error) {
@@ -273,7 +279,13 @@ func (s *Service) sendBatch(ctx context.Context, items []domain.CloudSyncItem) e
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-spark-token", s.config.SyncToken)
+	if token := strings.TrimSpace(s.config.SyncToken); token != "" {
+		req.Header.Set("x-spark-token", token)
+	} else {
+		req.Header.Set("x-edge-id", edgeID)
+		req.Header.Set("x-edge-username", s.config.EdgeUsername)
+		req.Header.Set("x-edge-password", s.config.EdgePassword)
+	}
 	res, err := s.client.Do(req)
 	if err != nil {
 		return err
@@ -287,6 +299,12 @@ func (s *Service) sendBatch(ctx context.Context, items []domain.CloudSyncItem) e
 		}
 	}
 	return nil
+}
+
+func (s *Service) hasEdgeCredentials() bool {
+	return strings.TrimSpace(s.config.EdgeID) != "" &&
+		strings.TrimSpace(s.config.EdgeUsername) != "" &&
+		strings.TrimSpace(s.config.EdgePassword) != ""
 }
 
 func (s *Service) resolveEdgeID(item domain.CloudSyncItem) string {

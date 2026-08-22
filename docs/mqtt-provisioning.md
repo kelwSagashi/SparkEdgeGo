@@ -69,6 +69,8 @@ The cloud side must expose EMQX and the auth hooks expected by the broker.
 Typical environment values:
 
 - `MQTT_BROKER_URL=mqtt://emqx:1883`
+- `MQTT_PUBLIC_BROKER_URL=wss://sparkcloud-mqtt.example.com/mqtt`
+- `SPARKAPI_INTERNAL_URL=http://host.docker.internal:3000` when EMQX runs in Docker and SparkAPI runs on the host during development
 - `MQTT_SUPERUSER_ID=sparkapi-superuser`
 - `MQTT_SUPERUSER_PASSWORD=<strong-secret>`
 
@@ -76,6 +78,18 @@ The EMQX container must call:
 
 - `POST /mqtt/auth`
 - `POST /mqtt/acl`
+
+For a public deployment through Cloudflare Tunnel, expose the EMQX WebSocket listener, not the raw MQTT TCP listener.
+The usual setup is:
+
+- Cloudflare public hostname: `sparkcloud-mqtt.example.com`
+- Cloudflare tunnel service/origin: `http://localhost:8083`
+- SparkAPI `MQTT_PUBLIC_BROKER_URL`: `wss://sparkcloud-mqtt.example.com/mqtt`
+
+Do not give `SparkEdgeGo` the browser URL `https://sparkcloud-mqtt.example.com` as an MQTT broker URL.
+The edge MQTT client needs `wss://.../mqtt`. `SparkAPI` and `SparkEdgeGo` normalize `http/https` and missing WebSocket paths defensively, but the canonical value should still be `wss://host/mqtt`.
+
+If Cloudflare Access is enabled on that hostname, the MQTT WebSocket handshake will fail because the broker receives an Access/login response instead of a WebSocket upgrade.
 
 ### SparkEdgeGo
 
@@ -153,7 +167,8 @@ The broker authorization logic is:
 
 - allow the SparkAPI superuser for internal subscription and monitoring
 - allow a normal edge only inside its own topic namespace
-- deny any topic outside `spark/{username}/#`
+- normalize provisioned usernames like `edge_{edge_id}` to the topic namespace `spark/{edge_id}/#`
+- deny any topic outside the edge namespace
 
 ## SparkEdgeGo connection behavior
 
@@ -191,6 +206,20 @@ Check:
 - the returned MQTT URL points to the correct broker
 - EMQX is running
 - the MQTT username and password were saved correctly
+- if using WebSocket, the broker URL is `wss://host/mqtt`, not `https://host`
+- if using Cloudflare Tunnel, the origin points to EMQX `http://localhost:8083`
+
+### WebSocket bad handshake
+
+`websocket: bad handshake` means the edge reached the configured URL, but the response was not a valid MQTT WebSocket upgrade.
+
+Check:
+
+- `MQTT_PUBLIC_BROKER_URL=wss://sparkcloud-mqtt.example.com/mqtt`
+- Cloudflare Tunnel service points to `http://localhost:8083`
+- the hostname is not protected by Cloudflare Access
+- EMQX WebSocket listener `8083` is enabled
+- the path `/mqtt` is preserved by the tunnel/proxy
 
 ### EMQX denies authentication
 
@@ -217,4 +246,3 @@ Check:
 - `SparkEdgeGo/internal/edge/service.go`
 - `SparkEdgeGo/internal/mqtt/client.go`
 - `SparkEdgeGo/config.yml`
-

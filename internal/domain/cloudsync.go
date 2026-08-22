@@ -11,15 +11,15 @@ const (
 )
 
 type CloudSyncItem struct {
-	ID            string
-	EventType     string
-	Priority      int
-	Payload       map[string]any
-	Status        CloudSyncStatus
-	Attempts      int
-	LastAttemptAt *time.Time
-	NextAttemptAt *time.Time
-	LastError     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID            string          `json:"id"`
+	EventType     string          `json:"event_type"`
+	Priority      int             `json:"priority"`
+	Payload       map[string]any  `json:"payload"`
+	Status        CloudSyncStatus `json:"status"`
+	Attempts      int             `json:"attempts"`
+	LastAttemptAt *time.Time      `json:"last_attempt_at,omitempty"`
+	NextAttemptAt *time.Time      `json:"next_retry_at,omitempty"`
+	LastError     string          `json:"last_error,omitempty"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 }
