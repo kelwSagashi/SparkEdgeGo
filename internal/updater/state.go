@@ -16,6 +16,7 @@ type UpdateState struct {
 	LastPreparedTarget    string          `json:"last_prepared_target,omitempty"`
 	LastApplyResult       *ApplyResult    `json:"last_apply_result,omitempty"`
 	LastDownloadResult    *DownloadResult `json:"last_download_result,omitempty"`
+	LastExecuteResult     *ExecuteResult  `json:"last_execute_result,omitempty"`
 	LastRollbackResult    *RollbackResult `json:"last_rollback_result,omitempty"`
 	LastRestartResult     *RestartResult  `json:"last_restart_result,omitempty"`
 	History               []HistoryEntry  `json:"history,omitempty"`
@@ -36,6 +37,10 @@ const maxHistoryEntries = 20
 
 func (s *Service) LoadState() (UpdateState, error) {
 	path := updateStatePath()
+	return loadStateFromPath(path)
+}
+
+func loadStateFromPath(path string) (UpdateState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -52,6 +57,10 @@ func (s *Service) LoadState() (UpdateState, error) {
 
 func (s *Service) saveState(state UpdateState) error {
 	path := updateStatePath()
+	return saveStateToPath(path, state)
+}
+
+func saveStateToPath(path string, state UpdateState) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -63,6 +72,10 @@ func (s *Service) saveState(state UpdateState) error {
 }
 
 func (s *Service) saveStateWithHistory(previous UpdateState, next UpdateState, entry HistoryEntry) error {
+	return saveStateWithHistoryAtPath(updateStatePath(), previous, next, entry)
+}
+
+func saveStateWithHistoryAtPath(path string, previous UpdateState, next UpdateState, entry HistoryEntry) error {
 	entry.CreatedAt = entry.CreatedAt.UTC()
 	if len(previous.History) > 0 {
 		next.History = append([]HistoryEntry{}, previous.History...)
@@ -72,9 +85,13 @@ func (s *Service) saveStateWithHistory(previous UpdateState, next UpdateState, e
 		next.History = append([]HistoryEntry{}, next.History[len(next.History)-maxHistoryEntries:]...)
 	}
 	next.UpdatedAt = entry.CreatedAt
-	return s.saveState(next)
+	return saveStateToPath(path, next)
 }
 
 func updateStatePath() string {
 	return appfs.ResolveFromRoot("updates", "state.json")
+}
+
+func updateStatePathForRoot(appRoot string) string {
+	return filepath.Join(appRoot, "updates", "state.json")
 }

@@ -82,7 +82,7 @@ export function InstanceDestinationsForm({
       serverId: String(selectedServerToAdd),
       enabled: true,
       priority: destFields.length,
-      retryPolicy: { maxRetries: 3, retryInterval: 60 },
+      retryPolicy: { maxRetries: 1, retryInterval: 0 },
       dataMapping: {
         instanceDestinationId: "",
         mapping: {},
@@ -303,8 +303,8 @@ export function InstanceDestinationsForm({
                       <Input
                         id={`dest-retries-${index}`}
                         type="number"
-                        min="0"
-                        placeholder="3"
+                        min="1"
+                        placeholder="1"
                         {...register(
                           `destinations.${index}.retryPolicy.maxRetries`,
                           {
@@ -326,7 +326,7 @@ export function InstanceDestinationsForm({
                         id={`dest-interval-${index}`}
                         type="number"
                         min="0"
-                        placeholder="60"
+                        placeholder="0"
                         {...register(
                           `destinations.${index}.retryPolicy.retryInterval`,
                           {

@@ -30,11 +30,15 @@ type Config struct {
 	AllowPrerelease bool
 	ServiceName     string
 	RestartCommand  string
+	HealthURL       string
 }
 
 type Service struct {
 	config Config
 	client ReleaseClient
+	pid    func() int
+	exit   func(delay time.Duration)
+	start  func(command string, args ...string) error
 }
 
 type ReleaseClient interface {
@@ -113,6 +117,14 @@ func NewService(config Config, client ReleaseClient) *Service {
 	return &Service{
 		config: config,
 		client: client,
+		pid:    os.Getpid,
+		exit: func(delay time.Duration) {
+			go func() {
+				time.Sleep(delay)
+				os.Exit(0)
+			}()
+		},
+		start: startDetachedCommand,
 	}
 }
 
@@ -253,6 +265,7 @@ func (s *Service) DownloadLatest(ctx context.Context) (DownloadResult, error) {
 		LastPreparedVersion:   resolved.Release.Version,
 		LastPreparedTarget:    versionInfo.Target,
 		LastDownloadResult:    &result,
+		LastExecuteResult:     previous.LastExecuteResult,
 	}, HistoryEntry{
 		Type:      "download",
 		Status:    "completed",

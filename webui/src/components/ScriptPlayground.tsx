@@ -4,6 +4,7 @@ import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "./ui/resizable";
 
 export default function ScriptPlayground({
   handleRun,
@@ -41,8 +42,9 @@ export default function ScriptPlayground({
   };
 
   return (
-    <div className="flex flex-1 overflow-hidden">
-      <div className="w-1/2 p-4 border-r border-white/[0.08] flex flex-col gap-4 overflow-y-auto">
+    <ResizablePanelGroup direction="horizontal" className="flex-1 overflow-hidden">
+      <ResizablePanel defaultSize={38} minSize={24} className="min-w-0">
+        <div className="h-full p-4 flex flex-col gap-4 overflow-y-auto">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-white">Inputs</h3>
         </div>
@@ -96,7 +98,10 @@ export default function ScriptPlayground({
           {loading ? "Executando..." : "Executar"}
         </Button>
       </div>
-      <div className="w-1/2 p-4 bg-[#0c0c0e] overflow-y-auto flex flex-col">
+      </ResizablePanel>
+      <ResizableHandle withHandle className="bg-white/[0.08]" />
+      <ResizablePanel defaultSize={62} minSize={32} className="min-w-0">
+      <div className="h-full p-4 bg-[#0c0c0e] overflow-y-auto flex flex-col">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-white">Saida</h3>
           <div className="flex gap-2">
@@ -146,6 +151,7 @@ export default function ScriptPlayground({
           );
         })()}
       </div>
-    </div>
+      </ResizablePanel>
+    </ResizablePanelGroup>
   );
 }

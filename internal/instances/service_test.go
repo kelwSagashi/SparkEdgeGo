@@ -137,6 +137,15 @@ func TestInstancesServiceLifecycle(t *testing.T) {
 	}
 }
 
+func TestDestinationParamsDefaultRetryPolicyRunsOnce(t *testing.T) {
+	params := destinationParams("instance-1", DestinationPayload{
+		ResourceOperationID: "resource-op-1",
+	})
+	if params.RetryPolicy.MaxRetries != 1 || params.RetryPolicy.RetryInterval != 0 || params.RetryPolicy.TimeoutSeconds != 0 {
+		t.Fatalf("expected destination retry defaults to run once without delay, got %#v", params.RetryPolicy)
+	}
+}
+
 func TestInstancesServiceRejectsInvalidDependenciesAndCycles(t *testing.T) {
 	ctx := context.Background()
 	store := sqlite.NewStore()

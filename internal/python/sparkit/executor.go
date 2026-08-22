@@ -50,6 +50,17 @@ func (e *Executor) RunFile(ctx context.Context, scriptFolder string, mainFile st
 	return e.runWithPython(ctx, pythonExecutable(venvPath), filepath.Join(scriptFolder, mainFile), input)
 }
 
+func (e *Executor) ReadmeFile(ctx context.Context, scriptFolder string, mainFile string, venvPath string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, e.DefaultTimeout)
+	defer cancel()
+
+	output, err := commandOutput(ctx, pythonExecutable(venvPath), filepath.Join(scriptFolder, mainFile), "--readme")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
 func (e *Executor) schemaWithPython(ctx context.Context, pythonExecutable string, scriptPath string) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, e.DefaultTimeout)
 	defer cancel()

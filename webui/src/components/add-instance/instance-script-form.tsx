@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ArrowRightLeft, Info, Play, Settings2 } from "lucide-react";
 import { JsonViewMain } from "../json-view/json-view";
 import type {
@@ -203,8 +204,9 @@ export function InstanceScriptForm({
                 </p>
               </Card>
             ) : (
-              <div className="grid grid-cols-2 gap-4 h-[400px]">
-                <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+              <ResizablePanelGroup direction="horizontal" className="h-[440px] w-full min-w-0 rounded-xl border border-border bg-foreground">
+                <ResizablePanel defaultSize={45} minSize={28} className="min-w-0">
+                <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                   <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                       Fonte de Dados
@@ -225,8 +227,11 @@ export function InstanceScriptForm({
                     />
                   </div>
                 </Card>
+                </ResizablePanel>
 
-                <Card className="flex flex-col bg-foreground border-border overflow-hidden py-0">
+                <ResizableHandle withHandle className="bg-border" />
+                <ResizablePanel defaultSize={55} minSize={32} className="min-w-0">
+                <Card className="h-full flex flex-col bg-foreground border-0 overflow-hidden py-0">
                   <div className="p-2 border-b border-border bg-muted flex items-center justify-between">
                     <span className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                       Argumentos do Script
@@ -289,7 +294,8 @@ export function InstanceScriptForm({
                     />
                   </div>
                 </Card>
-              </div>
+                </ResizablePanel>
+              </ResizablePanelGroup>
             )}
           </div>
         </div>

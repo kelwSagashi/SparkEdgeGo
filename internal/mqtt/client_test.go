@@ -9,6 +9,22 @@ import (
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 )
 
+func TestNormalizeBrokerURLForWebSocketTransport(t *testing.T) {
+	cases := map[string]string{
+		"https://sparkcloud-mqtt.okelwen.site":    "wss://sparkcloud-mqtt.okelwen.site/mqtt",
+		"wss://sparkcloud-mqtt.okelwen.site":      "wss://sparkcloud-mqtt.okelwen.site/mqtt",
+		"wss://sparkcloud-mqtt.okelwen.site/mqtt": "wss://sparkcloud-mqtt.okelwen.site/mqtt",
+		"ws://localhost:8083":                     "ws://localhost:8083/mqtt",
+		"mqtt://localhost:1883":                   "mqtt://localhost:1883",
+		"tcp://localhost:1883":                    "tcp://localhost:1883",
+	}
+	for input, expected := range cases {
+		if got := NormalizeBrokerURL(input); got != expected {
+			t.Fatalf("NormalizeBrokerURL(%q) = %q, want %q", input, got, expected)
+		}
+	}
+}
+
 func TestConnectSubscribesAndPublishesOnlineStatus(t *testing.T) {
 	broker := &fakeBroker{}
 	client := NewClientWithBroker(broker)
@@ -207,11 +223,17 @@ func TestPublishHeartbeatUsesExpectedTopic(t *testing.T) {
 	if err := client.PublishHeartbeat(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if len(broker.published) != 1 || broker.published[0].Topic != HeartbeatTopic("edge-1") {
+	if len(broker.published) != 2 {
+		t.Fatalf("unexpected heartbeat publish count %#v", broker.published)
+	}
+	if broker.published[0].Topic != StatusTopic("edge-1") || string(broker.published[0].Payload) != "online" {
+		t.Fatalf("unexpected status refresh publish %#v", broker.published)
+	}
+	if broker.published[1].Topic != HeartbeatTopic("edge-1") {
 		t.Fatalf("unexpected heartbeat publish %#v", broker.published)
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(broker.published[0].Payload, &payload); err != nil {
+	if err := json.Unmarshal(broker.published[1].Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload["edge_id"] != "edge-1" {

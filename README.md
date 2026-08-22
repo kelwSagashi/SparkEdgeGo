@@ -48,6 +48,7 @@ $env:GOCACHE="$PWD\.gocache"
 
 O guia detalhado para modo dev, geracao de executavel local e cross-compilation esta em [docs/build-and-dev.md](./docs/build-and-dev.md).
 O runbook operacional de release, instalacao em campo, Raspberry e update assistido esta em [docs/operations-runbook.md](./docs/operations-runbook.md).
+O plano da nova operacao via terminal para administrar o Edge sem depender da WebUI esta em [docs/terminal-cli-plan.md](./docs/terminal-cli-plan.md).
 
 # Inicialização
 

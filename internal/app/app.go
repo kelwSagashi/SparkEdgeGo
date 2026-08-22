@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -101,13 +103,23 @@ func New(cfg *config.Manager) *App {
 	}
 	mqttClient := mqtt.NewClient()
 	mqttClient.UseStores(store.MqttCommands, store.MqttQueue)
-	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(runtimeCfg.CloudURL), mqttClient)
+	edgeService := edge.NewService(store.Edge, edge.NewHTTPCloudClient(runtimeCfg.CloudURL), mqttClient, runtimeCfg.MQTTURL)
+	cloudSyncEdgeID := ""
+	cloudSyncUsername := ""
+	cloudSyncPassword := ""
+	if provisionedEdge, err := edgeService.Load(context.Background()); err == nil {
+		cloudSyncEdgeID = provisionedEdge.EdgeID
+		cloudSyncUsername = provisionedEdge.MQTT.Username
+		cloudSyncPassword = provisionedEdge.MQTT.Password
+	}
 	tagsService := tags.NewService(store.Tags, store.InstanceTags)
 	cloudSyncService := cloudsync.NewService(store.CloudSync, cloudsync.Config{
-		BaseURL:   runtimeCfg.CloudURL,
-		EdgeID:    "",
-		SyncToken: runtimeCfg.CloudSyncToken,
-		Enabled:   true,
+		BaseURL:      runtimeCfg.CloudURL,
+		EdgeID:       cloudSyncEdgeID,
+		SyncToken:    runtimeCfg.CloudSyncToken,
+		EdgeUsername: cloudSyncUsername,
+		EdgePassword: cloudSyncPassword,
+		Enabled:      true,
 	})
 
 	application := &App{
@@ -142,14 +154,20 @@ func New(cfg *config.Manager) *App {
 			AllowPrerelease: runtimeCfg.Update.AllowPrerelease,
 			ServiceName:     runtimeCfg.Update.ServiceName,
 			RestartCommand:  runtimeCfg.Update.RestartCommand,
+			HealthURL:       "http://127.0.0.1:" + strconv.Itoa(runtimeCfg.HTTPPort) + "/api/health",
 		}, &updater.GitHubClient{Token: strings.TrimSpace(os.Getenv("SPARKEDGE_UPDATE_GITHUB_TOKEN"))}),
-		CloudSync:  cloudSyncService,
-		Config:     cfg,
-		RuntimeCfg: runtimeCfg,
+		CloudSync:        cloudSyncService,
+		Config:           cfg,
+		RuntimeCfg:       runtimeCfg,
 		workflowInflight: map[string]bool{},
 	}
 	application.MQTT.SetStatsProvider(application.collectOperationalSnapshot)
 	application.registerMqttCommandHandlers()
+	if err := application.Edge.Reconnect(context.Background()); err != nil {
+		if err != edge.ErrNotProvisioned {
+			log.Printf("[App] initial MQTT reconnect failed: %v", err)
+		}
+	}
 	return application
 }
 

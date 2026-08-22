@@ -535,9 +535,9 @@ func destinationParams(instanceID string, payload DestinationPayload) sqlite.Ups
 		Enabled:             firstBool(true, enabled),
 		Priority:            priority,
 		RetryPolicy: domain.RetryPolicy{
-			MaxRetries:                    intFromMap(retryPolicy, "max_retries", "maxRetries", 3),
-			RetryInterval:                 intFromMap(retryPolicy, "retry_interval", "retryInterval", 60),
-			TimeoutSeconds:                intFromMap(retryPolicy, "timeout_seconds", "timeoutSeconds", 30),
+			MaxRetries:                    intFromMap(retryPolicy, "max_retries", "maxRetries", 1),
+			RetryInterval:                 intFromMap(retryPolicy, "retry_interval", "retryInterval", 0),
+			TimeoutSeconds:                intFromMap(retryPolicy, "timeout_seconds", "timeoutSeconds", 0),
 			ContinueOnError:               boolFromMap(retryPolicy, "continue_on_error", "continueOnError", false),
 			IsolationMode:                 stringFromMap(retryPolicy, "isolation_mode", "isolationMode", "isolate"),
 			CircuitBreakerThreshold:       intFromMap(retryPolicy, "circuit_breaker_threshold", "circuitBreakerThreshold", 0),

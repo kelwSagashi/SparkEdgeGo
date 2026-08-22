@@ -48,6 +48,7 @@ type PythonRuntime interface {
 	InstallRequirements(ctx context.Context, venvPath string, requirementsPath string) error
 	SchemaFile(ctx context.Context, scriptFolder string, mainFile string, venvPath string) (map[string]any, error)
 	RunFile(ctx context.Context, scriptFolder string, mainFile string, venvPath string, input map[string]any) (domain.ScriptResult, error)
+	ReadmeFile(ctx context.Context, scriptFolder string, mainFile string, venvPath string) (string, error)
 }
 
 type CreateRequest struct {
@@ -113,6 +114,27 @@ type PlaygroundRequest struct {
 	ScriptID   string         `json:"script_id"`
 	SampleName string         `json:"sample_name"`
 	Inputs     map[string]any `json:"inputs"`
+}
+
+type DraftFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type ScriptFile struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type DraftRequest struct {
+	Files       []DraftFile    `json:"files"`
+	MainFile    string         `json:"mainFile"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Tags        []string       `json:"tags"`
+	Author      string         `json:"author"`
+	Version     string         `json:"version"`
+	Inputs      map[string]any `json:"inputs"`
 }
 
 const (
@@ -236,6 +258,59 @@ func (s *Service) FileContent(ctx context.Context, id string, filename string) (
 	return string(data), nil
 }
 
+func (s *Service) Files(ctx context.Context, id string) ([]ScriptFile, error) {
+	script, err := s.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	root := resolveHomePath(script.LocalPath)
+	files := make([]ScriptFile, 0)
+	if err := filepath.WalkDir(root, func(pathValue string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if pathValue == root {
+			return nil
+		}
+
+		name := entry.Name()
+		if entry.IsDir() {
+			if shouldSkipScriptEditorDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if shouldSkipScriptEditorFile(name) {
+			return nil
+		}
+
+		rel, err := filepath.Rel(root, pathValue)
+		if err != nil {
+			return err
+		}
+		content, err := os.ReadFile(pathValue)
+		if err != nil {
+			return err
+		}
+		if !isEditableScriptContent(content) {
+			return nil
+		}
+		files = append(files, ScriptFile{
+			Path:    filepath.ToSlash(rel),
+			Content: string(content),
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	slices.SortFunc(files, func(a ScriptFile, b ScriptFile) int {
+		return strings.Compare(a.Path, b.Path)
+	})
+	return files, nil
+}
+
 func (s *Service) InspectZip(zipFilePath string) (InspectResult, error) {
 	tempFolder, err := os.MkdirTemp("", "spark_edge_script_*")
 	if err != nil {
@@ -248,6 +323,93 @@ func (s *Service) InspectZip(zipFilePath string) (InspectResult, error) {
 		return InspectResult{}, err
 	}
 	return result, nil
+}
+
+func (s *Service) FinalizeDraft(ctx context.Context, req DraftRequest) (FinalizeResult, error) {
+	if s.python == nil {
+		return FinalizeResult{}, errors.New("sparkit runtime unavailable")
+	}
+	tempFolder, err := writeDraftToTemp(req)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	result, err := s.FinalizeUpload(ctx, FinalizeRequest{
+		TempFolder:  tempFolder,
+		MainFile:    req.MainFile,
+		Name:        req.Name,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Author:      req.Author,
+		Version:     req.Version,
+	})
+	if err != nil {
+		_ = os.RemoveAll(tempFolder)
+		return FinalizeResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) ReplaceDraft(ctx context.Context, scriptID string, req DraftRequest) (FinalizeResult, error) {
+	if s.python == nil {
+		return FinalizeResult{}, errors.New("sparkit runtime unavailable")
+	}
+	tempFolder, err := writeDraftToTemp(req)
+	if err != nil {
+		return FinalizeResult{}, err
+	}
+	result, err := s.ReplaceUpload(ctx, scriptID, FinalizeRequest{
+		TempFolder:  tempFolder,
+		MainFile:    req.MainFile,
+		Name:        req.Name,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Author:      req.Author,
+		Version:     req.Version,
+	})
+	if err != nil {
+		_ = os.RemoveAll(tempFolder)
+		return FinalizeResult{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) RunDraftPlayground(ctx context.Context, req DraftRequest) (domain.ScriptResult, error) {
+	if s.python == nil {
+		return domain.ScriptResult{}, errors.New("sparkit runtime unavailable")
+	}
+	if req.Inputs == nil {
+		req.Inputs = map[string]any{}
+	}
+
+	tempFolder, err := writeDraftToTemp(req)
+	if err != nil {
+		return domain.ScriptResult{}, err
+	}
+	defer os.RemoveAll(tempFolder)
+
+	venvPath, err := s.prepareDraftRuntime(ctx, tempFolder)
+	if err != nil {
+		return domain.ScriptResult{}, err
+	}
+	return s.python.RunFile(ctx, tempFolder, req.MainFile, venvPath, req.Inputs)
+}
+
+func (s *Service) GenerateDraftReadme(ctx context.Context, req DraftRequest) (string, error) {
+	if s.python == nil {
+		return "", errors.New("sparkit runtime unavailable")
+	}
+
+	tempFolder, err := writeDraftToTemp(req)
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(tempFolder)
+
+	venvPath, err := s.prepareDraftRuntime(ctx, tempFolder)
+	if err != nil {
+		return "", err
+	}
+	return s.python.ReadmeFile(ctx, tempFolder, req.MainFile, venvPath)
 }
 
 func (s *Service) FinalizeUpload(ctx context.Context, req FinalizeRequest) (FinalizeResult, error) {
@@ -671,6 +833,160 @@ func extractZipToTemp(zipFilePath string, tempFolder string) (InspectResult, err
 
 	slices.Sort(result.PyFiles)
 	return result, nil
+}
+
+func writeDraftToTemp(req DraftRequest) (string, error) {
+	if strings.TrimSpace(req.MainFile) == "" {
+		return "", ErrInvalidScript
+	}
+
+	tempFolder, err := os.MkdirTemp("", "spark_edge_script_draft_*")
+	if err != nil {
+		return "", err
+	}
+
+	hasRequirements := false
+	hasReadme := false
+	hasMain := false
+	for _, file := range req.Files {
+		cleanPath, err := cleanDraftPath(file.Path)
+		if err != nil {
+			_ = os.RemoveAll(tempFolder)
+			return "", err
+		}
+		lowerBase := strings.ToLower(filepath.Base(cleanPath))
+		if lowerBase == "requirements.txt" {
+			hasRequirements = true
+			file.Content = ensureSparkitRequirement(file.Content)
+		}
+		if lowerBase == "readme.md" {
+			hasReadme = true
+		}
+		if filepath.ToSlash(cleanPath) == filepath.ToSlash(filepath.Clean(filepath.FromSlash(req.MainFile))) {
+			hasMain = true
+		}
+		if err := writeDraftFile(tempFolder, cleanPath, file.Content); err != nil {
+			_ = os.RemoveAll(tempFolder)
+			return "", err
+		}
+	}
+
+	mainPath, err := cleanDraftPath(req.MainFile)
+	if err != nil {
+		_ = os.RemoveAll(tempFolder)
+		return "", err
+	}
+	if !hasMain {
+		if _, err := os.Stat(filepath.Join(tempFolder, mainPath)); err != nil {
+			_ = os.RemoveAll(tempFolder)
+			return "", ErrScriptFileNotFound
+		}
+	}
+	if !hasRequirements {
+		if err := writeDraftFile(tempFolder, "requirements.txt", "sparkit\n"); err != nil {
+			_ = os.RemoveAll(tempFolder)
+			return "", err
+		}
+	}
+	if !hasReadme {
+		if err := writeDraftFile(tempFolder, "README.md", "# "+firstNonEmpty(req.Name, "SparkEdge Script")+"\n"); err != nil {
+			_ = os.RemoveAll(tempFolder)
+			return "", err
+		}
+	}
+
+	return tempFolder, nil
+}
+
+func (s *Service) prepareDraftRuntime(ctx context.Context, tempFolder string) (string, error) {
+	venvPath := filepath.Join(tempFolder, "venv")
+	if err := s.python.CreateVenv(ctx, venvPath); err != nil {
+		return "", err
+	}
+	if requirementsPath := findRequirementsFile(tempFolder); requirementsPath != "" {
+		if err := s.python.InstallRequirements(ctx, venvPath, requirementsPath); err != nil {
+			return "", err
+		}
+	}
+	return venvPath, nil
+}
+
+func cleanDraftPath(pathValue string) (string, error) {
+	cleanPath := filepath.Clean(filepath.FromSlash(strings.TrimSpace(pathValue)))
+	if cleanPath == "." || strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
+		return "", ErrInvalidScript
+	}
+	return cleanPath, nil
+}
+
+func writeDraftFile(root string, relativePath string, content string) error {
+	targetPath := filepath.Join(root, relativePath)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(targetPath, []byte(content), 0o644)
+}
+
+func shouldSkipScriptEditorDir(name string) bool {
+	lowerName := strings.ToLower(name)
+	return lowerName == "venv" ||
+		lowerName == ".venv" ||
+		lowerName == "__pycache__" ||
+		lowerName == ".git" ||
+		lowerName == ".pytest_cache" ||
+		lowerName == ".mypy_cache"
+}
+
+func shouldSkipScriptEditorFile(name string) bool {
+	lowerName := strings.ToLower(name)
+	if strings.HasSuffix(lowerName, ".pyc") ||
+		strings.HasSuffix(lowerName, ".pyo") ||
+		strings.HasSuffix(lowerName, ".zip") ||
+		strings.HasSuffix(lowerName, ".tar") ||
+		strings.HasSuffix(lowerName, ".gz") ||
+		strings.HasSuffix(lowerName, ".7z") {
+		return true
+	}
+	return false
+}
+
+func isEditableScriptContent(content []byte) bool {
+	if len(content) == 0 {
+		return true
+	}
+	if len(content) > 512*1024 {
+		return false
+	}
+	for _, value := range content {
+		if value == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func ensureSparkitRequirement(content string) string {
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		trimmed := strings.ToLower(strings.TrimSpace(line))
+		if trimmed == "sparkit" || strings.HasPrefix(trimmed, "sparkit==") || strings.HasPrefix(trimmed, "sparkit>=") {
+			return content
+		}
+	}
+	trimmedContent := strings.TrimRight(content, "\r\n")
+	if trimmedContent == "" {
+		return "sparkit\n"
+	}
+	return trimmedContent + "\nsparkit\n"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func resolveScriptFilePath(root string, filename string) (string, error) {

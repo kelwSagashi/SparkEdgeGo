@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,7 @@ func (c *Client) Connect(ctx context.Context, config Config) error {
 	if strings.TrimSpace(config.EdgeID) == "" || strings.TrimSpace(config.BrokerURL) == "" {
 		return errors.New("mqtt requires edge_id and broker_url")
 	}
+	config.BrokerURL = NormalizeBrokerURL(config.BrokerURL)
 	c.mu.Lock()
 	c.config = config
 	c.mu.Unlock()
@@ -186,6 +188,7 @@ func (c *Client) PublishHeartbeat(ctx context.Context) error {
 	if value, ok := stats["status"].(string); ok && strings.TrimSpace(value) != "" {
 		status = strings.TrimSpace(value)
 	}
+	_ = c.PublishStatus(ctx, "online")
 	return c.PublishJSON(ctx, HeartbeatTopic(c.config.EdgeID), c.envelope("heartbeat", map[string]any{
 		"status":       status,
 		"ts":           now.Unix(),
@@ -551,6 +554,27 @@ func LogTopic(edgeID string) string       { return "spark/" + edgeID + "/logs" }
 func MetricsTopic(edgeID string) string   { return "spark/" + edgeID + "/metrics" }
 func StatsTopic(edgeID string) string     { return "spark/" + edgeID + "/stats" }
 func ContextTopic(edgeID string) string   { return "spark/" + edgeID + "/context" }
+
+func NormalizeBrokerURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return trimmed
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Scheme == "" {
+		return trimmed
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		parsed.Scheme = "wss"
+	case "http":
+		parsed.Scheme = "ws"
+	}
+	if (parsed.Scheme == "ws" || parsed.Scheme == "wss") && (parsed.Path == "" || parsed.Path == "/") {
+		parsed.Path = "/mqtt"
+	}
+	return parsed.String()
+}
 
 type pahoBroker struct {
 	client paho.Client

@@ -59,6 +59,14 @@ func (s *Server) handleScriptFileContent(r *http.Request) (any, error) {
 	return map[string]any{"data": content}, nil
 }
 
+func (s *Server) handleScriptFilesList(r *http.Request) (any, error) {
+	files, err := s.deps.Scripts.Files(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{"data": files, "error": nil}, nil
+}
+
 func (s *Server) handleScriptCreate(r *http.Request) (any, error) {
 	var req scripts.CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -166,6 +174,66 @@ func (s *Server) handleScriptUploadReplace(r *http.Request) (any, error) {
 			"schema": result.Schema,
 		},
 	}, nil
+}
+
+func (s *Server) handleScriptDraftFinalize(r *http.Request) (any, error) {
+	var req scripts.DraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	result, err := s.deps.Scripts.FinalizeDraft(r.Context(), req)
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{
+		"data": map[string]any{
+			"script": publicScript(result.Script),
+			"schema": result.Schema,
+		},
+	}, nil
+}
+
+func (s *Server) handleScriptDraftReplace(r *http.Request) (any, error) {
+	var req scripts.DraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+
+	result, err := s.deps.Scripts.ReplaceDraft(r.Context(), r.PathValue("id"), req)
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{
+		"data": map[string]any{
+			"script": publicScript(result.Script),
+			"schema": result.Schema,
+		},
+	}, nil
+}
+
+func (s *Server) handleScriptDraftPlaygroundRun(r *http.Request) (any, error) {
+	var req scripts.DraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	result, err := s.deps.Scripts.RunDraftPlayground(r.Context(), req)
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{"data": publicScriptExecutionResult(result)}, nil
+}
+
+func (s *Server) handleScriptDraftReadme(r *http.Request) (any, error) {
+	var req scripts.DraftRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return nil, NewHTTPError(http.StatusBadRequest, "invalid request body")
+	}
+	readme, err := s.deps.Scripts.GenerateDraftReadme(r.Context(), req)
+	if err != nil {
+		return scriptError(err)
+	}
+	return map[string]any{"data": map[string]any{"readme": readme}, "error": nil}, nil
 }
 
 func (s *Server) handleScriptSamplesList(r *http.Request) (any, error) {

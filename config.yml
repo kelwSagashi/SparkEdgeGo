@@ -12,7 +12,7 @@
 cloud:
   # Base URL of the Spark Cloud REST API.
   # Used for Edge provisioning (pairing, registration, unpairing).
-  url: http://localhost:3000
+  url: https://sparkcloud-api.okelwen.site
 
   # MQTT broker URL returned to new Edges during registration via the local simulator.
   # In production, the real Spark Cloud returns the broker URL automatically.

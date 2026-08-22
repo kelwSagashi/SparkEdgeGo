@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -204,6 +205,64 @@ func TestFileContentFindsReadmeInsideNestedFolder(t *testing.T) {
 	}
 }
 
+func TestFilesListsEditableBundleFilesAndSkipsRuntimeArtifacts(t *testing.T) {
+	ctx := context.Background()
+	store := sqlite.NewStore()
+	store.Path = filepath.Join(t.TempDir(), "sparkedge-test.db")
+	if err := store.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	scriptDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(scriptDir, "main.py"), []byte("print('hello')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "requirements.txt"), []byte("sparkit\nrequests\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "README.md"), []byte("# Script"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(scriptDir, "venv", "Lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "venv", "Lib", "ignored.py"), []byte("print('ignore')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(scriptDir, "__pycache__"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scriptDir, "__pycache__", "main.pyc"), []byte{0, 1, 2}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewService(store.Scripts)
+	script, err := service.Create(ctx, CreateRequest{
+		Name:      "Editable",
+		Author:    "SparkEdge",
+		LocalPath: scriptDir,
+		MainFile:  "main.py",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := service.Files(ctx, script.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	expected := []string{"README.md", "main.py", "requirements.txt"}
+	if fmt.Sprintf("%v", paths) != fmt.Sprintf("%v", expected) {
+		t.Fatalf("expected editable files %v, got %v", expected, paths)
+	}
+}
+
 func TestReplaceUploadPreservesScriptIDAndRefreshesBundle(t *testing.T) {
 	ctx := context.Background()
 	store := sqlite.NewStore()
@@ -344,6 +403,58 @@ func TestReplaceUploadPreservesScriptIDAndRefreshesBundle(t *testing.T) {
 	}
 }
 
+func TestFinalizeDraftCreatesBundleWithSparkitRequirement(t *testing.T) {
+	ctx := context.Background()
+	store := sqlite.NewStore()
+	store.Path = filepath.Join(t.TempDir(), "sparkedge-draft-test.db")
+	if err := store.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	homeDir := t.TempDir()
+	t.Setenv("USERPROFILE", homeDir)
+	t.Setenv("HOME", homeDir)
+
+	runtime := &fakePythonRuntime{
+		schema: map[string]any{
+			"inputs":  []any{},
+			"outputs": []any{map[string]any{"name": "ok", "type": "boolean"}},
+		},
+	}
+	service := NewService(store.Scripts, runtime)
+
+	result, err := service.FinalizeDraft(ctx, DraftRequest{
+		Name:     "Inline Script",
+		Author:   "SparkEdge",
+		Version:  "1.0.0",
+		MainFile: "main.py",
+		Files: []DraftFile{
+			{Path: "main.py", Content: "print('ok')"},
+			{Path: "requirements.txt", Content: "requests\n"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requirements, err := service.FileContent(ctx, result.Script.ID, "requirements.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(requirements, "requests") || !strings.Contains(strings.ToLower(requirements), "sparkit") {
+		t.Fatalf("expected requirements to include original deps and sparkit, got %q", requirements)
+	}
+
+	readme, err := service.FileContent(ctx, result.Script.ID, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readme, "Inline Script") {
+		t.Fatalf("expected default readme to include script name, got %q", readme)
+	}
+}
+
 func TestMovePathFallsBackWhenRenameCrossesFilesystems(t *testing.T) {
 	sourceRoot := t.TempDir()
 	targetRoot := t.TempDir()
@@ -478,4 +589,11 @@ func (f *fakePythonRuntime) RunFile(_ context.Context, scriptFolder string, main
 	f.lastMainFile = mainFile
 	f.lastVenvPath = venvPath
 	return f.result, nil
+}
+
+func (f *fakePythonRuntime) ReadmeFile(_ context.Context, scriptFolder string, mainFile string, venvPath string) (string, error) {
+	f.lastFolder = scriptFolder
+	f.lastMainFile = mainFile
+	f.lastVenvPath = venvPath
+	return "# Generated", nil
 }

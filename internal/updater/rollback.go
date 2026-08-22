@@ -56,6 +56,7 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 			LastPreparedTarget:    state.LastPreparedTarget,
 			LastApplyResult:       state.LastApplyResult,
 			LastDownloadResult:    state.LastDownloadResult,
+			LastExecuteResult:     state.LastExecuteResult,
 			LastRollbackResult:    &result,
 			LastRestartResult:     state.LastRestartResult,
 		}, HistoryEntry{
@@ -84,6 +85,7 @@ func (s *Service) RollbackLatest(_ context.Context) (RollbackResult, error) {
 		LastPreparedTarget:    state.LastPreparedTarget,
 		LastApplyResult:       state.LastApplyResult,
 		LastDownloadResult:    state.LastDownloadResult,
+		LastExecuteResult:     state.LastExecuteResult,
 		LastRollbackResult:    &result,
 		LastRestartResult:     state.LastRestartResult,
 	}, HistoryEntry{

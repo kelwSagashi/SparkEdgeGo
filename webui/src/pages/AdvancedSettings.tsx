@@ -333,7 +333,7 @@ export default function AdvancedSettingsPage() {
                 autoComplete="off"
               />
               <p className="mt-1.5 text-[10px] text-zinc-600">
-                Deixe em branco para manter o token atual. Esse token autoriza a fila local de sincronizacao com o Spark Cloud.
+                Deixe em branco para manter o token atual. Esse campo e opcional e funciona como sobreposicao manual para autenticar a fila HTTP de sincronizacao com o Spark Cloud.
               </p>
             </div>
           </div>

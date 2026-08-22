@@ -18,6 +18,8 @@ const LocalDataPage = lazy(() => import('./pages/LocalData'));
 const ScriptHubPage = lazy(() => import('./pages/ScriptHub'));
 const ScriptDetailsPage = lazy(() => import('./pages/ScriptDetailsPage'));
 const ScriptEditPage = lazy(() => import('./pages/ScriptEditPage'));
+const ScriptComposerPage = lazy(() => import('./pages/ScriptComposerPage'));
+const ScriptPlaygroundPage = lazy(() => import('./pages/ScriptPlaygroundPage'));
 const ServersPage = lazy(() => import('./pages/Servers'));
 const ServerCreatePage = lazy(() => import('./pages/ServerCreatePage'));
 const ServerEditPage = lazy(() => import('./pages/ServerEditPage'));
@@ -92,7 +94,7 @@ function App() {
       <div className="flex grow overflow-hidden">
         <SideBar />
         <SidebarInset className='flex flex-col grow relative overflow-hidden'>
-          <div className="grow relative overflow-y-auto">
+          <div className="grow relative min-w-0 overflow-auto">
             <Routes>
               {/* Instances */}
               <Route path="/" element={<Navigate to="/instances" replace />} />
@@ -103,6 +105,10 @@ function App() {
 
               {/* Script Hub */}
               <Route path="/script-hub" element={<ProtectedPage><ScriptHubPage /></ProtectedPage>} />
+              <Route path="/script-hub/new" element={<ProtectedPage><ScriptComposerPage /></ProtectedPage>} />
+              <Route path="/script-hub/playground/sample/:sampleName" element={<ProtectedPage><ScriptPlaygroundPage /></ProtectedPage>} />
+              <Route path="/script-hub/:id/playground" element={<ProtectedPage><ScriptPlaygroundPage /></ProtectedPage>} />
+              <Route path="/script-hub/:id/files/edit" element={<ProtectedPage><ScriptComposerPage /></ProtectedPage>} />
               <Route path="/script-hub/:id" element={<ProtectedPage><ScriptDetailsPage /></ProtectedPage>} />
               <Route path="/script-hub/:id/edit" element={<ProtectedPage><ScriptEditPage /></ProtectedPage>} />
 

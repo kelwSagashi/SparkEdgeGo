@@ -31,9 +31,10 @@ type Repository interface {
 }
 
 type Service struct {
-	repo  Repository
-	cloud CloudClient
-	mqtt  *mqtt.Client
+	repo              Repository
+	cloud             CloudClient
+	mqtt              *mqtt.Client
+	brokerURLOverride string
 }
 
 type OnboardingRequest struct {
@@ -54,8 +55,12 @@ type ConnectRequest struct {
 	Password string `json:"password"`
 }
 
-func NewService(repo Repository, cloud CloudClient, mqttClient *mqtt.Client) *Service {
-	return &Service{repo: repo, cloud: cloud, mqtt: mqttClient}
+func NewService(repo Repository, cloud CloudClient, mqttClient *mqtt.Client, brokerURLOverride ...string) *Service {
+	override := ""
+	if len(brokerURLOverride) > 0 {
+		override = strings.TrimSpace(brokerURLOverride[0])
+	}
+	return &Service{repo: repo, cloud: cloud, mqtt: mqttClient, brokerURLOverride: override}
 }
 
 func (s *Service) GetOnboarding(ctx context.Context) (domain.EdgeConfig, bool, error) {
@@ -145,12 +150,27 @@ func (s *Service) Load(ctx context.Context) (domain.ProvisionedEdge, error) {
 		EdgeID:   identity.EdgeID,
 		EdgeName: identity.EdgeName,
 		MQTT: domain.EdgeMQTTConfig{
-			URL:      envOrDefault("MQTT_URL", credentials.BrokerURL),
+			URL:      s.resolveBrokerURL(credentials.BrokerURL),
 			Username: credentials.Username,
 			Password: credentials.Password,
 		},
 		Provisioned: true,
 	}, nil
+}
+
+func (s *Service) resolveBrokerURL(provisionedURL string) string {
+	if value := strings.TrimSpace(os.Getenv("MQTT_URL")); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(s.brokerURLOverride); value != "" && isLocalBrokerOverride(value) {
+		return value
+	}
+	return provisionedURL
+}
+
+func isLocalBrokerOverride(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(normalized, "localhost") || strings.Contains(normalized, "127.0.0.1") || strings.Contains(normalized, "host.docker.internal")
 }
 
 func (s *Service) IsProvisioned(ctx context.Context) bool {
@@ -193,7 +213,9 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (domain.Provisioned
 	if err := s.SaveProvisioned(ctx, registration); err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
-	_ = s.Reconnect(ctx)
+	if err := s.Reconnect(ctx); err != nil {
+		return domain.ProvisionedEdge{}, fmt.Errorf("edge paired, but MQTT connection failed: %w", err)
+	}
 	return registration, nil
 }
 
@@ -208,18 +230,20 @@ func (s *Service) Connect(ctx context.Context, req ConnectRequest) (domain.Provi
 	if !complete {
 		return domain.ProvisionedEdge{}, ErrInvalidOnboarding
 	}
-	token, err := s.cloud.Login(ctx, req.Email, req.Password)
+	login, err := s.cloud.Login(ctx, req.Email, req.Password)
 	if err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
-	registration, err := s.cloud.Register(ctx, token, config.EdgeName, metadataFromConfig(config))
+	registration, err := s.cloud.Register(ctx, login, config.EdgeName, metadataFromConfig(config))
 	if err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
 	if err := s.SaveProvisioned(ctx, registration); err != nil {
 		return domain.ProvisionedEdge{}, err
 	}
-	_ = s.Reconnect(ctx)
+	if err := s.Reconnect(ctx); err != nil {
+		return domain.ProvisionedEdge{}, fmt.Errorf("edge registered, but MQTT connection failed: %w", err)
+	}
 	return registration, nil
 }
 
@@ -244,6 +268,7 @@ func (s *Service) Reconnect(ctx context.Context) error {
 	}
 	config, _, _ := s.GetOnboarding(ctx)
 	_ = s.mqtt.PublishMeta(ctx, metadataEnvelope(edge.EdgeID, edge.EdgeName, config))
+	_ = s.mqtt.PublishHeartbeat(ctx)
 	_ = s.mqtt.PublishStats(ctx)
 	s.mqtt.StartHeartbeat(0)
 	s.mqtt.StartStats(0)
@@ -257,7 +282,9 @@ func (s *Service) Remove(ctx context.Context) error {
 		return err
 	}
 	if err == nil && s.cloud != nil {
-		_ = s.cloud.Unpair(ctx, edge.EdgeID)
+		if unpairErr := s.cloud.Unpair(ctx, edge); unpairErr != nil && !isRemoteAlreadyUnpaired(unpairErr) {
+			return unpairErr
+		}
 	}
 	_ = s.Disconnect(ctx)
 	if err := s.repo.ClearIdentity(ctx); err != nil {
@@ -267,6 +294,15 @@ func (s *Service) Remove(ctx context.Context) error {
 		return err
 	}
 	return s.repo.ClearEdgeConfig(ctx)
+}
+
+func isRemoteAlreadyUnpaired(err error) bool {
+	var cloudErr *CloudRequestError
+	if errors.As(err, &cloudErr) {
+		return cloudErr.StatusCode == 401 || cloudErr.StatusCode == 404
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "invalid edge credentials") || strings.Contains(message, "edge not found")
 }
 
 func metadataFromConfig(config domain.EdgeConfig) map[string]any {

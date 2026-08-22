@@ -67,6 +67,20 @@ export interface UpdateRollbackResult {
   updated_at: string;
 }
 
+export interface UpdateExecuteResult {
+  version: string;
+  target: string;
+  downloaded_path: string;
+  staging_path: string;
+  backup_path: string;
+  launcher_path: string;
+  worker_binary: string;
+  health_url?: string;
+  scheduled_exit: boolean;
+  message: string;
+  updated_at: string;
+}
+
 export interface UpdateRestartResult {
   executed: boolean;
   manual_required: boolean;
@@ -82,6 +96,7 @@ export interface UpdateState {
   last_prepared_target?: string;
   last_apply_result?: UpdateApplyResult | null;
   last_download_result?: UpdateDownloadResult | null;
+  last_execute_result?: UpdateExecuteResult | null;
   last_rollback_result?: UpdateRollbackResult | null;
   last_restart_result?: UpdateRestartResult | null;
   updated_at?: string;
@@ -106,6 +121,10 @@ export const updateService = {
     axios_api_instance.post<ReturningQueries<UpdateDownloadResult>>(`/update/download`),
   apply: (downloadedPath: string) =>
     axios_api_instance.post<ReturningQueries<UpdateApplyResult>>(`/update/apply`, {
+      downloaded_path: downloadedPath,
+    }),
+  execute: (downloadedPath: string) =>
+    axios_api_instance.post<ReturningQueries<UpdateExecuteResult>>(`/update/execute`, {
       downloaded_path: downloadedPath,
     }),
   rollback: () =>

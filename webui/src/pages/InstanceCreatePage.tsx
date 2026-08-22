@@ -16,7 +16,7 @@ export default function InstanceCreatePage() {
   }, [navigate]);
 
   return (
-    <main className="grow px-8 py-6 w-full mx-auto pb-24">
+    <main className="grow px-8 py-6 w-full min-w-0 mx-auto pb-24">
       {/* Header */}
       <div className="flex items-center gap-3 mb-8">
         <button
@@ -38,7 +38,7 @@ export default function InstanceCreatePage() {
       </div>
 
       {/* Form */}
-      <div className="max-w-6xl">
+      <div className="w-full min-w-0 max-w-none">
         <InstanceStepForm onClose={handleClose} />
       </div>
     </main>
