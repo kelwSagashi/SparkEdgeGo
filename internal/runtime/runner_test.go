@@ -301,6 +301,37 @@ func TestRunnerApplyMappingIncludesDeviceAndSystemContext(t *testing.T) {
 	}
 }
 
+func TestRunnerApplyMappingSupportsSparkitStdoutPaths(t *testing.T) {
+	runner := NewRunner(Dependencies{})
+	output := map[string]any{
+		"timestamp": "2026-10-11T12:00:00Z",
+		"data1":     float64(42),
+		"nested":    map[string]any{"status": "ok"},
+	}
+
+	payload, err := runner.applyMapping(context.Background(), &domain.DataMapping{
+		Mapping: map[string]any{
+			"unit_id":   "unit-1",
+			"timestamp": "$.script.stdout.timestamp",
+			"data":      "$.script.stdout",
+		},
+	}, output, TriggerRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if payload["unit_id"] != "unit-1" || payload["timestamp"] != output["timestamp"] {
+		t.Fatalf("expected mapped scalar values, got %#v", payload)
+	}
+	data, ok := payload["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected complete stdout object in data, got %#v", payload["data"])
+	}
+	if data["data1"] != float64(42) || data["nested"].(map[string]any)["status"] != "ok" {
+		t.Fatalf("expected stdout object to remain intact, got %#v", data)
+	}
+}
+
 func TestRunnerApplyMappingSupportsTransformScript(t *testing.T) {
 	runner := NewRunner(Dependencies{})
 
