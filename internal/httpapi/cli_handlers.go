@@ -65,6 +65,9 @@ func (s *Server) handleCliPair(r *http.Request) (any, error) {
 		return cliEdgeError(err)
 	}
 	refreshCloudSyncConfig(r, s)
+	if s.deps.CloudSync != nil {
+		_, _ = s.deps.CloudSync.DiscardEventsForOtherEdges(r.Context(), registration.EdgeID)
+	}
 	publishUserContext(r, s)
 	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "paired", "Edge paired with Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil
@@ -80,6 +83,9 @@ func (s *Server) handleCliConnect(r *http.Request) (any, error) {
 		return cliEdgeError(err)
 	}
 	refreshCloudSyncConfig(r, s)
+	if s.deps.CloudSync != nil {
+		_, _ = s.deps.CloudSync.DiscardEventsForOtherEdges(r.Context(), registration.EdgeID)
+	}
 	publishUserContext(r, s)
 	enqueueCloudConnectionEvent(r, s, registration.EdgeID, "registered", "Edge connected to Spark Cloud")
 	return map[string]any{"success": true, "edge_id": registration.EdgeID, "edge_name": registration.EdgeName}, nil

@@ -22,6 +22,7 @@ type QueueStore interface {
 	MarkSent(context.Context, string) error
 	MarkFailed(context.Context, string, string, *time.Time) error
 	Delete(context.Context, string) error
+	DiscardMismatchedEdgeItems(context.Context, string) (int, error)
 	Stats(context.Context) (map[string]any, error)
 }
 
@@ -118,6 +119,16 @@ func (s *Service) EnqueueInstanceExecution(ctx context.Context, payload map[stri
 
 func (s *Service) EnqueueRemoteJob(ctx context.Context, payload map[string]any) (domain.CloudSyncItem, error) {
 	return s.EnqueueEvent(ctx, "remote_job", 40, payload)
+}
+
+// DiscardEventsForOtherEdges removes unsent records created before this
+// device was re-provisioned. They cannot be authenticated with the newly
+// issued edge credentials and must not degrade the current connection.
+func (s *Service) DiscardEventsForOtherEdges(ctx context.Context, edgeID string) (int, error) {
+	if s == nil || s.queue == nil || strings.TrimSpace(edgeID) == "" {
+		return 0, nil
+	}
+	return s.queue.DiscardMismatchedEdgeItems(ctx, edgeID)
 }
 
 func (s *Service) Flush(ctx context.Context, limit int) (map[string]any, error) {
@@ -279,12 +290,17 @@ func (s *Service) sendBatch(ctx context.Context, items []domain.CloudSyncItem) e
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if token := strings.TrimSpace(s.config.SyncToken); token != "" {
-		req.Header.Set("x-spark-token", token)
-	} else {
+	// Per-edge credentials are provisioned together with MQTT and therefore
+	// remain valid across user-token rotations. A manual sync token is only a
+	// fallback for legacy or externally managed Edge installations.
+	if s.hasEdgeCredentials() {
 		req.Header.Set("x-edge-id", edgeID)
 		req.Header.Set("x-edge-username", s.config.EdgeUsername)
 		req.Header.Set("x-edge-password", s.config.EdgePassword)
+	} else if token := strings.TrimSpace(s.config.SyncToken); token != "" {
+		req.Header.Set("x-spark-token", token)
+	} else {
+		return errors.New("cloud sync credentials are not configured")
 	}
 	res, err := s.client.Do(req)
 	if err != nil {

@@ -30,6 +30,8 @@ type MqttQueueItem struct {
 	ID            string
 	Topic         string
 	Payload       string
+	MessageID     string
+	RequiresAck   bool
 	Attempts      int
 	LastAttemptAt *time.Time
 	CreatedAt     time.Time

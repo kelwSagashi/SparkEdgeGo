@@ -121,6 +121,12 @@ func New(cfg *config.Manager) *App {
 		EdgePassword: cloudSyncPassword,
 		Enabled:      true,
 	})
+	// A re-provisioned Edge receives a new identity. Events owned by an older
+	// identity cannot be reconciled with the new credentials and must not keep
+	// the current MQTT connection in a degraded state.
+	if cloudSyncEdgeID != "" {
+		_, _ = cloudSyncService.DiscardEventsForOtherEdges(context.Background(), cloudSyncEdgeID)
+	}
 
 	application := &App{
 		DB:         store,

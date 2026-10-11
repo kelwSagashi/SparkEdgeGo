@@ -248,6 +248,28 @@ func (r *CloudSyncQueueRepository) Delete(ctx context.Context, id string) error 
 	return nil
 }
 
+func (r *CloudSyncQueueRepository) DiscardMismatchedEdgeItems(ctx context.Context, edgeID string) (int, error) {
+	var models []cloudSyncQueueModel
+	if err := r.db.WithContext(ctx).
+		Where("status IN ?", []string{string(domain.CloudSyncPending), string(domain.CloudSyncFailed)}).
+		Find(&models).Error; err != nil {
+		return 0, err
+	}
+
+	ids := make([]string, 0)
+	for _, model := range models {
+		itemEdgeID, _ := model.Payload["edge_id"].(string)
+		if itemEdgeID != "" && itemEdgeID != edgeID {
+			ids = append(ids, model.ID)
+		}
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).Delete(&cloudSyncQueueModel{}, "id IN ?", ids)
+	return int(result.RowsAffected), result.Error
+}
+
 func (r *CloudSyncQueueRepository) prune(ctx context.Context) error {
 	policy := currentRetentionPolicy()
 	if err := deleteRowsOlderThan(
