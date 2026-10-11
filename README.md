@@ -1,18 +1,32 @@
 # SparkEdge
 
-O SparkEdge é uma plataforma baseada de automação para monitoramento com node, visando sistemas de energia fotovoltáicos on-grid e off-grid. A plataforma oferece e permite integração, automação e execução de código para coleta de dados em sistemas de energia permitindo maior controle na automação e envio de dados.
+O SparkEdge e o agente de computacao de borda do ecossistema Spark. Ele e instalado proximo aos sistemas de energia - em um Raspberry Pi ou outro computador de baixo consumo - para conectar equipamentos locais a plataforma Spark sem depender de uma conexao continua com a internet.
 
-# Principais capacidades
-- **Integração com Código Python**: É possivel usar código em python para coleta de dados e adicionar como uma instancia.
-- **Controle Total**: Você define o que fazer com os dados de monitoramento que foram coletados.
-- **Serviço local**: Permite rodar em sistemas mais criticos tendo flexibilidade em conseguir armazenar dados e enviar quando houver conexão.
+Em vez de apenas encaminhar dados, o SparkEdge orquestra o ciclo de telemetria no local onde ela e produzida: executa coletas periodicas, integra scripts e drivers para inversores, controladores, baterias e sensores, valida e persiste os registros em SQLite, e envia os dados para a nuvem quando ha conectividade. Dessa forma, a coleta continua durante falhas de rede e a sincronizacao posterior preserva o historico para analise na plataforma web.
 
+Essa abordagem de borda reduz a dependencia de equipamentos proprietarios e permite que cada unidade use os protocolos, colunas e metricas que realmente estao disponiveis. O SparkEdge tambem recebe configuracoes e comandos pelo canal MQTT, mantendo a comunicacao com o Spark desacoplada da leitura dos equipamentos em campo.
+
+## Como os dados circulam
+
+1. **Coleta na borda:** scripts Python com Sparkit, drivers e sensores leem os equipamentos no local.
+2. **Orquestracao local:** o agente agenda execucoes, organiza instancias e registra os resultados no banco SQLite local.
+3. **Resiliencia de conectividade:** os dados permanecem na unidade enquanto a rede estiver indisponivel; nao ha perda por depender de uma requisicao imediata.
+4. **Sincronizacao e comunicacao:** quando a conexao esta disponivel, o SparkEdge envia a telemetria de forma confiavel ao Spark e mantem MQTT para provisionamento, configuracoes e eventos.
+5. **Visualizacao e operacao:** a plataforma Spark transforma os registros sincronizados em tabelas, metricas, alertas e paineis para acompanhamento remoto.
+
+## Principais capacidades
+
+- **Coleta aberta e extensivel:** integra scripts Python, drivers e sensores para equipamentos de diferentes fabricantes, sem limitar a unidade a uma linha proprietaria.
+- **Automacao local:** executa rotinas periodicas e organiza instancias de coleta, mesmo quando nao ha acesso externo ao dispositivo.
+- **Persistencia offline-first:** usa SQLite como fonte local de verdade e sincroniza os registros posteriormente, quando houver conexao.
+- **Comunicacao com a nuvem:** usa MQTT e servicos de sincronizacao para receber configuracoes e encaminhar telemetria ao Spark.
+- **Operacao em campo:** oferece WebUI, API REST e CLI local para configuracao, diagnostico e administracao do agente.
 
 # SparkEdge Go
 
-Nova base do SparkEdge em Go subistituido o sistema antigo construido em typescript [SparkEdge](https://github.com/kelwSagashi/SparkEdge).
+O SparkEdge Go e a base atual do agente, substituindo o sistema anterior em TypeScript, [SparkEdge](https://github.com/kelwSagashi/SparkEdge). Go permite distribuir binarios multiplataforma com uma operacao mais simples em dispositivos de borda, especialmente Raspberry Pi e computadores compactos instalados em campo.
 
-Este repositorio nasce para substituir o backend TypeScript do SparkEdge, preservando o frontend Vite e mantendo os conceitos atuais do sistema:
+Este repositorio preserva o frontend Vite e implementa os componentes necessarios para a orquestracao local de dados:
 
 - banco principal local em SQLite;
 - manipulacao do SQLite por ORM, evitando SQL manual nos repositories;
@@ -23,10 +37,7 @@ Este repositorio nasce para substituir o backend TypeScript do SparkEdge, preser
 - CLI local;
 - motor de execucao de instancias como componente de primeira classe.
 
-Essa versão vem com o objetivo de atender requisitos de multiplataforma que são de extrema importancia para esse projeto.
-
-
-A versão 0.0.0 do Spark Edge Go é equivalente a versão 0.1.2 do [SparkEdge](https://github.com/kelwSagashi/SparkEdge) (descontinuado). Então todas as versões do spark Edge Go a partir da 0.0.0 passam a estar a frente da ultima versão lançada da versão descontinuada.
+As versoes do SparkEdge Go a partir da 0.0.0 sucedem a versao 0.1.2 do [SparkEdge](https://github.com/kelwSagashi/SparkEdge), que foi descontinuado.
 
 
 ## Ambiente Go no Windows
@@ -85,7 +96,3 @@ Lembrete importante:
 - mantenha `config.yml` ao lado do executavel;
 - mantenha `webui/dist` ao lado do executavel;
 - o `sparkedge.db` sera criado ou reutilizado nesse mesmo local.
-
-
-# O que significa SparkEdge?
-O nome SparkEdge simboliza o "faísca" (spark) da energia e o foco no processamento de dados na "borda" (edge) da rede, refletindo o foco da plataforma em processamento local e monitoramento eficiente de sistemas de energia, principalmente em regiões onde tenha baixa conexão.
