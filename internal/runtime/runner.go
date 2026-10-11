@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kelwSagashi/sparkedge-go/internal/appfs"
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 	"github.com/kelwSagashi/sparkedge-go/internal/providers"
 	"github.com/kelwSagashi/sparkedge-go/internal/sqlite"
@@ -1074,11 +1075,9 @@ func newLogWithMeta(level string, code string, message string, timestamp time.Ti
 
 func resolvePath(pathValue string) string {
 	if strings.HasPrefix(pathValue, ".spark_edge") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return pathValue
-		}
-		return filepath.Join(home, pathValue)
+		// Script paths persisted by the scripts service are relative to the
+		// SparkEdge installation, not to the account that starts the process.
+		return appfs.ResolveFromRoot(pathValue)
 	}
 	if strings.HasPrefix(pathValue, "~/") || pathValue == "~" {
 		home, err := os.UserHomeDir()

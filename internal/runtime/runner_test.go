@@ -3,11 +3,23 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/kelwSagashi/sparkedge-go/internal/domain"
 )
+
+func TestResolvePathUsesSparkEdgeAppRootForManagedScripts(t *testing.T) {
+	appRoot := t.TempDir()
+	t.Setenv("SPARKEDGE_HOME", appRoot)
+
+	got := resolvePath(".spark_edge/scripts/must-monitor")
+	want := filepath.Join(appRoot, ".spark_edge", "scripts", "must-monitor")
+	if got != want {
+		t.Fatalf("expected managed script path %q, got %q", want, got)
+	}
+}
 
 func TestRunnerTriggerRunsSparkitAndMergesInput(t *testing.T) {
 	executor := &fakeSparkitExecutor{}
