@@ -917,9 +917,14 @@ func (r *Runner) buildTemplateContext(ctx context.Context, req TriggerRequest, o
 	instance := instanceContext(req.Instance)
 	system := r.resolveSystemContext(ctx, req.Instance)
 	triggerInput := cloneMap(req.Input)
+	scriptOutput := cloneMap(output)
+	// Sparkit emits an envelope with stdout/stderr. The executor unwraps stdout
+	// into output, so restore stdout here for mappings generated from its schema.
+	script := cloneMap(scriptOutput)
+	script["stdout"] = scriptOutput
 	context := map[string]any{
-		"script":            output,
-		"output":            output,
+		"script":            script,
+		"output":            scriptOutput,
 		"input":             triggerInput,
 		"trigger_input":     triggerInput,
 		"instance":          instance,

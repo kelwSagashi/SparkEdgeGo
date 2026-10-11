@@ -48,6 +48,11 @@ export function buildInstanceRuntimePreview(args: {
   destinations?: Array<{ serverId?: string | null; resourceOperationId?: string }>;
 }) {
   const device = normalizeDeviceFields(args.selectedDevice);
+  const schemaOutput = args.scriptOutput || {};
+  const stdout =
+    schemaOutput.stdout && typeof schemaOutput.stdout === "object"
+      ? (schemaOutput.stdout as Record<string, unknown>)
+      : schemaOutput;
 
   return {
     device,
@@ -69,7 +74,9 @@ export function buildInstanceRuntimePreview(args: {
         operation_id: d.resourceOperationId || "",
       })),
     },
-    script: args.scriptOutput || {},
-    output: args.scriptOutput || {},
+    // Match the runtime: Sparkit schema paths use script.stdout while output
+    // remains the direct, unwrapped script result for legacy templates.
+    script: { ...stdout, stdout },
+    output: stdout,
   };
 }
