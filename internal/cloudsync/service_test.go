@@ -111,6 +111,36 @@ func TestStatsExposePriorityAndTypeBreakdown(t *testing.T) {
 	}
 }
 
+func TestFlushPrefersProvisionedEdgeCredentialsOverManualToken(t *testing.T) {
+	ctx := context.Background()
+	var edgeID, username, password, token string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		edgeID = r.Header.Get("x-edge-id")
+		username = r.Header.Get("x-edge-username")
+		password = r.Header.Get("x-edge-password")
+		token = r.Header.Get("x-spark-token")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	queue := &fakeQueueStore{items: []domain.CloudSyncItem{newCloudSyncItem("1", "edge-a", "heartbeat", 60)}}
+	service := NewService(queue, Config{
+		BaseURL:      server.URL,
+		EdgeID:       "edge-a",
+		SyncToken:    "stale-token",
+		EdgeUsername: "edge-user",
+		EdgePassword: "edge-password",
+		Enabled:      true,
+	})
+
+	if _, err := service.Flush(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if edgeID != "edge-a" || username != "edge-user" || password != "edge-password" || token != "" {
+		t.Fatalf("expected edge credentials to take precedence, got edge=%q user=%q password=%q token=%q", edgeID, username, password, token)
+	}
+}
+
 type fakeQueueStore struct {
 	items   []domain.CloudSyncItem
 	stats   map[string]any
@@ -153,6 +183,10 @@ func (f *fakeQueueStore) MarkFailed(_ context.Context, id string, _ string, _ *t
 func (f *fakeQueueStore) Delete(_ context.Context, id string) error {
 	f.deleted = append(f.deleted, id)
 	return nil
+}
+
+func (f *fakeQueueStore) DiscardMismatchedEdgeItems(_ context.Context, _ string) (int, error) {
+	return 0, nil
 }
 
 func (f *fakeQueueStore) Stats(context.Context) (map[string]any, error) {

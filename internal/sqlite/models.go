@@ -332,6 +332,8 @@ type mqttQueueModel struct {
 	ID            string `gorm:"primaryKey;type:text"`
 	Topic         string `gorm:"not null;type:text"`
 	Payload       string `gorm:"not null;type:text"`
+	MessageID     string `gorm:"index;type:text"`
+	RequiresAck   bool   `gorm:"not null;default:false"`
 	Attempts      int    `gorm:"not null;default:0"`
 	LastAttemptAt *time.Time
 	CreatedAt     time.Time

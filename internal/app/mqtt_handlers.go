@@ -752,7 +752,7 @@ func restartCommand() (string, []string) {
 }
 
 func (a *App) enqueueExecutionCloudSync(ctx context.Context, execution domain.InstanceExecution, result apperuntime.TriggerResult) {
-	if a == nil || a.CloudSync == nil {
+	if a == nil {
 		return
 	}
 	edgeInfo, err := a.Edge.Load(ctx)
@@ -798,7 +798,12 @@ func (a *App) enqueueExecutionCloudSync(ctx context.Context, execution domain.In
 	}
 	payload["has_input_payload"] = execution.InputPayload != nil && len(execution.InputPayload) > 0
 	payload["has_output_payload"] = execution.OutputPayload != nil && len(execution.OutputPayload) > 0
-	_, _ = a.CloudSync.EnqueueInstanceExecution(ctx, payload)
+	if a.MQTT != nil {
+		_ = a.MQTT.PublishExecution(ctx, payload)
+	}
+	if a.CloudSync != nil {
+		_, _ = a.CloudSync.EnqueueInstanceExecution(ctx, payload)
+	}
 }
 
 func (a *App) enqueueRemoteJobCloudSync(ctx context.Context, jobID string, action string, status string, payload map[string]any, err error) error {

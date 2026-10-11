@@ -333,7 +333,7 @@ export default function AdvancedSettingsPage() {
                 autoComplete="off"
               />
               <p className="mt-1.5 text-[10px] text-zinc-600">
-                Deixe em branco para manter o token atual. Esse campo e opcional e funciona como sobreposicao manual para autenticar a fila HTTP de sincronizacao com o Spark Cloud.
+                Deixe em branco na configuracao normal. O Edge usa automaticamente as credenciais provisionadas no pareamento; este token e apenas um fallback para instalacoes legadas sem credenciais de Edge.
               </p>
             </div>
           </div>

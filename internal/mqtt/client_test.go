@@ -16,6 +16,7 @@ func TestNormalizeBrokerURLForWebSocketTransport(t *testing.T) {
 		"wss://sparkcloud-mqtt.okelwen.site/mqtt": "wss://sparkcloud-mqtt.okelwen.site/mqtt",
 		"ws://localhost:8083":                     "ws://localhost:8083/mqtt",
 		"mqtt://localhost:1883":                   "mqtt://localhost:1883",
+		"mqtts://broker.example.com:8883":         "mqtts://broker.example.com:8883",
 		"tcp://localhost:1883":                    "tcp://localhost:1883",
 	}
 	for input, expected := range cases {
@@ -33,12 +34,21 @@ func TestConnectSubscribesAndPublishesOnlineStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if broker.config.EdgeID != "edge-1" || broker.subscribedTopic != "spark/edge-1/commands" {
+	if broker.config.EdgeID != "edge-1" || !containsTopic(broker.subscribed, "spark/edge-1/commands") || !containsTopic(broker.subscribed, "spark/edge-1/acks/#") {
 		t.Fatalf("unexpected broker state %#v", broker)
 	}
 	if len(broker.published) != 1 || broker.published[0].Topic != "spark/edge-1/status" || string(broker.published[0].Payload) != "online" || !broker.published[0].Retain {
 		t.Fatalf("unexpected published messages %#v", broker.published)
 	}
+}
+
+func containsTopic(topics []string, expected string) bool {
+	for _, topic := range topics {
+		if topic == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestDisconnectPublishesOfflineStatus(t *testing.T) {
@@ -152,6 +162,32 @@ func TestRetryQueueDeletesDeliveredMessages(t *testing.T) {
 	}
 	if len(broker.published) != 1 || queue.deletedID != "queue-1" {
 		t.Fatalf("unexpected retry state broker=%#v queue=%#v", broker, queue)
+	}
+}
+
+func TestExecutionEventWaitsForCloudAcknowledgement(t *testing.T) {
+	broker := &fakeBroker{}
+	queue := &fakeQueueStore{}
+	client := NewClientWithBroker(broker)
+	client.UseStores(nil, queue)
+	if err := client.Connect(context.Background(), Config{EdgeID: "edge-1", BrokerURL: "mqtt://localhost:1883"}); err != nil {
+		t.Fatal(err)
+	}
+	broker.published = nil
+
+	if err := client.PublishExecution(context.Background(), map[string]any{"message_id": "exec-1", "execution_id": "exec-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.items) != 1 || !queue.items[0].RequiresAck || queue.items[0].MessageID != "exec-1" {
+		t.Fatalf("execution event was not persisted for acknowledgement: %#v", queue.items)
+	}
+	if len(broker.published) != 1 || broker.published[0].Topic != ExecutionEventTopic("edge-1") {
+		t.Fatalf("unexpected execution MQTT publication %#v", broker.published)
+	}
+
+	broker.handler("spark/edge-1/acks/exec-1", []byte(`{"message_id":"exec-1","status":"applied"}`))
+	if queue.acknowledgedMessageID != "exec-1" {
+		t.Fatalf("expected cloud acknowledgement, got %#v", queue)
 	}
 }
 
@@ -310,14 +346,26 @@ func (s *fakeCommandStore) UpdateStatus(ctx context.Context, commandID string, s
 }
 
 type fakeQueueStore struct {
-	items     []domain.MqttQueueItem
-	deletedID string
+	items                 []domain.MqttQueueItem
+	deletedID             string
+	acknowledgedMessageID string
 }
 
 func (s *fakeQueueStore) Enqueue(ctx context.Context, topic string, payload string) (domain.MqttQueueItem, error) {
 	item := domain.MqttQueueItem{ID: "queue-new", Topic: topic, Payload: payload}
 	s.items = append(s.items, item)
 	return item, ctx.Err()
+}
+
+func (s *fakeQueueStore) EnqueueAwaitingAck(ctx context.Context, topic string, payload string, messageID string) (domain.MqttQueueItem, error) {
+	item := domain.MqttQueueItem{ID: "queue-ack", Topic: topic, Payload: payload, MessageID: messageID, RequiresAck: true}
+	s.items = append(s.items, item)
+	return item, ctx.Err()
+}
+
+func (s *fakeQueueStore) Acknowledge(ctx context.Context, messageID string) error {
+	s.acknowledgedMessageID = messageID
+	return ctx.Err()
 }
 
 func (s *fakeQueueStore) ListPending(ctx context.Context, maxAttempts int) ([]domain.MqttQueueItem, error) {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"net/url"
 	"strings"
@@ -19,11 +20,17 @@ import (
 
 const edgeCloudSchemaVersion = "edge-cloud.v1"
 
+// A scheduled publish must never wait forever for a QoS acknowledgement.
+// This is particularly important with WebSocket proxies, where a connection
+// can look alive while a write is no longer making progress.
+const scheduledPublishTimeout = 20 * time.Second
+
 type Config struct {
-	EdgeID    string
-	BrokerURL string
-	Username  string
-	Password  string
+	EdgeID      string
+	BrokerURL   string
+	Username    string
+	Password    string
+	OnConnected func(context.Context)
 }
 
 type Message struct {
@@ -64,19 +71,28 @@ type QueueStore interface {
 	IncrementAttempt(context.Context, string) error
 }
 
+// AcknowledgedQueueStore is implemented by the SQLite queue. Critical events
+// remain durable until SparkCloud confirms that it applied their message_id.
+type AcknowledgedQueueStore interface {
+	QueueStore
+	EnqueueAwaitingAck(context.Context, string, string, string) (domain.MqttQueueItem, error)
+	Acknowledge(context.Context, string) error
+}
+
 type Client struct {
-	config        Config
-	broker        Broker
-	commands      CommandStore
-	queue         QueueStore
-	mu            sync.Mutex
-	handlers      map[string]CommandHandler
-	topicHandlers map[string]TopicHandler
-	subscribed    map[string]struct{}
-	processed     map[string]struct{}
-	heartbeatStop chan struct{}
-	statsStop     chan struct{}
-	statsProvider StatsProvider
+	config         Config
+	broker         Broker
+	commands       CommandStore
+	queue          QueueStore
+	mu             sync.Mutex
+	handlers       map[string]CommandHandler
+	topicHandlers  map[string]TopicHandler
+	subscribed     map[string]struct{}
+	processed      map[string]struct{}
+	heartbeatStop  chan struct{}
+	statsStop      chan struct{}
+	statsProvider  StatsProvider
+	reconnectReady bool
 }
 
 func NewClient() *Client {
@@ -109,20 +125,34 @@ func (c *Client) Connect(ctx context.Context, config Config) error {
 		return errors.New("mqtt requires edge_id and broker_url")
 	}
 	config.BrokerURL = NormalizeBrokerURL(config.BrokerURL)
+	config.OnConnected = c.onBrokerConnected
 	c.mu.Lock()
 	c.config = config
+	c.reconnectReady = false
 	c.mu.Unlock()
 	if err := c.broker.Connect(ctx, config, c.handleMessage); err != nil {
 		return err
 	}
-	if err := c.SubscribeCommands(ctx); err != nil {
+	if err := c.restoreSession(ctx); err != nil {
 		return err
 	}
-	return c.PublishStatus(ctx, "online")
+	if err := c.PublishStatus(ctx, "online"); err != nil {
+		return err
+	}
+	if err := c.RetryQueue(ctx, 100); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.reconnectReady = true
+	c.mu.Unlock()
+	return nil
 }
 
 func (c *Client) Disconnect(ctx context.Context) error {
 	c.StopHeartbeat()
+	c.mu.Lock()
+	c.reconnectReady = false
+	c.mu.Unlock()
 	if c.IsConnected() {
 		_ = c.PublishStatus(ctx, "offline")
 	}
@@ -151,6 +181,42 @@ func (c *Client) SetStatsProvider(provider StatsProvider) {
 
 func (c *Client) SubscribeCommands(ctx context.Context) error {
 	return c.broker.Subscribe(ctx, CommandTopic(c.config.EdgeID), 1)
+}
+
+// restoreSession is executed both after the first connection and after an
+// automatic reconnect. Persistent subscriptions are still restored explicitly
+// because some brokers/tunnels discard a session during a network transition.
+func (c *Client) restoreSession(ctx context.Context) error {
+	c.mu.Lock()
+	topics := make([]string, 0, len(c.topicHandlers)+2)
+	topics = append(topics, CommandTopic(c.config.EdgeID), AcknowledgementTopic(c.config.EdgeID))
+	for topic := range c.topicHandlers {
+		topics = append(topics, topic)
+	}
+	c.mu.Unlock()
+
+	for _, topic := range topics {
+		if err := c.broker.Subscribe(ctx, topic, 1); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) onBrokerConnected(ctx context.Context) {
+	// Do not block Paho's reconnect callback. A subsequent reconnect will retry
+	// anything that cannot be restored during this short-lived connection.
+	c.mu.Lock()
+	ready := c.reconnectReady
+	c.mu.Unlock()
+	if !ready {
+		return
+	}
+	if err := c.restoreSession(ctx); err != nil {
+		return
+	}
+	_ = c.PublishStatus(ctx, "online")
+	_ = c.RetryQueue(ctx, 100)
 }
 
 func (c *Client) SyncTopicHandlers(ctx context.Context, handlers map[string]TopicHandler) error {
@@ -235,6 +301,32 @@ func (c *Client) PublishResponse(ctx context.Context, commandID string, status s
 	}, time.Now().UTC()), false)
 }
 
+// PublishExecution emits a completed instance execution on the fast MQTT path.
+// The caller supplies the stable execution ID as message_id so the Cloud can
+// deduplicate retries from the local MQTT queue.
+func (c *Client) PublishExecution(ctx context.Context, payload map[string]any) error {
+	envelope := c.envelope("instance_execution", payload, time.Now().UTC())
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return err
+	}
+	messageID := fmt.Sprint(envelope["message_id"])
+	message := Message{Topic: ExecutionEventTopic(c.config.EdgeID), Payload: encoded, QOS: 1}
+	if queue, ok := c.queue.(AcknowledgedQueueStore); ok {
+		if _, err := queue.EnqueueAwaitingAck(ctx, message.Topic, string(encoded), messageID); err != nil {
+			return err
+		}
+		if !c.IsConnected() {
+			return nil
+		}
+		if err := c.broker.Publish(ctx, message); err != nil {
+			return err
+		}
+		return nil
+	}
+	return c.publish(ctx, message)
+}
+
 func (c *Client) PublishLog(ctx context.Context, level string, message string) error {
 	if level == "" {
 		level = "info"
@@ -289,7 +381,11 @@ func (c *Client) StartHeartbeat(interval time.Duration) {
 		for {
 			select {
 			case <-timer.C:
-				_ = c.PublishHeartbeat(context.Background())
+				ctx, cancel := context.WithTimeout(context.Background(), scheduledPublishTimeout)
+				if err := c.PublishHeartbeat(ctx); err != nil {
+					log.Printf("[MQTT] scheduled heartbeat publish failed: %v", err)
+				}
+				cancel()
 				timer.Reset(c.nextHeartbeatInterval(interval))
 			case <-stop:
 				return
@@ -316,7 +412,11 @@ func (c *Client) StartStats(interval time.Duration) {
 		for {
 			select {
 			case <-timer.C:
-				_ = c.PublishStats(context.Background())
+				ctx, cancel := context.WithTimeout(context.Background(), scheduledPublishTimeout)
+				if err := c.PublishStats(ctx); err != nil {
+					log.Printf("[MQTT] scheduled stats publish failed: %v", err)
+				}
+				cancel()
 				timer.Reset(c.nextStatsInterval(interval))
 			case <-stop:
 				return
@@ -339,6 +439,10 @@ func (c *Client) StopHeartbeat() {
 }
 
 func (c *Client) handleMessage(topic string, payload []byte) {
+	if strings.HasPrefix(topic, AcknowledgementTopicPrefix(c.config.EdgeID)) {
+		c.handleAcknowledgement(context.Background(), topic, payload)
+		return
+	}
 	if topic != CommandTopic(c.config.EdgeID) {
 		c.mu.Lock()
 		handlers := make(map[string]TopicHandler, len(c.topicHandlers))
@@ -354,6 +458,24 @@ func (c *Client) handleMessage(topic string, payload []byte) {
 		return
 	}
 	_ = c.HandleCommand(context.Background(), payload)
+}
+
+func (c *Client) handleAcknowledgement(ctx context.Context, topic string, raw []byte) {
+	queue, ok := c.queue.(AcknowledgedQueueStore)
+	if !ok {
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return
+	}
+	messageID := strings.TrimSpace(fmt.Sprint(payload["message_id"]))
+	if messageID == "" || messageID == "<nil>" {
+		messageID = strings.TrimPrefix(topic, AcknowledgementTopicPrefix(c.config.EdgeID))
+	}
+	if messageID != "" {
+		_ = queue.Acknowledge(ctx, messageID)
+	}
 }
 
 func (c *Client) HandleCommand(ctx context.Context, raw []byte) error {
@@ -441,11 +563,15 @@ func (c *Client) RetryQueue(ctx context.Context, maxAttempts int) error {
 	for _, item := range items {
 		err := c.broker.Publish(ctx, Message{Topic: item.Topic, Payload: []byte(item.Payload), QOS: 1})
 		if err == nil {
-			_ = c.queue.Delete(ctx, item.ID)
+			if item.RequiresAck {
+				_ = c.queue.IncrementAttempt(ctx, item.ID)
+			} else {
+				_ = c.queue.Delete(ctx, item.ID)
+			}
 			continue
 		}
 		_ = c.queue.IncrementAttempt(ctx, item.ID)
-		if maxAttempts > 0 && item.Attempts+1 >= maxAttempts {
+		if !item.RequiresAck && maxAttempts > 0 && item.Attempts+1 >= maxAttempts {
 			_ = c.queue.Delete(ctx, item.ID)
 		}
 		failures = append(failures, item.ID+": "+err.Error())
@@ -545,15 +671,18 @@ func newMessageID() string {
 	return string(result)
 }
 
-func StatusTopic(edgeID string) string    { return "spark/" + edgeID + "/status" }
-func HeartbeatTopic(edgeID string) string { return "spark/" + edgeID + "/heartbeat" }
-func CommandTopic(edgeID string) string   { return "spark/" + edgeID + "/commands" }
-func ResponseTopic(edgeID string) string  { return "spark/" + edgeID + "/response" }
-func MetaTopic(edgeID string) string      { return "spark/" + edgeID + "/meta" }
-func LogTopic(edgeID string) string       { return "spark/" + edgeID + "/logs" }
-func MetricsTopic(edgeID string) string   { return "spark/" + edgeID + "/metrics" }
-func StatsTopic(edgeID string) string     { return "spark/" + edgeID + "/stats" }
-func ContextTopic(edgeID string) string   { return "spark/" + edgeID + "/context" }
+func StatusTopic(edgeID string) string                { return "spark/" + edgeID + "/status" }
+func HeartbeatTopic(edgeID string) string             { return "spark/" + edgeID + "/heartbeat" }
+func CommandTopic(edgeID string) string               { return "spark/" + edgeID + "/commands" }
+func ResponseTopic(edgeID string) string              { return "spark/" + edgeID + "/response" }
+func MetaTopic(edgeID string) string                  { return "spark/" + edgeID + "/meta" }
+func LogTopic(edgeID string) string                   { return "spark/" + edgeID + "/logs" }
+func MetricsTopic(edgeID string) string               { return "spark/" + edgeID + "/metrics" }
+func StatsTopic(edgeID string) string                 { return "spark/" + edgeID + "/stats" }
+func ContextTopic(edgeID string) string               { return "spark/" + edgeID + "/context" }
+func ExecutionEventTopic(edgeID string) string        { return "spark/" + edgeID + "/events/execution" }
+func AcknowledgementTopic(edgeID string) string       { return "spark/" + edgeID + "/acks/#" }
+func AcknowledgementTopicPrefix(edgeID string) string { return "spark/" + edgeID + "/acks/" }
 
 func NormalizeBrokerURL(raw string) string {
 	trimmed := strings.TrimSpace(raw)
@@ -577,54 +706,90 @@ func NormalizeBrokerURL(raw string) string {
 }
 
 type pahoBroker struct {
+	mu     sync.Mutex
 	client paho.Client
 }
 
 func (b *pahoBroker) Connect(ctx context.Context, config Config, handler func(string, []byte)) error {
+	// Paho can keep reconnecting after the network drops. Always tear down the
+	// previous client, even when IsConnected is false, before replacing it.
+	b.Disconnect()
+
 	options := paho.NewClientOptions()
 	options.AddBroker(config.BrokerURL)
 	options.SetClientID(config.EdgeID)
 	options.SetUsername(config.Username)
 	options.SetPassword(config.Password)
-	options.SetCleanSession(true)
+	// A stable client ID plus a persistent session keeps subscriptions alive
+	// across transient MQTT, WebSocket, and tunnel disconnects.
+	options.SetCleanSession(false)
 	options.SetKeepAlive(30 * time.Second)
+	options.SetConnectRetry(true)
+	options.SetConnectRetryInterval(5 * time.Second)
 	options.SetAutoReconnect(true)
+	options.SetMaxReconnectInterval(time.Minute)
+	options.SetWriteTimeout(20 * time.Second)
 	options.SetWill(StatusTopic(config.EdgeID), "offline", 1, true)
 	options.SetDefaultPublishHandler(func(_ paho.Client, msg paho.Message) {
 		handler(msg.Topic(), msg.Payload())
 	})
+	options.SetOnConnectHandler(func(_ paho.Client) {
+		if config.OnConnected != nil {
+			go config.OnConnected(context.Background())
+		}
+	})
 	client := paho.NewClient(options)
+	b.mu.Lock()
+	b.client = client
+	b.mu.Unlock()
 	token := client.Connect()
 	if err := waitToken(ctx, token); err != nil {
+		b.mu.Lock()
+		if b.client == client {
+			b.client = nil
+		}
+		b.mu.Unlock()
+		client.Disconnect(250)
 		return err
 	}
-	b.client = client
 	return nil
 }
 
 func (b *pahoBroker) Disconnect() {
-	if b.client != nil && b.client.IsConnected() {
-		b.client.Disconnect(250)
-	}
+	b.mu.Lock()
+	client := b.client
 	b.client = nil
+	b.mu.Unlock()
+	if client != nil {
+		client.Disconnect(250)
+	}
 }
 
 func (b *pahoBroker) Publish(ctx context.Context, msg Message) error {
-	if b.client == nil {
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	if client == nil {
 		return errors.New("mqtt client is not connected")
 	}
-	return waitToken(ctx, b.client.Publish(msg.Topic, msg.QOS, msg.Retain, msg.Payload))
+	return waitToken(ctx, client.Publish(msg.Topic, msg.QOS, msg.Retain, msg.Payload))
 }
 
 func (b *pahoBroker) Subscribe(ctx context.Context, topic string, qos byte) error {
-	if b.client == nil {
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	if client == nil {
 		return errors.New("mqtt client is not connected")
 	}
-	return waitToken(ctx, b.client.Subscribe(topic, qos, nil))
+	return waitToken(ctx, client.Subscribe(topic, qos, nil))
 }
 
 func (b *pahoBroker) IsConnected() bool {
-	return b.client != nil && b.client.IsConnected()
+	b.mu.Lock()
+	client := b.client
+	b.mu.Unlock()
+	return client != nil && client.IsConnected()
 }
 
 func waitToken(ctx context.Context, token paho.Token) error {

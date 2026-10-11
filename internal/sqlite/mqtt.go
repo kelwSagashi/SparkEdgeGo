@@ -83,11 +83,31 @@ func (r *MqttQueueRepository) Enqueue(ctx context.Context, topic string, payload
 	return mqttQueueFromModel(model), nil
 }
 
+func (r *MqttQueueRepository) EnqueueAwaitingAck(ctx context.Context, topic string, payload string, messageID string) (domain.MqttQueueItem, error) {
+	model := mqttQueueModel{ID: newID(), Topic: topic, Payload: payload, MessageID: messageID, RequiresAck: true}
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+		return domain.MqttQueueItem{}, err
+	}
+	_ = r.prune(ctx)
+	return mqttQueueFromModel(model), nil
+}
+
+func (r *MqttQueueRepository) Acknowledge(ctx context.Context, messageID string) error {
+	result := r.db.WithContext(ctx).Where("message_id = ? AND requires_ack = ?", messageID, true).Delete(&mqttQueueModel{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (r *MqttQueueRepository) ListPending(ctx context.Context, maxAttempts int) ([]domain.MqttQueueItem, error) {
 	var models []mqttQueueModel
 	query := r.db.WithContext(ctx).Order("created_at ASC")
 	if maxAttempts > 0 {
-		query = query.Where("attempts < ?", maxAttempts)
+		query = query.Where("requires_ack = ? OR attempts < ?", true, maxAttempts)
 	}
 	if err := query.Find(&models).Error; err != nil {
 		return nil, err
@@ -169,5 +189,5 @@ func mqttCommandFromModel(model mqttCommandModel) domain.MqttCommand {
 }
 
 func mqttQueueFromModel(model mqttQueueModel) domain.MqttQueueItem {
-	return domain.MqttQueueItem{ID: model.ID, Topic: model.Topic, Payload: model.Payload, Attempts: model.Attempts, LastAttemptAt: model.LastAttemptAt, CreatedAt: model.CreatedAt}
+	return domain.MqttQueueItem{ID: model.ID, Topic: model.Topic, Payload: model.Payload, MessageID: model.MessageID, RequiresAck: model.RequiresAck, Attempts: model.Attempts, LastAttemptAt: model.LastAttemptAt, CreatedAt: model.CreatedAt}
 }

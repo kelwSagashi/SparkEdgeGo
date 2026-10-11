@@ -206,6 +206,11 @@ func (s *Service) Pair(ctx context.Context, req PairRequest) (domain.Provisioned
 	if name == "" {
 		name = config.EdgeName
 	}
+	// Stop the previous session before replacing its persisted identity. This
+	// prevents an auto-reconnecting MQTT client from retaining revoked creds.
+	if s.mqtt != nil {
+		_ = s.mqtt.Disconnect(ctx)
+	}
 	registration, err := s.cloud.Pair(ctx, req.Token, name, metadataFromConfig(config))
 	if err != nil {
 		return domain.ProvisionedEdge{}, err
@@ -230,6 +235,9 @@ func (s *Service) Connect(ctx context.Context, req ConnectRequest) (domain.Provi
 	if !complete {
 		return domain.ProvisionedEdge{}, ErrInvalidOnboarding
 	}
+	if s.mqtt != nil {
+		_ = s.mqtt.Disconnect(ctx)
+	}
 	login, err := s.cloud.Login(ctx, req.Email, req.Password)
 	if err != nil {
 		return domain.ProvisionedEdge{}, err
@@ -248,7 +256,7 @@ func (s *Service) Connect(ctx context.Context, req ConnectRequest) (domain.Provi
 }
 
 func (s *Service) Disconnect(ctx context.Context) error {
-	if s.mqtt != nil && s.mqtt.IsConnected() {
+	if s.mqtt != nil {
 		return s.mqtt.Disconnect(ctx)
 	}
 	return nil

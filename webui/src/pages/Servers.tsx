@@ -1,12 +1,16 @@
-import { useEffect } from 'react';
-import { Plus, Server, Globe, Play } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus, Server, Globe, ChevronDown, ClipboardPaste, Cloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useServerssStore } from '@/stores/servers-store';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { SparkCloudServerDialog } from '@/components/servers/spark-cloud-server-dialog';
 export default function ServersPage() {
   const navigate = useNavigate();
   const { servers, loading, fetchAll, deleteServer } = useServerssStore();
+  const [sparkDialogOpen, setSparkDialogOpen] = useState(false);
+  const [importMode, setImportMode] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -17,9 +21,7 @@ export default function ServersPage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight">Servidores</h1>
           <p className="text-sm text-zinc-500 mt-1">Gerencie os servidores de destino dos dados.</p>
         </div>
-        <Button onClick={() => navigate('/servers/new')} className="bg-violet-600 hover:bg-violet-700 text-white gap-2">
-          Novo Servidor
-        </Button>
+        <DropdownMenu><DropdownMenuTrigger asChild><Button className="bg-violet-600 hover:bg-violet-700 text-white gap-2">Novo Servidor <ChevronDown size={14} /></Button></DropdownMenuTrigger><DropdownMenuContent align="end" className="border-white/10 bg-[#1b1b1f] text-white"><DropdownMenuItem onSelect={() => navigate('/servers/new')} className="gap-2 focus:bg-white/10 focus:text-white"><Plus size={15} />Adicionar servidor</DropdownMenuItem><DropdownMenuItem onSelect={() => { setImportMode(false); setSparkDialogOpen(true); }} className="gap-2 focus:bg-white/10 focus:text-white"><Cloud size={15} />Adicionar Spark</DropdownMenuItem><DropdownMenuItem onSelect={() => { setImportMode(true); setSparkDialogOpen(true); }} className="gap-2 focus:bg-white/10 focus:text-white"><ClipboardPaste size={15} />Importar curl</DropdownMenuItem></DropdownMenuContent></DropdownMenu>
       </div>
 
       {loading ? (
@@ -74,6 +76,7 @@ export default function ServersPage() {
           </AnimatePresence>
         </motion.div>
       )}
+      <SparkCloudServerDialog open={sparkDialogOpen} onOpenChange={setSparkDialogOpen} onCreated={fetchAll} initialMode={importMode ? 'curl' : 'spark'} />
     </main>
   );
 }
